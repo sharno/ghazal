@@ -1,0 +1,23 @@
+# Stage 1: oxmux runs as a muOS application (Applications menu). muOS still owns boot,
+# hotkeys and power, so nothing is supervised here. This file only matters if you run
+# `oxmux daemon` by hand to try the daemon out.
+
+[power]
+poweroff = { exec = ["/opt/muos/script/system/halt.sh", "poweroff"] }
+reboot = { exec = ["/opt/muos/script/system/halt.sh", "reboot"] }
+
+[[daemon.hotkey]]
+keys = ["vol_up"]
+action = "volume-up"
+
+[[daemon.hotkey]]
+keys = ["vol_down"]
+action = "volume-down"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_up"]
+action = "brightness-up"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_down"]
+action = "brightness-down"

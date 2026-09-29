@@ -11,7 +11,8 @@
       simLibs = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr ];
     in {
       devShells.${system}.default = pkgs.mkShell {
-        packages = [ pkgs.rustup ];
+        # rustup for the toolchain; the rest is for scripts/build-image.sh.
+        packages = with pkgs; [ rustup util-linux e2fsprogs jq xz gptfdisk ];
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath simLibs;
       };
     };

@@ -1,11 +1,12 @@
 # Desktop simulator config: `cargo sim`. Paths are relative to this file.
+# device.toml and system.toml fall back to the built-in RG40XXV ones.
 # Keys: arrows = d-pad, Z/Enter = A, X/Backspace = B, A = Y, S = X,
 # Q/W = L1/R1, Shift = Select, Space = Start, Esc/Tab = Menu.
-rom_roots = ["ROMS"]
+rom_roots = ["../ROMS"]
 
 [retroarch]
 bin = "retroarch"
-core_dirs = ["cores", "/usr/lib/libretro"]
+core_dirs = ["../cores", "/usr/lib/libretro"]
 
 [[system]]
 name = "Game Boy Advance"

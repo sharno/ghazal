@@ -1,11 +1,8 @@
-# oxmux config for muOS on the Anbernic RG40XXV (Allwinner H700).
-#
-# Paths come from the muOS source (MustardOS/internal). The copy of this file next
-# to the binary overrides the built-in one.
+# Games and emulators on the Anbernic RG40XXV, using the muOS RetroArch build.
+# Paths come from the muOS source (MustardOS/internal).
 
 # SD1 first, then SD2.
 rom_roots = ["/mnt/mmc/ROMS", "/mnt/sdcard/ROMS"]
-framebuffer = "/dev/fb0"
 
 [retroarch]
 bin = "/usr/bin/retroarch"
@@ -15,24 +12,8 @@ configs = ["/opt/muos/share/info/config/retroarch.cfg"]
 core_dirs = ["/opt/muos/share/core"]
 # muOS starts RetroArch fullscreen.
 extra_args = ["-f"]
-log = "/mnt/mmc/MUOS/application/Oxmux/retroarch.log"
-
-[input]
-# muOS runs `muinput`, which re-exposes the H700 pad as a virtual device named
-# "muOS-Keys". Codes are Linux evdev codes and still need confirming: run
-# `./oxmux --probe-input` over SSH and press each button.
-device_name = "muOS-Keys"
-a = 305
-b = 304
-x = 307
-y = 308
-l1 = 310
-r1 = 311
-l2 = 312
-r2 = 313
-select = 314
-start = 315
-menu = 316
+log = "/run/oxmux/log/retroarch.log"
+env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
 
 [[system]]
 name = "Game Boy"

@@ -1,0 +1,250 @@
+# Stages 3 and 4: oxmux runs the whole boot. No muOS shell scripts run at all.
+#   stage 3: `oxmux install init` points busybox init's sysinit at `oxmux init`.
+#   stage 4: the image builder makes `oxmux init` PID 1 (/init).
+# The rootfs is still the muOS one: kernel modules, udev, RetroArch, cores, and their
+# configs under /opt/muos/share are reused as they are.
+#
+# @RESCUE_EXEC@ is filled in at install time with the init this replaced, so after
+# three boots that never reach the menu the device boots the old way.
+
+[init.rescue]
+counter = "/opt/oxmux/state/boot-attempts"
+max_attempts = 3
+exec = ["@RESCUE_EXEC@"]
+
+# --- Kernel filesystems (skipped when the kernel or initramfs already mounted them) ---
+[[init.step]]
+mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "sysfs", target = "/sys", fstype = "sysfs", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "devtmpfs", target = "/dev", fstype = "devtmpfs", options = "nosuid,mode=0755" }
+[[init.step]]
+mount = { source = "devpts", target = "/dev/pts", fstype = "devpts", options = "nosuid,noexec,gid=5,mode=0620", optional = true }
+[[init.step]]
+mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid,nodev,mode=0755" }
+[[init.step]]
+mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid,nodev" }
+[[init.step]]
+mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,noatime" }
+# Brightness goes through debugfs on this kernel (S01init.sh).
+[[init.step]]
+mount = { source = "debugfs", target = "/sys/kernel/debug", fstype = "debugfs" }
+[[init.step]]
+mount = { source = "configfs", target = "/sys/kernel/config", fstype = "configfs", optional = true }
+# udevd handles uevents; stop the kernel spawning a helper per event (S10udev.sh).
+[[init.step]]
+write = { path = "/proc/sys/kernel/hotplug", value = "", optional = true }
+[[init.step]]
+write = { path = "/proc/sys/kernel/printk", value = "3 4 1 3", optional = true }
+# Boot at full speed; switched to schedutil at the end of the plan.
+[[init.step]]
+write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", value = "performance", optional = true }
+
+# --- Kernel modules (device/module.sh) ---
+# Mali GPU driver, for RetroArch's GLES video (PSP, N64, shaders).
+[[init.step]]
+modprobe = { name = "mali_kbase", params = "", optional = true }
+[[init.step]]
+modprobe = { name = "squashfs", params = "", optional = true }
+# Wifi (RTL8821CS). Needed for SSH; remove to save battery if you don't use it.
+[[init.step]]
+modprobe = { name = "8821cs", params = "", optional = true }
+
+# --- Storage (S06mount.sh, device/storage.sh) ---
+[[init.step]]
+mount = { source = "/dev/mmcblk0p2", target = "/mnt/boot", fstype = "vfat", options = "rw,noatime,utf8", optional = true }
+[[init.step]]
+mount = { source = "/dev/mmcblk0p6", target = "/mnt/mmc", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 5, optional = true }
+[[init.step]]
+mount = { source = "/dev/mmcblk1p1", target = "/mnt/sdcard", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 1, optional = true }
+[[init.step]]
+write = { path = "/sys/block/mmcblk0/queue/scheduler", value = "deadline", optional = true }
+
+# muOS keeps saves, BIOS files and emulator data under MUOS/ on SD2 if present, else SD1,
+# bind-mounted into /run/muos/storage where its RetroArch config expects them (bind.sh).
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/application", prefer = "/mnt/sdcard/MUOS/application", target = "/run/muos/storage/application", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/bios", prefer = "/mnt/sdcard/MUOS/bios", target = "/run/muos/storage/bios", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/init", prefer = "/mnt/sdcard/MUOS/init", target = "/run/muos/storage/init", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/manifest", prefer = "/mnt/sdcard/MUOS/info/manifest", target = "/run/muos/storage/info/manifest", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/track", prefer = "/mnt/sdcard/MUOS/info/track", target = "/run/muos/storage/info/track", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/music", prefer = "/mnt/sdcard/MUOS/music", target = "/run/muos/storage/music", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/save", prefer = "/mnt/sdcard/MUOS/save", target = "/run/muos/storage/save", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/theme", prefer = "/mnt/sdcard/MUOS/theme", target = "/run/muos/storage/theme", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/catalogue", prefer = "/mnt/sdcard/MUOS/info/catalogue", target = "/run/muos/storage/info/catalogue", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/name", prefer = "/mnt/sdcard/MUOS/info/name", target = "/run/muos/storage/info/name", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/collection", prefer = "/mnt/sdcard/MUOS/info/collection", target = "/run/muos/storage/info/collection", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/history", prefer = "/mnt/sdcard/MUOS/info/history", target = "/run/muos/storage/info/history", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/info/override", prefer = "/mnt/sdcard/MUOS/info/override", target = "/run/muos/storage/info/override", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/network", prefer = "/mnt/sdcard/MUOS/network", target = "/run/muos/storage/network", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/screenshot", prefer = "/mnt/sdcard/MUOS/screenshot", target = "/run/muos/storage/screenshot", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/syncthing", prefer = "/mnt/sdcard/MUOS/syncthing", target = "/run/muos/storage/syncthing", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/package/catalogue", prefer = "/mnt/sdcard/MUOS/package/catalogue", target = "/run/muos/storage/package/catalogue", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+mount = { source = "/mnt/mmc/MUOS/package/config", prefer = "/mnt/sdcard/MUOS/package/config", target = "/run/muos/storage/package/config", fstype = "none", options = "bind", optional = true }
+[[init.step]]
+write = { path = "/run/muos/storage/mount_ready", value = "" }
+
+# --- Audio: RetroArch (audio_driver = alsathread) talks to the codec directly. muOS routes
+# ALSA's default device through PipeWire (share/conf/rootfs/asound.conf); without PipeWire
+# there is one less daemon running, and volume is the hardware "digital volume" control.
+[[init.step]]
+write = { path = "/etc/asound.conf", value = """
+pcm.!default {
+    type plug
+    slave.pcm "hw:0,0"
+}
+ctl.!default {
+    type hw
+    card 0
+}
+""" }
+
+# --- Memory: 256 MB of compressed swap in RAM for the heavier cores (swap.sh) ---
+[[init.step]]
+zram = { size_mb = 256, algorithm = "lz4" }
+
+# --- CPU: schedutil between 480 MHz and 1.512 GHz (SET_DEFAULT_GOVERNOR) ---
+[[init.step]]
+write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", value = "schedutil", optional = true }
+[[init.step]]
+write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq", value = "480000", optional = true }
+[[init.step]]
+write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", value = "1512000", optional = true }
+
+[power]
+# PID 1 (busybox in stage 3, oxmux in stage 4) stops everything and powers off.
+poweroff = "signal-init"
+reboot = "signal-init"
+sleep_poweroff_after = 3600
+# The wifi driver doesn't survive sleep well; muOS unloads it too (suspend.sh).
+before_suspend = [["modprobe", "-r", "8821cs"]]
+after_resume = [["modprobe", "8821cs"]]
+
+[daemon]
+state = "/opt/oxmux/state/settings.toml"
+socket = "/run/oxmux/daemon.sock"
+brightness_step = 6
+volume_step = 5
+
+[daemon.idle]
+dim_after = 60
+dim_to = 10
+sleep_after = 600
+
+[daemon.battery]
+low = 10
+critical = 3
+
+[[daemon.hotkey]]
+keys = ["vol_up"]
+action = "volume-up"
+
+[[daemon.hotkey]]
+keys = ["vol_down"]
+action = "volume-down"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_up"]
+action = "brightness-up"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_down"]
+action = "brightness-down"
+
+[supervisor]
+log_dir = "/run/oxmux/log"
+
+# --- udev: device nodes, permissions, and the database RetroArch's udev joypad driver
+# reads (S10udev.sh) ---
+[[supervisor.service]]
+name = "udevd"
+exec = ["udevd"]
+restart = "always"
+
+[[supervisor.service]]
+name = "udev-subsystems"
+kind = "oneshot"
+exec = ["udevadm", "trigger", "--type=subsystems", "--action=add"]
+after = ["udevd"]
+
+[[supervisor.service]]
+name = "udev-devices"
+kind = "oneshot"
+exec = ["udevadm", "trigger", "--type=devices", "--action=add"]
+after = ["udev-subsystems"]
+
+[[supervisor.service]]
+name = "udev-settle"
+kind = "oneshot"
+exec = ["udevadm", "settle", "--timeout=5"]
+after = ["udev-devices"]
+
+# Mixer routing for the speaker/headphones (S80pipewire.sh).
+[[supervisor.service]]
+name = "mixer"
+kind = "oneshot"
+exec = ["alsactl", "-U", "-f", "/opt/muos/device/control/asound.state", "restore"]
+after = ["udev-settle"]
+optional = true
+
+# muinput replacement: republishes the pad as muOS-Keys for RetroArch and the frontend.
+[[supervisor.service]]
+name = "input-bridge"
+exec = ["/opt/oxmux/oxmux", "input-bridge"]
+after = ["udev-settle"]
+restart = "always"
+env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+
+[[supervisor.service]]
+name = "daemon"
+exec = ["/opt/oxmux/oxmux", "daemon"]
+after = ["input-bridge"]
+restart = "always"
+env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+
+[[supervisor.service]]
+name = "frontend"
+exec = ["/opt/oxmux/oxmux", "frontend"]
+after = ["daemon", "mixer"]
+restart = "always"
+env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc", OXMUX_EMBEDDED = "1", OXMUX_BOOT_COUNTER = "/opt/oxmux/state/boot-attempts" }
+
+# --- Network: wifi + DHCP + SSH (S02network.sh, web/service.sh). Networks come from
+# /etc/wpa_supplicant.conf, as configured in muOS. ---
+[[supervisor.service]]
+name = "wpa_supplicant"
+exec = ["wpa_supplicant", "-i", "wlan0", "-D", "nl80211", "-c", "/etc/wpa_supplicant.conf"]
+wait_for = ["/sys/class/net/wlan0"]
+restart = "always"
+optional = true
+
+[[supervisor.service]]
+name = "dhcp"
+exec = ["dhcpcd", "-B", "wlan0"]
+after = ["wpa_supplicant"]
+restart = "always"
+optional = true
+
+[[supervisor.service]]
+name = "sshd"
+exec = ["/usr/sbin/sshd", "-D"]
+restart = "always"
+optional = true

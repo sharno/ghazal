@@ -14,9 +14,10 @@ use slint::platform::{Platform, WindowAdapter};
 use slint::ComponentHandle;
 use slint::{PhysicalSize, Rgb8Pixel};
 
-use crate::app::{App, Effect};
-use crate::config::Config;
-use crate::input::Repeater;
+use crate::device::DeviceConfig;
+use crate::frontend::app::{App, Effect};
+use crate::frontend::config::FrontendConfig;
+use crate::frontend::input::Repeater;
 use crate::ui::AppWindow;
 
 /// Frame interval while Slint animations are running.
@@ -114,14 +115,14 @@ impl Screen {
     }
 }
 
-pub fn run(config: Config) -> Result<()> {
+pub fn run(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
     #[cfg(feature = "desktop")]
-    return desktop::run(config);
+    return desktop::run(config, device);
     #[cfg(not(feature = "desktop"))]
-    return run_device(config);
+    return run_device(config, device);
 }
 
-fn build_app(config: Config) -> Result<App> {
+fn build_app(config: FrontendConfig) -> Result<App> {
     let ui = AppWindow::new().map_err(|e| anyhow!("creating UI: {e}"))?;
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     Ok(App::new(config, ui))
@@ -129,19 +130,24 @@ fn build_app(config: Config) -> Result<App> {
 
 /// On-device loop: fbdev output, evdev input, sleeping in poll() between events.
 #[cfg_attr(feature = "desktop", allow(dead_code))]
-fn run_device(config: Config) -> Result<()> {
-    let mut fb = fbdev::Framebuffer::open(&config.framebuffer)?;
-    let mut input = evdev_input::Input::open(&config.input)?;
+fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
+    let mut fb = fbdev::Framebuffer::open(&device.framebuffer)?;
+    let mut input = evdev_input::Input::open(device)?;
     let (w, h) = fb.size();
     let mut screen = Screen::install(w, h)?;
     let mut app = build_app(config)?;
     let mut repeater = Repeater::default();
+    let mut first_frame = true;
 
     loop {
         let now = Instant::now();
         app.tick(now);
         if let Some(damage) = screen.render() {
             fb.present(screen.pixels(), w as usize, damage);
+            if std::mem::take(&mut first_frame) {
+                // On screen: tell `oxmux init` this boot worked.
+                crate::init::mark_boot_ok();
+            }
         }
 
         let mut deadline = repeater.next_deadline().map_or(app.next_deadline(), |t| t.min(app.next_deadline()));

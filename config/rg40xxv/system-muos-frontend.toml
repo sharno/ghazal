@@ -1,0 +1,64 @@
+# Stage 2: muOS boots as usual up to S99muos.sh, which `oxmux install frontend` replaces.
+# Instead of muOS's frontend loop (mux/frontend.sh), hotkey daemon (muhotkey), battery
+# monitor (mubattery) and low-power watcher, `oxmux supervise` runs the oxmux daemon and
+# frontend. Everything earlier in muOS's boot (udev, audio, wifi, storage) is unchanged.
+
+[power]
+# muOS's halt.sh stops its services and remounts filesystems read-only first.
+poweroff = { exec = ["/opt/muos/script/system/halt.sh", "poweroff"] }
+reboot = { exec = ["/opt/muos/script/system/halt.sh", "reboot"] }
+# Power off instead of waking up after an hour asleep.
+sleep_poweroff_after = 3600
+
+[daemon]
+state = "/opt/oxmux/state/settings.toml"
+socket = "/run/oxmux/daemon.sock"
+brightness_step = 6
+volume_step = 5
+
+[daemon.idle]
+dim_after = 60
+dim_to = 10
+sleep_after = 600
+
+[daemon.battery]
+low = 10
+critical = 3
+
+[[daemon.hotkey]]
+keys = ["vol_up"]
+action = "volume-up"
+
+[[daemon.hotkey]]
+keys = ["vol_down"]
+action = "volume-down"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_up"]
+action = "brightness-up"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_down"]
+action = "brightness-down"
+
+[supervisor]
+log_dir = "/run/oxmux/log"
+# Started by muOS before S99 (init/async/S01init.sh); oxmux's daemon does its job.
+replaces = ["mubattery"]
+
+[[supervisor.service]]
+name = "daemon"
+exec = ["/opt/oxmux/oxmux", "daemon"]
+restart = "always"
+env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+
+[[supervisor.service]]
+name = "frontend"
+exec = ["/opt/oxmux/oxmux", "frontend"]
+after = ["daemon"]
+restart = "always"
+# muOS's bind.sh touches this once ROM/save storage is ready.
+wait_for = ["/run/muos/storage/mount_ready"]
+env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc", OXMUX_EMBEDDED = "1" }
+# If the oxmux frontend keeps crashing, run muOS's own frontend loop instead.
+fallback = ["/opt/muos/script/mux/frontend.sh"]

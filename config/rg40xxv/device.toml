@@ -1,0 +1,80 @@
+# Hardware profile: Anbernic RG40XXV (Allwinner H700, vendor Linux 4.9.170).
+# Sources are muOS (MustardOS/internal, MustardOS/frontend) unless noted.
+name = "Anbernic RG40XXV"
+framebuffer = "/dev/fb0"
+
+[input]
+# `muinput` (muOS) or `oxmux input-bridge` re-expose the pad under this name, which
+# RetroArch's autoconfig (device/rg40xx-v/control/muOS-Keys.cfg) matches on.
+gamepad = "muOS-Keys"
+
+# evdev codes as seen on muOS-Keys. Raw source codes are in [input_bridge] below.
+# The d-pad is ABS_HAT0X/Y; the frontend reads it directly.
+[buttons]
+a = 304       # BTN_SOUTH
+b = 305       # BTN_EAST
+y = 307       # BTN_NORTH
+x = 308       # BTN_WEST
+l1 = 310      # BTN_TL
+r1 = 311      # BTN_TR
+l2 = 312      # BTN_TL2
+r2 = 313      # BTN_TR2
+select = 314  # BTN_SELECT
+start = 315   # BTN_START
+menu = 316    # BTN_MODE
+l3 = 317      # BTN_THUMBL
+r3 = 318      # BTN_THUMBR
+vol_down = 114  # KEY_VOLUMEDOWN (gpio keys)
+vol_up = 115    # KEY_VOLUMEUP
+power = 116     # KEY_POWER (axp2101-pek, event0)
+
+# No /sys/class/backlight on this kernel: brightness goes through the display debug
+# interface, raw 0..255 (script/var/func.sh DISPLAY_WRITE, device screen/bright).
+[backlight]
+kind = "dispdbg"
+name = "disp0"
+command = "setbl"
+min = 1
+max = 255
+
+[display]
+# Written "4" (FB_BLANK_POWERDOWN) before sleep and "0" after (script/device/bright.sh).
+blank = "/sys/class/graphics/fb0/blank"
+
+[audio]
+# Hardware volume, INTEGER 0..63 (device/rg40xx-v/control/asound.state).
+card = 0
+control = "digital volume"
+
+[battery]
+path = "/sys/class/power_supply/axp2202-battery"
+charger_online = "/sys/class/power_supply/axp2202-usb/online"
+
+[leds]
+power = "/sys/class/power_supply/axp2202-battery/work_led"
+low_battery = "/sys/class/power_supply/axp2202-battery/lowpwr_led"
+
+[rumble]
+path = "/sys/class/power_supply/axp2202-battery/moto"
+
+[rtc]
+# Used to wake from sleep and power off after `power.sleep_poweroff_after`.
+wakealarm = "/sys/class/rtc/rtc1/wakealarm"
+
+[poweroff]
+# Written if the poweroff syscall returns (muOS halt.sh does the same for rg* boards).
+fallback_write = { path = "/sys/class/axp/axp_reg", value = "0x1801" }
+
+# `oxmux input-bridge`: grabs the raw gpio pad and republishes it as muOS-Keys with the
+# same identity and remapping as muOS's muinput (frontend/input/devices/h700/mapping.h).
+[input_bridge]
+source = "muOS-Input-Source"
+name = "muOS-Keys"
+bus = 0x06        # BUS_VIRTUAL
+vendor = 0x756d
+product = 0x070b
+version = 0x736f
+# raw code -> published code; unlisted codes pass through.
+keys = { 306 = 308, 308 = 310, 309 = 311, 310 = 314, 311 = 315, 312 = 316, 314 = 312, 315 = 313, 313 = 317, 316 = 318 }
+# raw axis -> published axis (sticks); hats pass through.
+axes = { 1 = 0, 2 = 1, 4 = 3, 5 = 4 }

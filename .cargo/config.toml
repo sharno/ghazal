@@ -5,5 +5,5 @@ linker = "rust-lld"
 rustflags = ["-C", "target-feature=+crt-static"]
 
 [alias]
-sim = "run --features desktop -- --config dev/oxmux.toml"
+sim = "run --features desktop -- --config-dir dev/etc frontend"
 device = "build --release --target aarch64-unknown-linux-musl"

@@ -1,78 +1,105 @@
 # oxmux
 
-A Rust frontend for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
-Right now it runs *on top of* muOS: it uses the muOS kernel, rootfs, and RetroArch
-build, and replaces the menu. It lists your systems and games and launches them in
-RetroArch with the right libretro core.
+A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
+It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
+one static binary and three declarative TOML files. The vendor kernel, bootloader, drivers,
+RetroArch, and cores are reused from muOS.
 
-## Design
+## Stages
 
-- **UI in Slint** (`ui/app.slint`): the screens are declarative markup. Rust owns all
-  state (`src/app.rs`) and pushes it into the window's properties. Slint handles
-  layout, text, and animation.
-- **Software rendering with no GPU and no windowing system.** oxmux provides its own
-  Slint platform (`src/platform/mod.rs`) around the software renderer. Slint repaints
-  only the regions that changed, and only that rectangle is copied to `/dev/fb0`.
-  When nothing changes, the process sleeps in `poll()`.
-- **Virtualized lists.** The UI only ever gets a window of about 48 rows around the
-  cursor, so a system with thousands of games costs the same as a screenful.
-- **Static musl binary** (`aarch64-unknown-linux-musl`, linked with `rust-lld`), so it
-  runs on any H700 rootfs whatever its glibc version. No C cross toolchain needed.
-  Fonts (DejaVu) are embedded; fontconfig is only dlopen'ed and isn't required.
-- **Backends** (`src/platform/`):
-  - `fbdev.rs`: `/dev/fb0` via mmap, damage-rect blits, 16 or 32 bpp
-  - `evdev_input.rs`: gamepad via evdev, with an exclusive grab, d-pad, hat, analog stick, and a probe tool
-  - `desktop.rs`: winit + softbuffer simulator window, plus headless PNG snapshots
-- **Launching**: the frontend releases its input grab, runs RetroArch as a child
-  process, then re-reads the framebuffer mode and grabs input again.
+You can move a muOS install forward one stage at a time and back again.
 
-## Develop on the desktop
+| Stage | What runs | Install | Undo |
+|---|---|---|---|
+| 1 | oxmux as a muOS **application**; muOS runs everything else | `scripts/deploy.sh` | delete the app folder |
+| 2 | muOS boots, but **S99muos.sh** starts `oxmux supervise` (daemon + frontend) instead of muOS's frontend, hotkey, battery and low-power scripts | `oxmux install frontend` | `oxmux uninstall` |
+| 3 | busybox init's **sysinit** runs `oxmux init`; no muOS script runs at all | `oxmux install init` | `oxmux uninstall` |
+| 4 | an **SD image** where oxmux is `/init` (PID 1) | `scripts/build-image.sh` | reflash |
+
+### Safety nets
+
+- **Preflight.** `install` checks that every config parses and every service binary
+  exists before it changes anything. It refuses if one is missing.
+- **Backups.** Replaced files are kept as `*.oxmux-orig`, and `oxmux uninstall` restores them.
+- **Rescue.** In stages 3 and 4, a boot counter is reset only once the menu has drawn its
+  first frame. After 3 boots that never reach the menu, oxmux hands over to the init it
+  replaced (muOS's sysinit, or `/init.muos`). The same happens if its config fails to load.
+- **Fallback frontend.** In stage 2, if the oxmux frontend crash-loops (5 times in a
+  minute), the supervisor runs muOS's own frontend instead.
+
+## What replaces what
+
+| muOS | oxmux |
+|---|---|
+| `init/sysinit`, `init/S*.sh`: mounts, modules, governor, zram, bind mounts, udev | `oxmux init`, boot plan in `system.toml` (`[[init.step]]`) |
+| `var/process.sh`, `mux/frontend.sh` restart loop | `oxmux supervise`: dependency-ordered services with backoff and fallbacks |
+| `muhotkey` + `mux/hotkey.sh`, `device/bright.sh`, `device/audio.sh` | `oxmux daemon`: hotkeys from `[[daemon.hotkey]]`, backlight via dispdbg, volume via ALSA ioctls |
+| `system/suspend.sh` + `mususpend`, `system/halt.sh` | daemon: tap power to sleep, hold to power off, RTC auto-poweroff after long sleeps |
+| `mubattery`, `system/lowpower.sh`, `mux/idle.sh` | daemon: low-battery LED, clean poweroff at critical, idle dim and sleep |
+| `muinput` (C) | `oxmux input-bridge`: same `muOS-Keys` identity and mapping, including rumble |
+| `muxfrontend` (C/LVGL) | `oxmux frontend` (Slint) |
+| GET_VAR/SET_VAR store (one file per key) | `device.toml`, `frontend.toml`, `system.toml` |
+| PipeWire (in stage 3+) | not needed: RetroArch's ALSA output goes straight to the codec |
+
+External programs still used in stage 3+: `udevd`/`udevadm` (RetroArch's udev joypad driver
+needs its database), `alsactl` (restores mixer routing once), and optionally `wpa_supplicant`,
+`dhcpcd` and `sshd`.
+
+## Layout
+
+- `src/frontend/`: Slint UI (`ui/app.slint`), ROM library, RetroArch launching, and its
+  fbdev, evdev and desktop backends
+- `src/daemon/`: hotkeys, power, idle, battery, and the control socket (`oxmux ctl`)
+- `src/supervisor.rs`: service supervision
+- `src/init/`: boot plan, module loading (modules.dep + finit_module), zram
+- `src/input_bridge.rs`: muinput replacement (uinput)
+- `src/hw/`: backlight, ALSA control ioctls, battery, LEDs, rumble, suspend
+- `src/install.rs`: stage installer
+- `config/rg40xxv/`: device profile, frontend config, and the per-stage `system-*.toml` profiles
+
+Configs are found in `--config-dir`, `$OXMUX_CONFIG_DIR`, `etc/` next to the binary, the
+binary's own directory, or `/etc/oxmux`, with built-in RG40XXV defaults otherwise.
+
+## Develop
 
 ```bash
-nix develop -c cargo sim
+nix develop -c cargo sim                      # simulator window (keyboard = gamepad)
+cargo test                                    # includes "every shipped config parses"
+cargo run --features desktop -- --config-dir dev/etc frontend --snapshot /tmp/snap "a,down,menu"
 ```
 
-Keys: arrows = d-pad, Z/Enter = A, X/Backspace = B, Q/W = L1/R1, Esc/Tab = Menu.
-Fake ROMs live in `dev/ROMS`.
+In the simulator: arrows = d-pad, Z/Enter = A, X/Backspace = B, Q/W = L1/R1, Esc/Tab = Menu.
 
-To render frames without a window (handy for checking UI changes):
+## Device runbook
+
+Enable SSH in muOS, then:
 
 ```bash
-cargo run --features desktop -- --config dev/oxmux.toml --snapshot /tmp/snap "a,down,menu"
+DEVICE=root@<ip> scripts/deploy.sh            # stage 1, then start "Oxmux" from Applications
+ssh root@<ip> /mnt/mmc/MUOS/application/Oxmux/oxmux probe-input   # confirm button codes
+DEVICE=root@<ip> scripts/deploy.sh frontend   # stage 2 (dry run first, then install); reboot
+DEVICE=root@<ip> scripts/deploy.sh init       # stage 3; reboot
 ```
 
-## Build and install on the device
+On the device, `oxmux status` shows the current stage, `oxmux check` validates configs,
+`oxmux ctl status` talks to the daemon, and logs are in `/run/oxmux/log/`.
+
+Stage 4 needs an official muOS RG40XXV image:
 
 ```bash
-scripts/package.sh                          # -> dist/Oxmux (binary, oxmux.toml, mux_launch.sh)
-DEVICE=root@<device-ip> scripts/deploy.sh   # -> /mnt/mmc/MUOS/application/Oxmux
+nix develop -c scripts/build-image.sh MustardOS_RG40XXV_<version>.img.xz dist/oxmux-rg40xxv.img
 ```
 
-Then start **Oxmux** from the muOS Applications menu. Logs go to `oxmux.log` and
-`retroarch.log` next to the binary.
+## Known gaps
 
-### First run on real hardware
-
-Paths in `config/muos.toml` come from the muOS source, but the button codes still need checking on real hardware. Over SSH:
-
-```bash
-cd /mnt/mmc/MUOS/application/Oxmux
-./oxmux --probe-input         # press every button, copy the codes into [input]
-ls /mnt/mmc/ROMS              # add any folder names that are missing from system.dirs
-```
-
-Edit `oxmux.toml` next to the binary. It overrides the built-in config.
-
-## Roadmap
-
-- [ ] Confirm input codes, RetroArch paths, and fb format on a real RG40XXV
-- [ ] Power button: sleep/suspend (`/sys/power/state`) and power-off
-- [ ] Volume/brightness hotkeys, settings screen, Wi-Fi
-- [ ] Favourites, history, resume last game
-- [ ] Box art / screenshots
-- [ ] DRM/KMS backend (for mainline kernels with Panfrost)
-- [ ] Replace the muOS shell scripts (boot, hotkeys, sleep, audio, brightness, storage, network) with a Rust supervisor configured declaratively
-- [ ] Own bootable image: H700 kernel + minimal rootfs with oxmux as the frontend
+- Nothing has run on real hardware yet. The device paths and codes come from the muOS
+  source and still need confirming on a unit.
+- Stage 2 skips muOS's charge-only boot mode and factory-reset hook, both of which live in S99muos.sh.
+- RetroArch save-state-on-sleep (muOS sends `SAVE_STATE` before suspending) isn't done yet.
+- Bluetooth, the RGB LEDs (serial MCU on ttyS5), HDMI switching and the USB gadget are not
+  ported yet.
+- Stage 4 still uses muOS's rootfs userland (udev, glibc, RetroArch). A rootfs built from
+  scratch (e.g. with Nix) is the next step after that.
 
 ## License
 

@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use evdev::{Device, EventType, Key};
 
-use crate::config::InputConfig;
-use crate::input::Button;
+use crate::device::DeviceConfig;
+use crate::frontend::input::Button;
 
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
@@ -23,15 +23,30 @@ struct Pad {
 pub struct Input {
     pads: Vec<Pad>,
     map: Vec<(u16, Button)>,
+    /// Exclusive grab while in the foreground (device.toml input.grab).
+    grab: bool,
     grabbed: bool,
 }
 
 impl Input {
-    pub fn open(config: &InputConfig) -> Result<Self> {
+    /// Opens the gamepad named in device.toml, waiting a few seconds for it to appear
+    /// (at boot, input-bridge/muinput may still be creating it).
+    pub fn open(dev: &DeviceConfig) -> Result<Self> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match Self::try_open(dev) {
+                Ok(input) => return Ok(input),
+                Err(e) if Instant::now() >= deadline => return Err(e),
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
+    }
+
+    fn try_open(dev: &DeviceConfig) -> Result<Self> {
         let mut pads = Vec::new();
         for (path, device) in evdev::enumerate() {
             let name = device.name().unwrap_or("").to_string();
-            let wanted = match &config.device_name {
+            let wanted = match &dev.input.gamepad {
                 Some(filter) => name.contains(filter.as_str()),
                 None => is_gamepad(&device),
             };
@@ -50,36 +65,40 @@ impl Input {
             pads.push(Pad { device, stick, axis_state: [0; 4] });
         }
         if pads.is_empty() {
-            bail!("no gamepad found in /dev/input (try --probe-input, then set input.device_name)");
+            bail!("no gamepad {:?} in /dev/input (see `oxmux probe-input`)", dev.input.gamepad);
         }
 
-        let c = config;
-        let map = vec![
-            (c.a, Button::A), (c.b, Button::B), (c.x, Button::X), (c.y, Button::Y),
-            (c.l1, Button::L1), (c.r1, Button::R1), (c.l2, Button::L2), (c.r2, Button::R2),
-            (c.select, Button::Select), (c.start, Button::Start), (c.menu, Button::Menu),
-            (c.up, Button::Up), (c.down, Button::Down), (c.left, Button::Left), (c.right, Button::Right),
+        let names = [
+            ("a", Button::A), ("b", Button::B), ("x", Button::X), ("y", Button::Y),
+            ("l1", Button::L1), ("r1", Button::R1), ("l2", Button::L2), ("r2", Button::R2),
+            ("select", Button::Select), ("start", Button::Start), ("menu", Button::Menu),
+            // Only for pads whose d-pad sends keys; hats and sticks are always handled.
+            ("up", Button::Up), ("down", Button::Down), ("left", Button::Left), ("right", Button::Right),
         ];
-        let mut input = Self { pads, map, grabbed: false };
+        let map = names.iter().filter_map(|(n, b)| dev.button(n).map(|code| (code, *b))).collect();
+        let mut input = Self { pads, map, grab: dev.input.grab, grabbed: false };
         input.acquire();
         Ok(input)
     }
 
-    /// Exclusive grab so muOS daemons don't also react to our navigation.
+    /// Called when the frontend comes back to the foreground: drops input queued while
+    /// the emulator ran and, if configured, grabs the pad so nothing else reacts to menu
+    /// navigation (the daemon never grabs, so hotkeys keep working either way).
     pub fn acquire(&mut self) {
         for pad in &mut self.pads {
-            // Drop anything queued while the emulator ran.
             while let Ok(events) = pad.device.fetch_events() {
                 if events.count() == 0 {
                     break;
                 }
             }
             pad.axis_state = [0; 4];
-            if let Err(e) = pad.device.grab() {
-                eprintln!("oxmux: grab failed: {e}");
+            if self.grab {
+                if let Err(e) = pad.device.grab() {
+                    eprintln!("oxmux: grab failed: {e}");
+                }
             }
         }
-        self.grabbed = true;
+        self.grabbed = self.grab;
     }
 
     pub fn release(&mut self) {

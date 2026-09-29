@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::{Config, SystemConfig};
+use super::config::{FrontendConfig, SystemEntry};
 
 const MAX_DEPTH: usize = 3;
 
@@ -21,7 +21,7 @@ pub struct Game {
 }
 
 impl Library {
-    pub fn scan(config: &Config) -> Self {
+    pub fn scan(config: &FrontendConfig) -> Self {
         let systems = config
             .systems
             .iter()
@@ -50,7 +50,7 @@ impl Library {
 }
 
 /// Sub-folders of `root` whose name matches one of the system's `dirs`, ignoring case.
-fn matching_dirs(root: &Path, sys: &SystemConfig) -> Vec<PathBuf> {
+fn matching_dirs(root: &Path, sys: &SystemEntry) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -66,7 +66,7 @@ fn matching_dirs(root: &Path, sys: &SystemConfig) -> Vec<PathBuf> {
         .collect()
 }
 
-fn collect_games(dir: &Path, sys: &SystemConfig, depth: usize, out: &mut Vec<Game>) {
+fn collect_games(dir: &Path, sys: &SystemEntry, depth: usize, out: &mut Vec<Game>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

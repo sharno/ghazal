@@ -14,9 +14,10 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use super::{build_app, Screen};
-use crate::app::{App, Effect};
-use crate::config::Config;
-use crate::input::{Button, Repeater};
+use crate::device::DeviceConfig;
+use crate::frontend::app::{App, Effect};
+use crate::frontend::config::FrontendConfig;
+use crate::frontend::input::{Button, Repeater};
 
 /// RG40XXV panel resolution.
 const WIDTH: u32 = 640;
@@ -31,7 +32,7 @@ struct Sim {
     error: Option<anyhow::Error>,
 }
 
-pub fn run(config: Config) -> Result<()> {
+pub fn run(config: FrontendConfig, _device: &DeviceConfig) -> Result<()> {
     let screen = Screen::install(WIDTH, HEIGHT)?;
     let app = build_app(config)?;
     let event_loop = EventLoop::new()?;
@@ -43,7 +44,7 @@ pub fn run(config: Config) -> Result<()> {
 /// Headless: render the first frame, then one frame after each button in `buttons`
 /// (comma-separated, e.g. "down,a,menu"), as `DIR/NN.png`. Animations are fast-forwarded
 /// to their end state and launches are only printed.
-pub fn snapshot(config: Config, dir: &Path, buttons: &str) -> Result<()> {
+pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, buttons: &str) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let mut screen = Screen::install(WIDTH, HEIGHT)?;
     let mut app = build_app(config)?;

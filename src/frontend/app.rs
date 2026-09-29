@@ -3,11 +3,12 @@ use std::time::{Duration, Instant};
 
 use slint::{ModelRc, SharedString, VecModel};
 
-use crate::config::Config;
-use crate::input::Button;
-use crate::launcher::LaunchSpec;
-use crate::library::Library;
-use crate::system_info;
+use super::config::FrontendConfig;
+use super::input::Button;
+use super::launcher::LaunchSpec;
+use super::library::Library;
+use crate::daemon::ctl;
+use crate::hw::battery;
 use crate::ui::{AppWindow, Hint, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
@@ -31,10 +32,23 @@ enum View {
 #[derive(Clone, Copy)]
 enum MenuItem {
     Rescan,
+    Sleep,
+    Restart,
+    PowerOff,
     Quit,
 }
 
-const MENU: [(MenuItem, &str); 2] = [(MenuItem::Rescan, "Rescan library"), (MenuItem::Quit, "Quit oxmux")];
+impl MenuItem {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Rescan => "Rescan library",
+            Self::Sleep => "Sleep",
+            Self::Restart => "Restart",
+            Self::PowerOff => "Power off",
+            Self::Quit => "Quit oxmux",
+        }
+    }
+}
 
 /// Footer button hints: menu open, systems list, games list.
 const HINTS: [&[(&str, &str)]; 3] = [
@@ -46,8 +60,9 @@ const HINTS: [&[(&str, &str)]; 3] = [
 /// All frontend state. After every change `sync()` pushes it into the Slint window,
 /// which decides how it looks (ui/app.slint).
 pub struct App {
-    config: Config,
+    config: FrontendConfig,
     ui: AppWindow,
+    menu_items: Vec<MenuItem>,
     library: Library,
     view: View,
     system_sel: usize,
@@ -63,19 +78,28 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: Config, ui: AppWindow) -> Self {
+    pub fn new(config: FrontendConfig, ui: AppWindow) -> Self {
         let library = Library::scan(&config);
         eprintln!("oxmux: {} systems, {} games", library.systems.len(), library.game_count());
         let roots: Vec<_> = config.rom_roots.iter().map(|p| p.display().to_string()).collect();
         ui.set_empty_message(format!("No games found in {}", roots.join(", ")).into());
+        // Power entries need the daemon; Quit only makes sense when launched from muOS.
+        let mut menu_items = vec![MenuItem::Rescan];
+        if config.daemon_socket.exists() {
+            menu_items.extend([MenuItem::Sleep, MenuItem::Restart, MenuItem::PowerOff]);
+        }
+        if std::env::var_os("OXMUX_EMBEDDED").is_none() {
+            menu_items.push(MenuItem::Quit);
+        }
         ui.set_menu_items(ModelRc::new(VecModel::from(
-            MENU.iter().map(|(_, label)| SharedString::from(*label)).collect::<Vec<_>>(),
+            menu_items.iter().map(|m| SharedString::from(m.label())).collect::<Vec<_>>(),
         )));
 
         let mut app = Self {
             game_sel: vec![0; library.systems.len()],
             config,
             ui,
+            menu_items,
             library,
             view: View::Systems,
             system_sel: 0,
@@ -100,12 +124,12 @@ impl App {
     fn handle(&mut self, button: Button) -> Option<Effect> {
         if let Some(sel) = self.menu {
             match button {
-                Button::Up => self.menu = Some(step(sel, MENU.len(), -1, true)),
-                Button::Down => self.menu = Some(step(sel, MENU.len(), 1, true)),
+                Button::Up => self.menu = Some(step(sel, self.menu_items.len(), -1, true)),
+                Button::Down => self.menu = Some(step(sel, self.menu_items.len(), 1, true)),
                 Button::B | Button::Menu | Button::Start => self.menu = None,
                 Button::A => {
                     self.menu = None;
-                    return self.activate(MENU[sel].0);
+                    return self.activate(self.menu_items[sel]);
                 }
                 _ => {}
             }
@@ -180,9 +204,9 @@ impl App {
 
     fn refresh_status(&mut self, now: Instant) {
         self.status_checked = now;
-        let (h, m) = system_info::local_time();
+        let (h, m) = battery::local_time();
         self.ui.set_clock(format!("{h:02}:{m:02}").into());
-        match system_info::battery() {
+        match battery::read(None) {
             Some(b) => {
                 self.ui.set_battery_percent(b.percent as i32);
                 self.ui.set_battery_charging(b.charging);
@@ -202,8 +226,19 @@ impl App {
                 self.toast = Some((format!("Found {} games", self.library.game_count()), Instant::now(), false));
                 None
             }
+            MenuItem::Sleep => self.power("suspend"),
+            MenuItem::Restart => self.power("reboot"),
+            MenuItem::PowerOff => self.power("poweroff"),
             MenuItem::Quit => Some(Effect::Quit),
         }
+    }
+
+    /// Asks the daemon to sleep/reboot/power off.
+    fn power(&mut self, command: &str) -> Option<Effect> {
+        if let Err(e) = ctl::request(&self.config.daemon_socket, command) {
+            self.error(format!("{e:#}"));
+        }
+        None
     }
 
     fn error(&mut self, msg: String) {
