@@ -1,0 +1,9 @@
+# Device builds are fully static musl binaries linked with the bundled rust-lld,
+# so no aarch64 C toolchain is needed and the muOS glibc version doesn't matter.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+sim = "run --features desktop -- --config dev/oxmux.toml"
+device = "build --release --target aarch64-unknown-linux-musl"

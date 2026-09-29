@@ -1,0 +1,32 @@
+# Desktop simulator config: `cargo sim`. Paths are relative to this file.
+# Keys: arrows = d-pad, Z/Enter = A, X/Backspace = B, A = Y, S = X,
+# Q/W = L1/R1, Shift = Select, Space = Start, Esc/Tab = Menu.
+rom_roots = ["ROMS"]
+
+[retroarch]
+bin = "retroarch"
+core_dirs = ["cores", "/usr/lib/libretro"]
+
+[[system]]
+name = "Game Boy Advance"
+dirs = ["GBA"]
+extensions = ["gba", "zip"]
+core = "mgba_libretro.so"
+
+[[system]]
+name = "SNES"
+dirs = ["SNES", "SFC"]
+extensions = ["sfc", "smc", "zip"]
+core = "snes9x_libretro.so"
+
+[[system]]
+name = "Game Boy"
+dirs = ["GB"]
+extensions = ["gb", "zip"]
+core = "gambatte_libretro.so"
+
+[[system]]
+name = "Empty System (hidden)"
+dirs = ["NOPE"]
+extensions = ["x"]
+core = "none_libretro.so"

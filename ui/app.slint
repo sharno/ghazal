@@ -1,0 +1,309 @@
+// oxmux UI. Rust owns all state (src/app.rs) and pushes it in through the
+// properties of AppWindow; this file only describes how that state looks.
+
+import "../assets/DejaVuSans.ttf";
+import "../assets/DejaVuSans-Bold.ttf";
+
+export struct Row {
+    label: string,
+    detail: string,
+}
+
+export struct Hint {
+    glyph: string,
+    label: string,
+}
+
+global Theme {
+    out property <color> bg: #0f1216;
+    out property <color> bar: #171b21;
+    out property <color> text: #e6e9ef;
+    out property <color> dim: #8a93a3;
+    out property <color> accent: #e8663d;
+    out property <color> on-accent: #ffffff;
+    out property <color> panel: #222831;
+    out property <color> warn: #e5484d;
+    out property <color> ok: #46a758;
+    out property <length> pad: 16px;
+    out property <length> row-height: 40px;
+    out property <duration> quick: 110ms;
+}
+
+component ListRow {
+    in property <Row> item;
+    in property <bool> selected;
+    height: Theme.row-height;
+
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: 10px;
+        background: selected ? Theme.accent : transparent;
+        animate background { duration: Theme.quick; }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        Text {
+            text: item.label;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 20px;
+            font-weight: selected ? 700 : 400;
+            color: selected ? Theme.on-accent : Theme.text;
+        }
+        if item.detail != "": Text {
+            text: item.detail;
+            vertical-alignment: center;
+            font-size: 16px;
+            color: selected ? Theme.on-accent : Theme.dim;
+        }
+    }
+}
+
+component BatteryIcon {
+    in property <int> percent;
+    in property <bool> charging;
+    width: 31px;
+    height: 14px;
+
+    Rectangle {
+        x: 0;
+        width: 28px;
+        border-radius: 3px;
+        border-width: 1.5px;
+        border-color: Theme.dim;
+        Rectangle {
+            x: 2.5px;
+            y: 2.5px;
+            height: parent.height - 5px;
+            width: max(1px, (parent.width - 5px) * min(percent, 100) / 100);
+            border-radius: 1.5px;
+            background: charging ? Theme.ok : percent <= 15 ? Theme.warn : Theme.text;
+        }
+    }
+    Rectangle {
+        x: 28px;
+        y: 4px;
+        width: 3px;
+        height: 6px;
+        border-radius: 1px;
+        background: Theme.dim;
+    }
+}
+
+component HintPill {
+    in property <Hint> hint;
+    HorizontalLayout {
+        spacing: 6px;
+        Rectangle {
+            width: max(24px, glyph.preferred-width + 12px);
+            height: 24px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 12px;
+            background: Theme.text;
+            glyph := Text {
+                text: hint.glyph;
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.bar;
+            }
+        }
+        Text {
+            text: hint.label;
+            vertical-alignment: center;
+            font-size: 16px;
+            color: Theme.dim;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    in property <string> heading;
+    in property <string> clock;
+    /// -1 hides the battery indicator (no battery found).
+    in property <int> battery-percent: -1;
+    in property <bool> battery-charging;
+    /// A window of the list: rows[0] is item number `row-offset` of `row-count`.
+    in property <[Row]> rows;
+    in property <int> row-offset;
+    in property <int> row-count;
+    /// Absolute index of the highlighted item.
+    in property <int> selected;
+    in property <string> empty-message;
+    in property <[Hint]> hints;
+    in property <[string]> menu-items;
+    /// -1 means the menu is closed.
+    in property <int> menu-selected: -1;
+    in property <string> toast;
+    in property <bool> toast-error;
+
+    background: Theme.bg;
+    default-font-family: "DejaVu Sans";
+
+    VerticalLayout {
+        Rectangle {
+            height: 48px;
+            background: Theme.bar;
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 12px;
+                Text {
+                    text: root.heading;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    font-size: 22px;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                Text {
+                    text: root.clock;
+                    vertical-alignment: center;
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                if root.battery-percent >= 0: HorizontalLayout {
+                    spacing: 8px;
+                    padding-left: 4px;
+                    Text {
+                        text: root.battery-percent + "%";
+                        vertical-alignment: center;
+                        font-size: 16px;
+                        color: Theme.dim;
+                    }
+                    BatteryIcon {
+                        y: (parent.height - self.height) / 2;
+                        percent: root.battery-percent;
+                        charging: root.battery-charging;
+                    }
+                }
+            }
+        }
+
+        area := Rectangle {
+            vertical-stretch: 1;
+            property <length> list-height: self.height - 16px;
+            property <int> visible-rows: max(1, floor(self.list-height / Theme.row-height));
+            // Keep the cursor roughly centred once the list scrolls.
+            property <int> first-row: max(0, min(root.selected - floor(self.visible-rows / 2), root.row-count - self.visible-rows));
+            property <bool> scrolls: root.row-count > self.visible-rows;
+            property <length> scroll: self.first-row * Theme.row-height;
+            animate scroll { duration: Theme.quick; easing: ease-out; }
+
+            // `rows` is only a window of the full list (see App::sync), placed at its
+            // absolute position, so thousands of games cost no more than a screenful.
+            // Clip to whole rows so a partial row never peeks out at the bottom.
+            Rectangle {
+                y: 8px;
+                height: area.visible-rows * Theme.row-height;
+                clip: true;
+                for row[i] in root.rows: ListRow {
+                    x: Theme.pad;
+                    y: (root.row-offset + i) * Theme.row-height - area.scroll;
+                    width: area.width - 2 * Theme.pad - (area.scrolls ? 10px : 0);
+                    item: row;
+                    selected: root.row-offset + i == root.selected;
+                }
+            }
+
+            if area.scrolls: Rectangle {
+                x: area.width - Theme.pad - 4px;
+                y: 10px;
+                width: 4px;
+                height: area.visible-rows * Theme.row-height - 4px;
+                border-radius: 2px;
+                background: Theme.panel;
+                Rectangle {
+                    width: parent.width;
+                    height: max(16px, parent.height * area.visible-rows / root.row-count);
+                    y: (parent.height - self.height) * (area.scroll / Theme.row-height) / (root.row-count - area.visible-rows);
+                    border-radius: 2px;
+                    background: Theme.dim;
+                }
+            }
+
+            if root.row-count == 0: Text {
+                text: root.empty-message;
+                x: Theme.pad;
+                width: area.width - 2 * Theme.pad;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+                font-size: 18px;
+                color: Theme.dim;
+            }
+        }
+
+        Rectangle {
+            height: 40px;
+            background: Theme.bar;
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                spacing: 18px;
+                alignment: start;
+                for hint in root.hints: HintPill { hint: hint; }
+            }
+        }
+    }
+
+    if root.toast != "": Rectangle {
+        property <length> w: min(toast-text.preferred-width + 2 * Theme.pad, root.width - 2 * Theme.pad);
+        x: (root.width - w) / 2;
+        y: root.height - 40px - self.height - 12px;
+        width: w;
+        height: 36px;
+        border-radius: 10px;
+        background: root.toast-error ? Theme.warn : Theme.panel;
+        toast-text := Text {
+            x: Theme.pad;
+            width: parent.width - 2 * Theme.pad;
+            text: root.toast;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 16px;
+            color: Theme.text;
+        }
+    }
+
+    if root.menu-selected >= 0: Rectangle {
+        background: #00000096;
+        Rectangle {
+            width: 320px;
+            height: 56px + root.menu-items.length * Theme.row-height;
+            border-radius: 14px;
+            background: Theme.panel;
+            Text {
+                x: Theme.pad;
+                y: 4px;
+                height: 44px;
+                text: "Menu";
+                vertical-alignment: center;
+                font-size: 20px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            for item[i] in root.menu-items: Rectangle {
+                x: 8px;
+                y: 48px + i * Theme.row-height;
+                width: parent.width - 16px;
+                height: Theme.row-height - 4px;
+                border-radius: 8px;
+                background: i == root.menu-selected ? Theme.accent : transparent;
+                animate background { duration: Theme.quick; }
+                Text {
+                    x: Theme.pad - 4px;
+                    text: item;
+                    vertical-alignment: center;
+                    font-size: 18px;
+                    color: i == root.menu-selected ? Theme.on-accent : Theme.text;
+                }
+            }
+        }
+    }
+}

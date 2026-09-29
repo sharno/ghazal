@@ -1,0 +1,137 @@
+# oxmux config for muOS on the Anbernic RG40XXV (Allwinner H700).
+#
+# Paths come from the muOS source (MustardOS/internal). The copy of this file next
+# to the binary overrides the built-in one.
+
+# SD1 first, then SD2.
+rom_roots = ["/mnt/mmc/ROMS", "/mnt/sdcard/ROMS"]
+framebuffer = "/dev/fb0"
+
+[retroarch]
+bin = "/usr/bin/retroarch"
+# First existing file is passed with -c (muOS: script/var/func.sh).
+configs = ["/opt/muos/share/info/config/retroarch.cfg"]
+# Searched in order for the core file (muOS: script/launch/lr-general.sh).
+core_dirs = ["/opt/muos/share/core"]
+# muOS starts RetroArch fullscreen.
+extra_args = ["-f"]
+log = "/mnt/mmc/MUOS/application/Oxmux/retroarch.log"
+
+[input]
+# muOS runs `muinput`, which re-exposes the H700 pad as a virtual device named
+# "muOS-Keys". Codes are Linux evdev codes and still need confirming: run
+# `./oxmux --probe-input` over SSH and press each button.
+device_name = "muOS-Keys"
+a = 305
+b = 304
+x = 307
+y = 308
+l1 = 310
+r1 = 311
+l2 = 312
+r2 = 313
+select = 314
+start = 315
+menu = 316
+
+[[system]]
+name = "Game Boy"
+dirs = ["GB", "Game Boy", "Nintendo Game Boy"]
+extensions = ["gb", "zip", "7z"]
+core = "gambatte_libretro.so"
+
+[[system]]
+name = "Game Boy Color"
+dirs = ["GBC", "Game Boy Color", "Nintendo Game Boy Color"]
+extensions = ["gbc", "gb", "zip", "7z"]
+core = "gambatte_libretro.so"
+
+[[system]]
+name = "Game Boy Advance"
+dirs = ["GBA", "Game Boy Advance", "Nintendo Game Boy Advance"]
+extensions = ["gba", "zip", "7z"]
+core = "mgba_libretro.so"
+
+[[system]]
+name = "NES"
+dirs = ["NES", "FC", "Famicom", "Nintendo NES"]
+extensions = ["nes", "fds", "unf", "zip", "7z"]
+core = "fceumm_libretro.so"
+
+[[system]]
+name = "SNES"
+dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES"]
+extensions = ["sfc", "smc", "zip", "7z"]
+core = "snes9x_libretro.so"
+
+[[system]]
+name = "Mega Drive / Genesis"
+dirs = ["MD", "GENESIS", "Mega Drive", "Sega Genesis"]
+extensions = ["md", "gen", "bin", "smd", "zip", "7z"]
+core = "genesis_plus_gx_libretro.so"
+
+[[system]]
+name = "Master System"
+dirs = ["MS", "SMS", "Master System", "Sega Master System"]
+extensions = ["sms", "zip", "7z"]
+core = "genesis_plus_gx_libretro.so"
+
+[[system]]
+name = "Game Gear"
+dirs = ["GG", "Game Gear", "Sega Game Gear"]
+extensions = ["gg", "zip", "7z"]
+core = "genesis_plus_gx_libretro.so"
+
+[[system]]
+name = "PC Engine"
+dirs = ["PCE", "TG16", "PC Engine", "TurboGrafx-16"]
+extensions = ["pce", "cue", "chd", "zip", "7z"]
+core = "mednafen_pce_fast_libretro.so"
+
+[[system]]
+name = "PlayStation"
+dirs = ["PS", "PS1", "PSX", "PlayStation", "Sony PlayStation"]
+extensions = ["cue", "chd", "pbp", "m3u", "iso"]
+core = "pcsx_rearmed_libretro.so"
+
+[[system]]
+name = "Nintendo 64"
+dirs = ["N64", "Nintendo 64"]
+extensions = ["n64", "z64", "v64", "zip", "7z"]
+core = "mupen64plus_next_libretro.so"
+
+[[system]]
+name = "Arcade"
+dirs = ["ARCADE", "FBNEO", "MAME", "CPS1", "CPS2", "CPS3", "NEOGEO"]
+extensions = ["zip", "7z"]
+core = "fbneo_libretro.so"
+
+[[system]]
+name = "Neo Geo Pocket"
+dirs = ["NGP", "NGPC", "Neo Geo Pocket", "Neo Geo Pocket Color"]
+extensions = ["ngp", "ngc", "zip", "7z"]
+core = "mednafen_ngp_libretro.so"
+
+[[system]]
+name = "WonderSwan"
+dirs = ["WS", "WSC", "WonderSwan", "WonderSwan Color"]
+extensions = ["ws", "wsc", "zip", "7z"]
+core = "mednafen_wswan_libretro.so"
+
+[[system]]
+name = "Atari 2600"
+dirs = ["ATARI", "A2600", "Atari 2600"]
+extensions = ["a26", "bin", "zip", "7z"]
+core = "stella2014_libretro.so"
+
+[[system]]
+name = "Atari Lynx"
+dirs = ["LYNX", "Atari Lynx"]
+extensions = ["lnx", "zip", "7z"]
+core = "handy_libretro.so"
+
+[[system]]
+name = "PSP"
+dirs = ["PSP", "Sony PSP"]
+extensions = ["iso", "cso", "pbp", "chd"]
+core = "ppsspp_libretro.so"
