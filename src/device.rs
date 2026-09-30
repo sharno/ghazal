@@ -36,11 +36,29 @@ pub struct DeviceConfig {
     pub input_bridge: Option<InputBridge>,
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Display {
     /// fbdev blank file: "4" powers the panel down, "0" wakes it.
     pub blank: Option<PathBuf>,
+    /// How the frontend reaches the screen: vendor kernels expose fbdev, mainline KMS.
+    #[serde(default)]
+    pub output: Output,
+    /// DRM device for `output = "kms"`.
+    #[serde(default = "default_card")]
+    pub card: PathBuf,
+}
+
+#[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Output {
+    #[default]
+    Fbdev,
+    Kms,
+}
+
+fn default_card() -> PathBuf {
+    "/dev/dri/card0".into()
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -170,5 +188,11 @@ impl DeviceConfig {
 
     pub fn button_name(&self, code: u16) -> Option<&str> {
         self.buttons.iter().find(|(_, c)| **c == code).map(|(n, _)| n.as_str())
+    }
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self { blank: None, output: Output::Fbdev, card: default_card() }
     }
 }

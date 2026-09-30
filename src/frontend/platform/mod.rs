@@ -1,5 +1,6 @@
 pub mod evdev_input;
 mod fbdev;
+mod kms;
 
 #[cfg(feature = "desktop")]
 pub mod desktop;
@@ -14,7 +15,7 @@ use slint::platform::{Platform, WindowAdapter};
 use slint::ComponentHandle;
 use slint::{PhysicalSize, Rgb8Pixel};
 
-use crate::device::DeviceConfig;
+use crate::device::{DeviceConfig, Output};
 use crate::frontend::app::{App, Effect};
 use crate::frontend::config::FrontendConfig;
 use crate::frontend::input::Repeater;
@@ -127,13 +128,57 @@ fn build_app(config: FrontendConfig) -> Result<App> {
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     Ok(App::new(config, ui))
 }
+/// Where frames go on the device: fbdev (vendor kernels) or DRM/KMS (mainline).
+enum Display {
+    Fbdev(fbdev::Framebuffer),
+    Kms(kms::Kms),
+}
 
-/// On-device loop: fbdev output, evdev input, sleeping in poll() between events.
+impl Display {
+    fn open(device: &DeviceConfig) -> Result<Self> {
+        Ok(match device.display.output {
+            Output::Fbdev => Self::Fbdev(fbdev::Framebuffer::open(&device.framebuffer)?),
+            Output::Kms => Self::Kms(kms::Kms::open(&device.display.card)?),
+        })
+    }
+
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::Fbdev(fb) => fb.size(),
+            Self::Kms(k) => k.size(),
+        }
+    }
+
+    fn present(&mut self, frame: &[Rgb8Pixel], stride: usize, damage: Damage) -> Result<()> {
+        match self {
+            Self::Fbdev(fb) => fb.present(frame, stride, damage),
+            Self::Kms(k) => k.present(frame, stride, damage)?,
+        }
+        Ok(())
+    }
+
+    /// Before an emulator takes over the screen.
+    fn release(&mut self) {
+        if let Self::Kms(k) = self {
+            k.release();
+        }
+    }
+
+    /// After the emulator exits.
+    fn reacquire(&mut self) -> Result<()> {
+        match self {
+            Self::Fbdev(fb) => fb.reload(),
+            Self::Kms(k) => k.reacquire(),
+        }
+    }
+}
+
+/// On-device loop: fbdev or KMS output, evdev input, sleeping in poll() between events.
 #[cfg_attr(feature = "desktop", allow(dead_code))]
 fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
-    let mut fb = fbdev::Framebuffer::open(&device.framebuffer)?;
+    let mut display = Display::open(device)?;
     let mut input = evdev_input::Input::open(device)?;
-    let (w, h) = fb.size();
+    let (w, h) = display.size();
     let mut screen = Screen::install(w, h)?;
     let mut app = build_app(config)?;
     let mut repeater = Repeater::default();
@@ -143,7 +188,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
         let now = Instant::now();
         app.tick(now);
         if let Some(damage) = screen.render() {
-            fb.present(screen.pixels(), w as usize, damage);
+            display.present(screen.pixels(), w as usize, damage)?;
             if std::mem::take(&mut first_frame) {
                 // On screen: tell `oxmux init` this boot worked.
                 crate::init::mark_boot_ok();
@@ -170,8 +215,9 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 Some(Effect::Quit) => return Ok(()),
                 Some(Effect::Launch(spec)) => {
                     input.release();
+                    display.release();
                     let result = spec.run();
-                    fb.reload()?;
+                    display.reacquire()?;
                     screen.invalidate();
                     input.acquire();
                     repeater.clear();

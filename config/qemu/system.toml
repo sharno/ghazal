@@ -1,0 +1,57 @@
+# Boot plan for the Nix-built image under QEMU. The same shape as the handheld's
+# standalone profile, minus muOS: everything comes from the image itself.
+
+[init.rescue]
+counter = "/run/boot-attempts"
+max_attempts = 3
+exec = ["/bin/sh"]
+
+[[init.step]]
+mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "sysfs", target = "/sys", fstype = "sysfs", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "devtmpfs", target = "/dev", fstype = "devtmpfs", options = "nosuid,mode=0755" }
+[[init.step]]
+mount = { source = "devpts", target = "/dev/pts", fstype = "devpts", options = "nosuid,noexec,gid=5,mode=0620", optional = true }
+[[init.step]]
+mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid,nodev,mode=0755" }
+[[init.step]]
+mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid,nodev" }
+[[init.step]]
+hostname = "oxmux-vm"
+# No udev: oxmux loads drivers for detected hardware itself (modules.alias).
+[[init.step]]
+coldplug = {}
+[[init.step]]
+wait = { path = "/dev/dri/card0", timeout = 5 }
+
+[daemon]
+state = "/run/oxmux/settings.toml"
+socket = "/run/oxmux/daemon.sock"
+
+[[daemon.hotkey]]
+keys = ["menu", "vol_up"]
+action = "brightness-up"
+
+[supervisor]
+log_dir = "/run/oxmux/log"
+
+[[supervisor.service]]
+name = "daemon"
+exec = ["/opt/oxmux/oxmux", "daemon"]
+restart = "always"
+
+[[supervisor.service]]
+name = "frontend"
+exec = ["/opt/oxmux/oxmux", "frontend"]
+after = ["daemon"]
+restart = "always"
+env = { OXMUX_EMBEDDED = "1", OXMUX_BOOT_COUNTER = "/run/boot-attempts" }
+
+# Root shell on the serial console, for debugging.
+[[supervisor.service]]
+name = "console"
+exec = ["/bin/sh", "-c", "exec /bin/sh -i </dev/ttyAMA0 >/dev/ttyAMA0 2>&1"]
+restart = "always"
+env = { PS1 = "oxmux# ", HOME = "/" }

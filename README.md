@@ -90,6 +90,46 @@ Stage 4 needs an official muOS RG40XXV image:
 nix develop -c scripts/build-image.sh MustardOS_RG40XXV_<version>.img.xz dist/oxmux-rg40xxv.img
 ```
 
+## Nix image (mainline track)
+
+The flake builds a muOS-free system from nixpkgs, with oxmux as PID 1:
+
+```bash
+nix build .#oxmux     # static aarch64 binary (prebuilt musl std from rust-overlay)
+nix run .#vm          # boot it in QEMU aarch64: KMS on virtio-gpu, keyboard as gamepad
+nix build .#uboot     # mainline U-Boot + TF-A for H700 (anbernic_rg35xx_h700_defconfig)
+```
+
+The VM image is the base the device image grows from. It uses the stock nixpkgs kernel
+(prebuilt on cache.nixos.org), a static busybox for a serial shell, and oxmux's own driver
+loading (`coldplug`: modalias → modules.alias) instead of udev. Its profile is in
+`config/qemu/`. `OXMUX_VM_HEADLESS=1 OXMUX_VM_MONITOR=/tmp/mon nix run .#vm` runs it without
+a window, for scripted `sendkey`/`screendump` tests.
+
+What the RG40XXV needs beyond that (from upstream Linux, U-Boot and ROCKNIX as of 2026-09):
+- **Kernel:** mainline has no RG40XX device tree and no H700 display pipeline. ROCKNIX runs
+  7.2 with patches for the DE33/TCON display pipeline, the PWM backlight, the RG40XX panels
+  (firmware init sequences), GPU OPPs and suspend. Their `rg40xx-v.dts` builds on mainline's
+  `rg35xx-plus`.
+- **Bootloader:** mainline U-Boot and TF-A are enough for LPDDR4 units. ROCKNIX also
+  builds an LPDDR3 variant.
+- **Userland changes:** the display output becomes `kms`, the backlight moves to
+  `/sys/class/backlight`, and battery and input names change. This is a second
+  `device.toml`, with no code changes.
+
+### Sleep on either kernel
+
+oxmux's suspend path is kernel-agnostic: `/sys/power/state` = `mem` with the wakeup_count
+handshake, plus hooks. So the same userland sleeps on whichever kernel can.
+
+- **Vendor kernel (4.9, from muOS):** suspend-to-RAM works today, and muOS uses it. Stages
+  1–3 and the muOS-based stage 4 image run this kernel. A Nix image could reuse it too,
+  taking the kernel, DTB and modules from the muOS image as a fixed-output input.
+- **Mainline:** needs ROCKNIX's suspend patches (display and codec suspend, OPPs) plus their
+  `h700-suspend-stub`, a PSCI SYSTEM_SUSPEND stub in SRAM. How well it works on the RG40XXV
+  needs testing. Getting H700 suspend upstream (TF-A/crust + the driver patches) is the
+  long-term route.
+
 ## Known gaps
 
 - Nothing has run on real hardware yet. The device paths and codes come from the muOS

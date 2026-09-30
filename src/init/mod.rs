@@ -55,6 +55,8 @@ pub enum Step {
     Mkdir(PathBuf),
     Symlink(SymlinkStep),
     Zram(zram::ZramStep),
+    /// Load drivers for all detected devices (modules.alias).
+    Coldplug(ColdplugStep),
     Hostname(String),
     /// Wait for a path (e.g. a device node) to appear.
     Wait(WaitStep),
@@ -83,6 +85,13 @@ pub struct MountStep {
 pub enum ModuleSpec {
     Name(String),
     WithParams { name: String, params: String, #[serde(default)] optional: bool },
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields, default)]
+pub struct ColdplugStep {
+    /// Modules never to load automatically (e.g. a wifi driver to save power).
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,6 +264,11 @@ fn run_step(step: &Step) -> Result<()> {
                 .with_context(|| format!("symlink {} -> {}", s.link.display(), s.target.display()))
         }
         Step::Zram(z) => zram::setup(z),
+        Step::Coldplug(c) => {
+            let loaded = modules::coldplug(&c.exclude)?;
+            log(format_args!("coldplug loaded {} modules: {}", loaded.len(), loaded.join(" ")));
+            Ok(())
+        }
         Step::Hostname(h) => sys::sethostname(h),
         Step::Wait(w) => {
             if wait_for(&w.path, Duration::from_secs(w.timeout)) {

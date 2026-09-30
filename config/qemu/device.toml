@@ -1,0 +1,29 @@
+# QEMU aarch64 "virt" machine used to boot-test the Nix image: virtio-gpu (KMS) at the
+# handheld's 640x480, and the virtio keyboard standing in for the gamepad.
+name = "QEMU virt (oxmux test machine)"
+
+[input]
+gamepad = "QEMU Virtio Keyboard"
+
+# Linux key codes: arrows = d-pad, Z = A, X = B, S = X, A = Y, Q/W = L1/R1,
+# Shift = Select, Space = Start, Esc = Menu, -/= = volume.
+[buttons]
+up = 103
+down = 108
+left = 105
+right = 106
+a = 44
+b = 45
+x = 31
+y = 30
+l1 = 16
+r1 = 17
+select = 42
+start = 57
+menu = 1
+vol_down = 12
+vol_up = 13
+
+[display]
+output = "kms"
+card = "/dev/dri/card0"

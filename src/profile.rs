@@ -3,8 +3,9 @@
 //!
 //! Directory: `--config-dir`, else `$OXMUX_CONFIG_DIR`, else `etc/` next to the binary,
 //! else the binary's own directory if it holds any of the files (muOS application
-//! layout), else `/etc/oxmux`. A file missing from that directory falls back to the
-//! built-in RG40XXV default.
+//! layout), else `/opt/oxmux/etc`, else `/etc/oxmux`. The fixed paths matter for PID 1:
+//! before /proc is mounted the binary can't find out where it lives. A file missing from
+//! the directory falls back to the built-in RG40XXV default.
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +33,7 @@ impl Profile {
         }
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
         let has_files = |d: &Path| FILES.iter().any(|f| d.join(f).is_file());
-        let candidates = exe_dir.iter().flat_map(|d| [d.join("etc"), d.clone()]).chain([PathBuf::from("/etc/oxmux")]);
+        let candidates = exe_dir.iter().flat_map(|d| [d.join("etc"), d.clone()]).chain([PathBuf::from(crate::install::PREFIX).join("etc"), PathBuf::from("/etc/oxmux")]);
         Self { dir: candidates.into_iter().find(|d| has_files(d)) }
     }
 

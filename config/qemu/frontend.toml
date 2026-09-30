@@ -1,0 +1,18 @@
+# Test library baked into the QEMU image (empty files; there is no emulator in the base).
+rom_roots = ["/roms"]
+
+[retroarch]
+bin = "/bin/retroarch"
+core_dirs = ["/lib/libretro"]
+
+[[system]]
+name = "Game Boy Advance"
+dirs = ["GBA"]
+extensions = ["gba"]
+core = "mgba_libretro.so"
+
+[[system]]
+name = "SNES"
+dirs = ["SNES"]
+extensions = ["sfc"]
+core = "snes9x_libretro.so"
