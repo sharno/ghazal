@@ -98,9 +98,9 @@ impl Kms {
             for row in y..y + h {
                 let src = &frame[row * stride + x..][..w];
                 let dst = &mut bytes[row * pitch + x * 4..][..w * 4];
-                for (p, out) in src.iter().zip(dst.chunks_exact_mut(4)) {
+                for (p, out) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
                     // XRGB8888, little-endian in memory: B G R X.
-                    out.copy_from_slice(&[p.b, p.g, p.r, 0xff]);
+                    *out = [p.b, p.g, p.r, 0xff];
                 }
             }
         }
