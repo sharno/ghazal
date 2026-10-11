@@ -14,7 +14,14 @@ pub fn kernel_log() -> Result<()> {
     loop {
         match source.read(&mut record) {
             Ok(0) => bail!("kernel log closed"),
-            Ok(size) => { output.write_all(&record[..size])?; output.flush()?; }
+            Ok(size) => {
+                output.write_all(&record[..size])?;
+                output.flush()?;
+                if record[..size].windows(4).any(|bytes| bytes == b"PM: ") {
+                    let log = std::fs::File::open("/proc/self/fd/1")?;
+                    if log.metadata()?.is_file() { log.sync_all()?; }
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted || error.raw_os_error() == Some(libc::EPIPE) => continue,
             Err(error) => return Err(error.into()),
         }
