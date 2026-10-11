@@ -157,18 +157,16 @@ impl Display {
         Ok(())
     }
 
-    /// Before an emulator takes over the screen.
-    fn release(&mut self) {
-        if let Self::Kms(k) = self {
-            k.release();
-        }
-    }
-
-    /// After the emulator exits.
-    fn reacquire(&mut self) -> Result<()> {
+    /// The display stays exclusively borrowed until the emulator exits and its
+    /// original scanout has been restored.
+    fn with_released<T>(&mut self, run: impl FnOnce() -> T) -> Result<T> {
         match self {
-            Self::Fbdev(fb) => fb.reload(),
-            Self::Kms(k) => k.reacquire(),
+            Self::Fbdev(fb) => {
+                let result = run();
+                fb.reload()?;
+                Ok(result)
+            }
+            Self::Kms(k) => k.with_released(run),
         }
     }
 }
@@ -215,9 +213,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 Some(Effect::Quit) => return Ok(()),
                 Some(Effect::Launch(spec)) => {
                     input.release();
-                    display.release();
-                    let result = spec.run();
-                    display.reacquire()?;
+                    let result = display.with_released(|| spec.run())?;
                     screen.invalidate();
                     input.acquire();
                     repeater.clear();

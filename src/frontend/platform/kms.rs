@@ -24,6 +24,39 @@ impl AsFd for Card {
 impl drm::Device for Card {}
 impl ControlDevice for Card {}
 
+/// Discovery owns its file descriptor. Only a connected connector with a
+/// usable mode can become a SelectedDisplay; activation consumes this state.
+enum Probe {
+    RenderOnly,
+    Disconnected,
+    Connected(SelectedDisplay),
+}
+
+struct SelectedDisplay {
+    card: Card,
+    connector: connector::Info,
+    resources: drm::control::ResourceHandles,
+}
+
+impl Card {
+    fn probe(path: &Path) -> Result<Probe> {
+        let card = Self(OpenOptions::new().read(true).write(true).open(path)
+            .with_context(|| format!("opening {}", path.display()))?);
+        let resources = match card.resource_handles() {
+            Ok(resources) => resources,
+            Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => return Ok(Probe::RenderOnly),
+            Err(error) => return Err(error).context("reading DRM resources"),
+        };
+        for &handle in resources.connectors() {
+            let connector = card.get_connector(handle, true).context("reading DRM connector")?;
+            if connector.state() == connector::State::Connected && !connector.modes().is_empty() {
+                return Ok(Probe::Connected(SelectedDisplay { card, connector, resources }));
+            }
+        }
+        Ok(Probe::Disconnected)
+    }
+}
+
 pub struct Kms {
     card: Card,
     crtc: crtc::Handle,
@@ -46,34 +79,25 @@ impl Kms {
                 if !name.strip_prefix("card").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
                     continue;
                 }
-                let file = OpenOptions::new().read(true).write(true).open(node.path())?;
-                let card = Card(file);
-                let resources = match card.resource_handles() {
-                    Ok(resources) => resources,
-                    Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => continue,
-                    Err(error) => return Err(error).context("enumerating DRM resources"),
-                };
-                if resources.connectors().iter().any(|&handle| {
-                    card.get_connector(handle, true).is_ok_and(|c| c.state() == connector::State::Connected && !c.modes().is_empty())
-                }) {
-                    // The first open owns DRM master. Close it before reopening
-                    // the selected node so the modesetting handle owns master.
-                    drop(card);
-                    return Self::open(&node.path());
+                match Card::probe(&node.path())? {
+                    Probe::Connected(display) => return display.activate(&node.path()),
+                    Probe::RenderOnly | Probe::Disconnected => continue,
                 }
             }
             return Err(anyhow!("no connected KMS display in {}", path.display()));
         }
-        let file = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("opening {}", path.display()))?;
-        let card = Card(file);
-        let res = card.resource_handles().context("reading DRM resources")?;
+        match Card::probe(path)? {
+            Probe::Connected(display) => display.activate(path),
+            Probe::RenderOnly => Err(anyhow!("{} is a render-only DRM node", path.display())),
+            Probe::Disconnected => Err(anyhow!("no connected display on {}", path.display())),
+        }
+    }
+}
 
-        let conn = res
-            .connectors()
-            .iter()
-            .filter_map(|&c| card.get_connector(c, true).ok())
-            .find(|c| c.state() == connector::State::Connected && !c.modes().is_empty())
-            .ok_or_else(|| anyhow!("no connected display on {}", path.display()))?;
+impl SelectedDisplay {
+    fn activate(self, path: &Path) -> Result<Kms> {
+        let Self { card, connector: conn, resources: res } = self;
+        drm::Device::acquire_master_lock(&card).context("acquiring DRM master")?;
         let mode = *conn
             .modes()
             .iter()
@@ -99,12 +123,14 @@ impl Kms {
             map.as_mut().fill(0);
         }
         let fb = card.add_framebuffer(&buffer, 24, 32)?;
-        let kms = Self { card, crtc, connector: conn.handle(), mode, buffer, fb };
+        let kms = Kms { card, crtc, connector: conn.handle(), mode, buffer, fb };
         kms.modeset()?;
         eprintln!("oxmux: kms {} {}x{} on {:?}", path.display(), w, h, conn.interface());
         Ok(kms)
     }
+}
 
+impl Kms {
     fn modeset(&self) -> Result<()> {
         self.card
             .set_crtc(self.crtc, Some(self.fb), (0, 0), &[self.connector], Some(self.mode))
@@ -140,14 +166,23 @@ impl Kms {
     }
 
     /// Hands the display to another program (RetroArch), which becomes DRM master.
-    pub fn release(&self) {
-        let _ = drm::Device::release_master_lock(&self.card);
+    fn release(&self) -> Result<()> {
+        drm::Device::release_master_lock(&self.card).context("releasing DRM master")
     }
 
     /// Takes the display back and restores our mode and framebuffer.
-    pub fn reacquire(&self) -> Result<()> {
-        let _ = drm::Device::acquire_master_lock(&self.card);
+    fn reacquire(&self) -> Result<()> {
+        drm::Device::acquire_master_lock(&self.card).context("reacquiring DRM master")?;
         self.modeset()
+    }
+
+    /// Borrow the renderer for the entire handoff. Callers cannot present or
+    /// access Kms while the emulator owns DRM, or forget to restore the mode.
+    pub fn with_released<T>(&mut self, run: impl FnOnce() -> T) -> Result<T> {
+        self.release()?;
+        let result = run();
+        self.reacquire()?;
+        Ok(result)
     }
 }
 
