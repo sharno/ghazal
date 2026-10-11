@@ -1,0 +1,35 @@
+//! Small independent-system helpers, invoked by the service supervisor and iwd.
+use std::io::Read;
+use std::path::Path;
+
+use anyhow::{bail, Result};
+
+pub fn ssh_key() -> Result<()> {
+    let key = Path::new("/etc/ssh/ssh_host_ed25519_key");
+    if key.is_file() {
+        return Ok(());
+    }
+    let status = std::process::Command::new("/usr/bin/ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(key)
+        .status()?;
+    if !status.success() { bail!("SSH host key generation failed: {status}"); }
+    Ok(())
+}
+
+/// iwd's resolvconf backend passes DNS settings on stdin with `-a INTERFACE`.
+pub fn resolvconf() -> Result<()> {
+    if std::env::args().any(|arg| arg == "-a") {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        if input.len() > 65536 { bail!("resolver configuration too large"); }
+        for line in input.lines() {
+            if !(line.starts_with("nameserver ") || line.starts_with("search ") || line.starts_with('#') || line.is_empty()) {
+                bail!("unexpected resolver directive");
+            }
+        }
+        std::fs::write("/etc/resolv.conf.new", input)?;
+        std::fs::rename("/etc/resolv.conf.new", "/etc/resolv.conf")?;
+    }
+    Ok(())
+}

@@ -1,6 +1,7 @@
 //! oxmux: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
 
 mod daemon;
+mod debug;
 mod device;
 mod frontend;
 mod hw;
@@ -47,9 +48,23 @@ fn main() {
     // Invoked as /init (stage 4 image): be PID 1.
     let argv0 = std::env::args().next().unwrap_or_default();
     let as_init = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "init");
-    let result = if as_init { run_init(&Profile::locate(None)) } else { run() };
+    let as_bootstrap = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "oxmux-bootstrap");
+    let as_resolvconf = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "resolvconf");
+    let result = if as_resolvconf {
+        debug::resolvconf()
+    } else if as_bootstrap {
+        init::bootstrap::run()
+    } else if as_init { run_init(&Profile::locate(None)) } else { run() };
     if let Err(e) = result {
         eprintln!("oxmux: {e:#}");
+        // PID 1 exiting panics the kernel. Keep a console available on an independent
+        // image even when configuration or the root mount is broken.
+        if std::process::id() == 1 {
+            use std::os::unix::process::CommandExt;
+            eprintln!("oxmux: opening emergency console");
+            let _ = std::process::Command::new("/bin/sh").arg("-i").exec();
+            loop { std::thread::sleep(std::time::Duration::from_secs(60)); }
+        }
         std::process::exit(1);
     }
 }
@@ -66,6 +81,7 @@ fn run() -> Result<()> {
     let rest = args.get(1..).unwrap_or(&[]);
 
     match command.as_str() {
+        "ssh-key" => debug::ssh_key(),
         "frontend" => run_frontend(&profile, rest),
         "daemon" => daemon::run(&profile.device()?, &profile.system()?),
         "supervise" => {

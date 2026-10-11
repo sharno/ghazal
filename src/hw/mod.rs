@@ -84,7 +84,8 @@ pub fn rumble(cfg: &Option<device::Rumble>, duration: Duration) {
 pub fn suspend(mem_sleep: Option<&str>) -> Result<()> {
     sys::sync();
     if let Some(mode) = mem_sleep {
-        let _ = sys::write_file(Path::new("/sys/power/mem_sleep"), mode);
+        sys::write_file(Path::new("/sys/power/mem_sleep"), mode)
+            .with_context(|| format!("selecting {mode} sleep"))?;
     }
     let count_path = Path::new("/sys/power/wakeup_count");
     if let Ok(count) = std::fs::read_to_string(count_path) {

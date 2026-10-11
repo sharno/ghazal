@@ -1,0 +1,112 @@
+[[init.step]]
+mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "sysfs", target = "/sys", fstype = "sysfs", options = "nosuid,nodev,noexec" }
+[[init.step]]
+mount = { source = "devtmpfs", target = "/dev", fstype = "devtmpfs", options = "nosuid" }
+[[init.step]]
+mount = { source = "devpts", target = "/dev/pts", fstype = "devpts", options = "nosuid,noexec,gid=5,mode=0620" }
+[[init.step]]
+mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid,nodev,mode=0755" }
+[[init.step]]
+mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid,nodev" }
+[[init.step]]
+mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,noatime" }
+[[init.step]]
+hostname = "oxmux"
+[[init.step]]
+coldplug = {}
+[[init.step]]
+mount = { source = "/dev/mmcblk1p1", target = "/mnt/games", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 3, optional = true }
+[[init.step]]
+mkdir = "/run/dbus"
+[[init.step]]
+mkdir = "/run/sshd"
+
+[power]
+poweroff = "signal-init"
+reboot = "signal-init"
+# Require true suspend-to-RAM; do not silently select s2idle.
+mem_sleep = "deep"
+sleep_poweroff_after = 3600
+before_suspend = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "off"]]
+after_resume = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]]
+
+[daemon]
+state = "/var/lib/oxmux/settings.toml"
+socket = "/run/oxmux/daemon.sock"
+[[daemon.hotkey]]
+keys = ["vol_up"]
+action = "volume-up"
+[[daemon.hotkey]]
+keys = ["vol_down"]
+action = "volume-down"
+[[daemon.hotkey]]
+keys = ["menu", "vol_up"]
+action = "brightness-up"
+[[daemon.hotkey]]
+keys = ["menu", "vol_down"]
+action = "brightness-down"
+
+[supervisor]
+log_dir = "/var/log/oxmux"
+[[supervisor.service]]
+name = "kernel-log"
+exec = ["/bin/busybox", "dmesg", "-w"]
+restart = "always"
+[[supervisor.service]]
+name = "udev"
+exec = ["/usr/lib/systemd/systemd-udevd"]
+restart = "always"
+[[supervisor.service]]
+name = "udev-trigger"
+kind = "oneshot"
+exec = ["/usr/bin/udevadm", "trigger", "--action=add"]
+after = ["udev"]
+wait_for = ["/run/udev/control"]
+[[supervisor.service]]
+name = "udev-settle"
+kind = "oneshot"
+exec = ["/usr/bin/udevadm", "settle", "--timeout=10"]
+after = ["udev-trigger"]
+[[supervisor.service]]
+name = "dbus"
+exec = ["/usr/bin/dbus-daemon", "--system", "--nofork", "--nopidfile"]
+restart = "always"
+[[supervisor.service]]
+name = "wifi"
+exec = ["/usr/lib/iwd"]
+after = ["dbus"]
+wait_for = ["/run/dbus/system_bus_socket"]
+restart = "always"
+[[supervisor.service]]
+name = "ssh-host-key"
+kind = "oneshot"
+exec = ["/opt/oxmux/oxmux", "ssh-key"]
+[[supervisor.service]]
+name = "sshd"
+exec = ["/usr/sbin/sshd", "-D", "-e"]
+after = ["ssh-host-key"]
+restart = "always"
+[[supervisor.service]]
+name = "mixer"
+kind = "oneshot"
+exec = ["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]
+after = ["udev-settle"]
+[[supervisor.service]]
+name = "speaker"
+kind = "oneshot"
+exec = ["/usr/bin/amixer", "-c", "0", "sset", "Speaker", "on"]
+after = ["mixer"]
+[[supervisor.service]]
+name = "daemon"
+exec = ["/opt/oxmux/oxmux", "daemon"]
+after = ["mixer"]
+restart = "always"
+[[supervisor.service]]
+name = "frontend"
+exec = ["/opt/oxmux/oxmux", "frontend"]
+after = ["daemon"]
+wait_for = ["/dev/dri/card0"]
+restart = "always"
+env = { OXMUX_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }

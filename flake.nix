@@ -17,6 +17,13 @@
       target = nixpkgs.legacyPackages.aarch64-linux;
 
       oxmux = pkgs.callPackage ./nix/oxmux.nix { src = ./.; };
+      image-builder = pkgs.callPackage ./nix/image-builder.nix {
+        inherit oxmux;
+        src = ./.;
+        busybox = target.pkgsStatic.busybox;
+        tools = with pkgs; [ util-linux e2fsprogs jq mtools dosfstools
+          squashfsTools binutils cpio gzip curl coreutils findutils fakeroot ];
+      };
 
       # QEMU "virt" test machine: stock kernel, oxmux as PID 1 from an initramfs.
       vm = pkgs.callPackage ./nix/vm.nix {
@@ -35,17 +42,19 @@
     in
     {
       packages.${system} = {
-        inherit oxmux uboot;
+        inherit oxmux uboot image-builder;
         vm-initrd = vm.initrd;
         vm = vm.runner;
         default = vm.runner;
       };
 
       apps.${system}.vm = { type = "app"; program = "${vm.runner}/bin/oxmux-vm"; };
+      apps.${system}.image = { type = "app"; program = "${image-builder}/bin/oxmux-image-builder"; };
 
       devShells.${system}.default = pkgs.mkShell {
         # rustup for the toolchain; the rest is for scripts/build-image.sh and the VM.
-        packages = with pkgs; [ rustup util-linux e2fsprogs jq xz gptfdisk qemu ];
+        packages = with pkgs; [ rustup util-linux e2fsprogs jq xz gptfdisk qemu
+          mtools dosfstools squashfsTools binutils cpio gzip curl fakeroot ];
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath simLibs;
       };
     };

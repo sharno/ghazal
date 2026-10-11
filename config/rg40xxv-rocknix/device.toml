@@ -1,0 +1,48 @@
+# Derived from ROCKNIX H700 DT and its H700 Gamepad RetroArch autoconfiguration.
+name = "Anbernic RG40XX-V (ROCKNIX hardware stack)"
+
+[input]
+gamepad = "H700 Gamepad"
+
+[buttons]
+a = 305
+b = 304
+x = 307
+y = 308
+l1 = 310
+r1 = 311
+l2 = 312
+r2 = 313
+select = 314
+start = 315
+menu = 316
+l3 = 317
+r3 = 318
+up = 544
+down = 545
+left = 546
+right = 547
+vol_down = 114
+vol_up = 115
+power = 116
+
+[display]
+output = "kms"
+card = "/dev/dri/card0"
+
+[backlight]
+kind = "sysfs"
+path = "/sys/class/backlight/backlight/brightness"
+# PWM backlight has no DT brightness table: Linux default range is 0..255.
+max = 255
+min = 1
+
+[audio]
+card = 0
+control = "DAC Playback Volume"
+
+[battery]
+path = "/sys/class/power_supply/battery"
+
+[rtc]
+wakealarm = "/sys/class/rtc/rtc0/wakealarm"

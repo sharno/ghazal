@@ -8,6 +8,7 @@
 
 mod modules;
 mod zram;
+pub mod bootstrap;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -137,10 +138,8 @@ pub fn run(system: SystemConfig, device: &DeviceConfig) -> Result<()> {
     let started = Instant::now();
     for step in &system.init.steps {
         let t = Instant::now();
-        if let Err(e) = run_step(step) {
-            // Keep booting: a missing optional piece shouldn't leave the device dead.
-            log(format_args!("step {step:?} failed: {e:#}"));
-        } else if t.elapsed() > Duration::from_millis(200) {
+        run_step(step).with_context(|| format!("required boot step {step:?}"))?;
+        if t.elapsed() > Duration::from_millis(200) {
             log(format_args!("step took {:?}: {step:?}", t.elapsed()));
         }
     }
