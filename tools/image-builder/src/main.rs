@@ -109,6 +109,33 @@ impl Closure<'_> {
             return Err(format!("wrong architecture: {name}").into());
         }
         let info = output(Command::new("readelf").args(["-d", "-l"]).arg(&src))?;
+        let mut search = Vec::new();
+        for line in info
+            .lines()
+            .filter(|line| line.contains("(RPATH)") || line.contains("(RUNPATH)"))
+        {
+            let paths = line
+                .split('[')
+                .nth(1)
+                .ok_or("invalid library search path")?
+                .split(']')
+                .next()
+                .ok_or("invalid library search path")?;
+            let origin = Path::new(name)
+                .parent()
+                .ok_or("missing ELF parent")?
+                .to_string_lossy();
+            for dir in paths.split(':') {
+                let dir = dir
+                    .replace("${ORIGIN}", &origin)
+                    .replace("$ORIGIN", &origin);
+                if !dir.starts_with('/') {
+                    return Err("relative library search path is unsupported".into());
+                }
+                search.push(dir);
+            }
+        }
+        search.extend(["/usr/lib".to_string(), "/lib".to_string()]);
         for line in info.lines() {
             if line.contains("(NEEDED)") {
                 let lib = line
@@ -118,7 +145,11 @@ impl Closure<'_> {
                     .split(']')
                     .next()
                     .ok_or("invalid NEEDED")?;
-                let candidate = format!("/usr/lib/{lib}");
+                let candidate = search
+                    .iter()
+                    .map(|dir| format!("{dir}/{lib}"))
+                    .find(|path| resolve(self.source, Path::new(path)).is_ok())
+                    .ok_or_else(|| format!("unresolved ELF dependency {lib} required by {name}"))?;
                 self.add(&candidate)?;
             }
             if let Some(interp) = line.split("Requesting program interpreter: ").nth(1) {
@@ -226,6 +257,11 @@ fn main() -> Result<()> {
         .args(["-no-progress", "-d"])
         .arg(&upstream)
         .arg(work.join("SYSTEM")))?;
+    let release = fs::read_to_string(upstream.join("etc/os-release"))?;
+    let expected_revision = format!("BUILD_ID=\"{}\"", value("source_revision")?);
+    if !release.lines().any(|line| line == expected_revision) {
+        return Err("hardware source revision disagrees with hardware.lock".into());
+    }
     let root = work.join("root");
     fs::create_dir_all(&root)?;
     for dir in [
@@ -284,6 +320,10 @@ fn main() -> Result<()> {
     copy_tree(
         &upstream.join("usr/share/alsa"),
         &root.join("usr/share/alsa"),
+    )?;
+    copy_tree(
+        &upstream.join("usr/share/licenses"),
+        &root.join("usr/share/licenses"),
     )?;
     copy_tree(
         &upstream.join("usr/share/libretro/autoconfig"),
