@@ -211,9 +211,9 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
             match app.update(button) {
                 None => {}
                 Some(Effect::Quit) => return Ok(()),
-                Some(Effect::Launch(spec)) => {
+                Some(Effect::Launch { spec, game }) => {
                     input.release();
-                    let result = display.with_released(|| spec.run())?;
+                    let result = display.with_released(|| spec.run(|| app.launch_started(game)))?;
                     screen.invalidate();
                     input.acquire();
                     repeater.clear();

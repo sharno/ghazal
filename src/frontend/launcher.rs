@@ -37,7 +37,7 @@ impl LaunchSpec {
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.
-    pub fn run(&self) -> Result<std::process::ExitStatus> {
+    pub fn run(&self, on_started: impl FnOnce()) -> Result<std::process::ExitStatus> {
         let mut cmd = Command::new(&self.program);
         let mut pump = None;
         cmd.args(&self.args).envs(self.env.iter().cloned()).stdin(Stdio::null());
@@ -59,6 +59,7 @@ impl LaunchSpec {
             .with_context(|| format!("starting {}", self.program.display()))?;
         drop(cmd);
         let mut session = crate::emulator::Session::register(child)?;
+        on_started();
         let status = session.wait()?;
         drop(pump);
         Ok(status)

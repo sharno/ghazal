@@ -106,7 +106,8 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
 /// Sends one command and returns the reply line.
 pub fn request(socket: &Path, command: &str) -> Result<String> {
     let mut stream = UnixStream::connect(socket).with_context(|| format!("connecting to {}", socket.display()))?;
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    // Emulator recovery can wait 1.5 seconds for TERM and another 1.5 for KILL.
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(format!("{command}\n").as_bytes())?;
     let mut reply = String::new();
     BufReader::new(&stream).read_line(&mut reply)?;

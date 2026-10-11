@@ -11,7 +11,7 @@ let
 in
 stdenv.mkDerivation {
   pname = "oxmux";
-  version = (lib.importTOML "${src}/Cargo.toml").package.version;
+  version = (lib.importTOML (src + "/Cargo.toml")).package.version;
 
   src = lib.cleanSourceWith {
     inherit src;

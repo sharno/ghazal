@@ -10,6 +10,7 @@ jobs:
       - name: Check runtime and image builder
         run: |
           cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --features desktop --all-targets -- -D warnings
           cargo clippy --locked --manifest-path tools/image-builder/Cargo.toml -- -D warnings
           cargo clippy --locked --manifest-path tools/data-migration/Cargo.toml -- -D warnings
       - name: Run unit tests

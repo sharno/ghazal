@@ -20,7 +20,7 @@ const ROW_WINDOW: usize = 48;
 const ROW_MARGIN: usize = 16;
 
 pub enum Effect {
-    Launch(LaunchSpec),
+    Launch { spec: LaunchSpec, game: GameId },
     Quit,
 }
 
@@ -75,7 +75,6 @@ pub struct App {
     scan: Option<std::sync::mpsc::Receiver<Library>>,
     activity: Activity,
     collection_sel: [usize; 2],
-    pending_game: Option<GameId>,
     view: View,
     system_sel: usize,
     /// Remembered cursor per system.
@@ -120,7 +119,6 @@ impl App {
             scan: None,
             activity,
             collection_sel: [0; 2],
-            pending_game: None,
             view: View::Systems,
             system_sel: 0,
             menu: None,
@@ -188,7 +186,7 @@ impl App {
                         let id = GameId::new(system, game);
                         let (system, game) = id.resolve(&self.library)?;
                         match LaunchSpec::retroarch(&self.config, system, game) {
-                            Ok(spec) => { self.pending_game = Some(id); return Some(Effect::Launch(spec)); }
+                            Ok(spec) => return Some(Effect::Launch { spec, game: id }),
                             Err(e) => self.error(format!("{e:#}")),
                         }
                     }
@@ -216,13 +214,17 @@ impl App {
         None
     }
 
-    pub fn launch_finished(&mut self, result: anyhow::Result<std::process::ExitStatus>) {
-        if let (Some(game), Ok(_)) = (self.pending_game.take(), &result) {
-            if let Err(error) = self.activity.launched(game) {
-                self.error(format!("Saving history: {error:#}"));
-            }
-            self.rows_for = None;
+    pub fn launch_started(&mut self, game: GameId) {
+        // Persist before waiting for the emulator: history survives a reset
+        // during gameplay, and failed spawns never enter this callback.
+        if let Err(error) = self.activity.launched(game) {
+            eprintln!("oxmux: saving history: {error:#}");
+            self.error(format!("Saving history: {error:#}"));
         }
+        self.rows_for = None;
+    }
+
+    pub fn launch_finished(&mut self, result: anyhow::Result<std::process::ExitStatus>) {
         let result = result.and_then(|status| {
             if status.success() { Ok(()) } else { anyhow::bail!("emulator exited with {status}") }
         });

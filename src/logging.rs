@@ -93,3 +93,27 @@ impl Drop for LogPump {
         if let Some(thread) = self.thread.take() { let _ = thread.join(); }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotation_bounds_current_previous_and_legacy_files() {
+        let directory = std::env::temp_dir().join(format!("oxmux-log-{}", std::process::id()));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("service.log");
+        {
+            let mut log = RollingLog::open(&path).unwrap();
+            let chunk = [b'x'; 16384];
+            for _ in 0..=LIMIT / chunk.len() as u64 { log.append(&chunk).unwrap(); }
+        }
+        assert!(fs::metadata(&path).unwrap().len() <= LIMIT);
+        assert_eq!(fs::metadata(path.with_extension("log.previous")).unwrap().len(), LIMIT);
+        File::create(&path).unwrap().set_len(LIMIT * 3).unwrap();
+        drop(RollingLog::open(&path).unwrap());
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+        assert_eq!(fs::metadata(path.with_extension("log.previous")).unwrap().len(), LIMIT);
+        fs::remove_dir_all(directory).unwrap();
+    }
+}

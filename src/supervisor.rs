@@ -282,7 +282,7 @@ impl Supervisor {
             unsafe {
                 cmd.pre_exec(|| {
                     sys::reset_signal_mask();
-                    libc::setsid();
+                    if libc::setsid() < 0 { return Err(std::io::Error::last_os_error()); }
                     Ok(())
                 });
             }
@@ -317,6 +317,9 @@ impl Supervisor {
                 continue;
             };
             let svc = &mut self.services[i];
+            // A service owns its session, including any helper processes. Do
+            // not leave helpers behind when restarting a departed leader.
+            sys::kill(-pid, libc::SIGKILL);
             let ok = status == 0;
             log(format_args!("{} exited with status {status}", svc.cfg.name));
             match exit_decision(svc.cfg.kind, svc.cfg.restart, ok) {
@@ -356,6 +359,7 @@ impl Supervisor {
             let _ = self.signals.wait(Some(Duration::from_millis(100)));
             while let Some((pid, _)) = sys::reap_any() {
                 if let Some(s) = self.services.iter_mut().find(|s| matches!(s.state, State::Running { pid: running, .. } if running == pid)) {
+                    sys::kill(-pid, libc::SIGKILL);
                     s.state = State::Dead;
                 }
             }

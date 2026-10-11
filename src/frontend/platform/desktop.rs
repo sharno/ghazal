@@ -63,7 +63,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     save(&mut screen)?;
     for name in buttons.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
-        if let Some(Effect::Launch(spec)) = app.update(button) {
+        if let Some(Effect::Launch { spec, .. }) = app.update(button) {
             eprintln!("oxmux: would launch {} {:?}", spec.program.display(), spec.args);
         }
         save(&mut screen)?;
@@ -194,9 +194,9 @@ impl ApplicationHandler for Sim {
             match self.app.update(button) {
                 None => {}
                 Some(Effect::Quit) => return event_loop.exit(),
-                Some(Effect::Launch(spec)) => {
+                Some(Effect::Launch { spec, game }) => {
                     // Blocks the window while the emulator runs, same as on the device.
-                    let result = spec.run();
+                    let result = spec.run(|| self.app.launch_started(game));
                     self.repeater.clear();
                     self.app.launch_finished(result);
                     break;
