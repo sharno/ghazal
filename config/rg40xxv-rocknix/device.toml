@@ -1,5 +1,5 @@
 # Derived from ROCKNIX H700 DT and its H700 Gamepad RetroArch autoconfiguration.
-name = "Anbernic RG40XX-V (ROCKNIX hardware stack)"
+name = "Anbernic RG40XX-V v2 panel (ROCKNIX hardware stack)"
 
 [input]
 gamepad = "H700 Gamepad"
