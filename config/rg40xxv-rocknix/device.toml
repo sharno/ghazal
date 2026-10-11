@@ -28,7 +28,7 @@ power = 116
 
 [display]
 output = "kms"
-card = "/dev/dri/card0"
+card = "/dev/dri"
 
 [backlight]
 kind = "sysfs"

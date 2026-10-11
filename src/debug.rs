@@ -4,6 +4,23 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
+/// Read complete kernel records, including the boot backlog, without depending
+/// on optional BusyBox dmesg features. The supervisor persists stdout.
+pub fn kernel_log() -> Result<()> {
+    use std::io::Write;
+    let mut source = std::fs::File::open("/dev/kmsg")?;
+    let mut output = std::io::stdout().lock();
+    let mut record = [0u8; 65536];
+    loop {
+        match source.read(&mut record) {
+            Ok(0) => bail!("kernel log closed"),
+            Ok(size) => { output.write_all(&record[..size])?; output.flush()?; }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted || error.raw_os_error() == Some(libc::EPIPE) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 pub fn ssh_key() -> Result<()> {
     let key = Path::new("/etc/ssh/ssh_host_ed25519_key");
     if key.is_file() {

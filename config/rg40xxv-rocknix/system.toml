@@ -52,7 +52,7 @@ action = "brightness-down"
 log_dir = "/var/log/oxmux"
 [[supervisor.service]]
 name = "kernel-log"
-exec = ["/bin/busybox", "dmesg", "-w"]
+exec = ["/opt/oxmux/oxmux", "kernel-log"]
 restart = "always"
 [[supervisor.service]]
 name = "udev"
@@ -71,7 +71,7 @@ exec = ["/usr/bin/udevadm", "settle", "--timeout=10"]
 after = ["udev-trigger"]
 [[supervisor.service]]
 name = "dbus"
-exec = ["/usr/bin/dbus-daemon", "--system", "--nofork", "--nopidfile"]
+exec = ["/usr/bin/dbus-daemon", "--config-file=/etc/dbus-1/system.conf", "--nofork", "--nopidfile"]
 restart = "always"
 [[supervisor.service]]
 name = "wifi"
@@ -107,6 +107,6 @@ restart = "always"
 name = "frontend"
 exec = ["/opt/oxmux/oxmux", "frontend"]
 after = ["daemon"]
-wait_for = ["/dev/dri/card0"]
+wait_for = ["/dev/dri"]
 restart = "always"
 env = { OXMUX_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }

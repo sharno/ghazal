@@ -35,6 +35,32 @@ pub struct Kms {
 
 impl Kms {
     pub fn open(path: &Path) -> Result<Self> {
+        if path.is_dir() {
+            // DRM card numbers depend on probe order. Render-only GPUs have no
+            // connectors; select the node that actually owns a connected display.
+            let mut nodes = std::fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
+            nodes.sort_by_key(|entry| entry.file_name());
+            for node in nodes {
+                let name = node.file_name();
+                let name = name.to_string_lossy();
+                if !name.strip_prefix("card").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+                    continue;
+                }
+                let file = OpenOptions::new().read(true).write(true).open(node.path())?;
+                let card = Card(file);
+                let resources = match card.resource_handles() {
+                    Ok(resources) => resources,
+                    Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => continue,
+                    Err(error) => return Err(error).context("enumerating DRM resources"),
+                };
+                if resources.connectors().iter().any(|&handle| {
+                    card.get_connector(handle, true).is_ok_and(|c| c.state() == connector::State::Connected && !c.modes().is_empty())
+                }) {
+                    return Self::open(&node.path());
+                }
+            }
+            return Err(anyhow!("no connected KMS display in {}", path.display()));
+        }
         let file = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("opening {}", path.display()))?;
         let card = Card(file);
         let res = card.resource_handles().context("reading DRM resources")?;

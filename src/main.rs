@@ -82,6 +82,7 @@ fn run() -> Result<()> {
 
     match command.as_str() {
         "ssh-key" => debug::ssh_key(),
+        "kernel-log" => debug::kernel_log(),
         "frontend" => run_frontend(&profile, rest),
         "daemon" => daemon::run(&profile.device()?, &profile.system()?),
         "supervise" => {
