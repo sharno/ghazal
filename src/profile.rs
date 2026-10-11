@@ -50,7 +50,9 @@ impl Profile {
     }
 
     pub fn system(&self) -> Result<SystemConfig> {
-        self.load("system.toml", DEFAULT_SYSTEM).map(|(c, _)| c)
+        let (config, _): (SystemConfig, _) = self.load("system.toml", DEFAULT_SYSTEM)?;
+        config.validate()?;
+        Ok(config)
     }
 
     fn load<T: DeserializeOwned>(&self, name: &str, default: &str) -> Result<(T, Option<PathBuf>)> {

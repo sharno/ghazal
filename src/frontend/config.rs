@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct FrontendConfig {
     /// Directories that contain one sub-folder per system (e.g. `ROMS/GBA`).
     pub rom_roots: Vec<PathBuf>,
+    #[serde(default = "default_activity_file")]
+    pub activity_file: PathBuf,
     pub retroarch: RetroArch,
     /// Socket of `oxmux daemon`; enables the Sleep/Restart/Power off menu entries.
     #[serde(default = "default_socket")]
@@ -22,7 +24,11 @@ fn default_socket() -> PathBuf {
     "/run/oxmux/daemon.sock".into()
 }
 
-#[derive(Debug, Deserialize)]
+fn default_activity_file() -> PathBuf {
+    "/var/lib/oxmux/activity.toml".into()
+}
+
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RetroArch {
     pub bin: PathBuf,
@@ -40,7 +46,7 @@ pub struct RetroArch {
     pub log: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SystemEntry {
     pub name: String,
@@ -60,6 +66,7 @@ impl FrontendConfig {
             }
         };
         self.rom_roots.iter_mut().for_each(fix);
+        fix(&mut self.activity_file);
         self.retroarch.core_dirs.iter_mut().for_each(fix);
         self.retroarch.configs.iter_mut().for_each(fix);
         if let Some(log) = &mut self.retroarch.log {

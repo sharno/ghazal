@@ -1,9 +1,9 @@
 use std::ffi::OsString;
-use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::os::unix::process::CommandExt;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
 use super::config::FrontendConfig;
 use super::library::{Game, System};
@@ -37,27 +37,30 @@ impl LaunchSpec {
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self) -> Result<std::process::ExitStatus> {
         let mut cmd = Command::new(&self.program);
+        let mut pump = None;
         cmd.args(&self.args).envs(self.env.iter().cloned()).stdin(Stdio::null());
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe { cmd.pre_exec(|| {
+            crate::sys::reset_signal_mask();
+            if libc::setsid() < 0 { return Err(std::io::Error::last_os_error()); }
+            Ok(())
+        }); }
         if let Some(log) = &self.log {
-            if let Some(dir) = log.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log)
+            let (file, reader) = crate::logging::LogPump::open(log)
                 .with_context(|| format!("opening {}", log.display()))?;
             cmd.stdout(file.try_clone()?).stderr(file);
+            pump = Some(reader);
         }
         eprintln!("oxmux: launching {} {:?}", self.program.display(), self.args);
-        let status = cmd
-            .status()
+        let child = cmd
+            .spawn()
             .with_context(|| format!("starting {}", self.program.display()))?;
-        if !status.success() {
-            bail!("emulator exited with {status}");
-        }
-        Ok(())
+        drop(cmd);
+        let mut session = crate::emulator::Session::register(child)?;
+        let status = session.wait()?;
+        drop(pump);
+        Ok(status)
     }
 }

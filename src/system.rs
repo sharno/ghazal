@@ -22,6 +22,16 @@ pub struct SystemConfig {
     pub init: InitConfig,
 }
 
+impl SystemConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        self.supervisor.validate()?;
+        if self.power.suspend == SuspendPolicy::Disabled && self.daemon.idle.sleep_after != 0 {
+            anyhow::bail!("disabled suspend requires daemon.idle.sleep_after = 0");
+        }
+        Ok(())
+    }
+}
+
 impl Default for SupervisorConfig {
     fn default() -> Self {
         Self { log_dir: "/run/oxmux/log".into(), replaces: Vec::new(), services: Vec::new() }
@@ -113,6 +123,7 @@ pub enum Action {
     Suspend,
     Poweroff,
     Reboot,
+    StopEmulator,
     /// Run a command (fire and forget).
     Exec(Vec<String>),
 }
@@ -120,6 +131,8 @@ pub enum Action {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct PowerConfig {
+    pub suspend: SuspendPolicy,
+    pub suspend_checkpoint: Option<PathBuf>,
     pub poweroff: PowerMethod,
     pub reboot: PowerMethod,
     /// Written to /sys/power/mem_sleep before suspending, if set (e.g. "deep").
@@ -136,6 +149,8 @@ impl Default for PowerConfig {
     fn default() -> Self {
         Self {
             poweroff: PowerMethod::SignalInit,
+            suspend: SuspendPolicy::Enabled,
+            suspend_checkpoint: None,
             reboot: PowerMethod::SignalInit,
             mem_sleep: None,
             sleep_poweroff_after: 3600,
@@ -143,6 +158,14 @@ impl Default for PowerConfig {
             after_resume: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SuspendPolicy {
+    #[default]
+    Enabled,
+    Disabled,
 }
 
 #[derive(Debug, Deserialize, Clone)]

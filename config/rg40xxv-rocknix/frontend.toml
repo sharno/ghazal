@@ -2,6 +2,7 @@
 
 # Games live on SD2.
 rom_roots = ["/mnt/games/ROMS"]
+activity_file = "/mnt/games/.oxmux/activity.toml"
 
 [retroarch]
 bin = "/usr/bin/retroarch"

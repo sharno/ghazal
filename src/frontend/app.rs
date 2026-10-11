@@ -6,10 +6,11 @@ use slint::{ModelRc, SharedString, VecModel};
 use super::config::FrontendConfig;
 use super::input::Button;
 use super::launcher::LaunchSpec;
-use super::library::Library;
+use super::library::{Game, Library, System};
 use crate::daemon::ctl;
 use crate::hw::battery;
 use crate::ui::{AppWindow, Hint, Row};
+use super::activity::{Activity, GameId};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
 const STATUS_REFRESH: Duration = Duration::from_secs(20);
@@ -26,7 +27,14 @@ pub enum Effect {
 #[derive(Clone, Copy, PartialEq)]
 enum View {
     Systems,
-    Games(usize),
+    Games(GameList),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum GameList {
+    System(usize),
+    Favorites,
+    Recent,
 }
 
 #[derive(Clone, Copy)]
@@ -54,7 +62,7 @@ impl MenuItem {
 const HINTS: [&[(&str, &str)]; 3] = [
     &[("A", "Select"), ("B", "Close")],
     &[("A", "Open"), ("≡", "Menu")],
-    &[("A", "Play"), ("B", "Back"), ("◂▸", "System"), ("≡", "Menu")],
+    &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")],
 ];
 
 /// All frontend state. After every change `sync()` pushes it into the Slint window,
@@ -64,6 +72,10 @@ pub struct App {
     ui: AppWindow,
     menu_items: Vec<MenuItem>,
     library: Library,
+    scan: Option<std::sync::mpsc::Receiver<Library>>,
+    activity: Activity,
+    collection_sel: [usize; 2],
+    pending_game: Option<GameId>,
     view: View,
     system_sel: usize,
     /// Remembered cursor per system.
@@ -78,7 +90,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: FrontendConfig, ui: AppWindow) -> Self {
+    pub fn new(config: FrontendConfig, ui: AppWindow) -> anyhow::Result<Self> {
+        let activity = Activity::load(&config.activity_file)?;
         let library = Library::scan(&config);
         eprintln!("oxmux: {} systems, {} games", library.systems.len(), library.game_count());
         let roots: Vec<_> = config.rom_roots.iter().map(|p| p.display().to_string()).collect();
@@ -86,7 +99,10 @@ impl App {
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
         let mut menu_items = vec![MenuItem::Rescan];
         if config.daemon_socket.exists() {
-            menu_items.extend([MenuItem::Sleep, MenuItem::Restart, MenuItem::PowerOff]);
+            if ctl::request(&config.daemon_socket, "status").is_ok_and(|reply| reply.split_whitespace().any(|field| field == "suspend=1")) {
+                menu_items.push(MenuItem::Sleep);
+            }
+            menu_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
         }
         if std::env::var_os("OXMUX_EMBEDDED").is_none() {
             menu_items.push(MenuItem::Quit);
@@ -101,6 +117,10 @@ impl App {
             ui,
             menu_items,
             library,
+            scan: None,
+            activity,
+            collection_sel: [0; 2],
+            pending_game: None,
             view: View::Systems,
             system_sel: 0,
             menu: None,
@@ -112,10 +132,15 @@ impl App {
         };
         app.refresh_status(Instant::now());
         app.sync();
-        app
+        Ok(app)
     }
 
     pub fn update(&mut self, button: Button) -> Option<Effect> {
+        if self.config.daemon_socket.exists() {
+            if let Err(error) = ctl::request(&self.config.daemon_socket, "activity") {
+                eprintln!("oxmux: reporting input activity: {error:#}");
+            }
+        }
         let effect = self.handle(button);
         self.sync();
         effect
@@ -143,38 +168,64 @@ impl App {
 
         match self.view {
             View::Systems => {
-                let len = self.library.systems.len();
+                let len = self.library.systems.len() + 2;
                 match button {
-                    Button::A if len > 0 => self.view = View::Games(self.system_sel),
+                    Button::A => self.view = View::Games(match self.system_sel {
+                        0 => GameList::Favorites,
+                        1 => GameList::Recent,
+                        index => GameList::System(index - 2),
+                    }),
                     b => self.system_sel = navigate(self.system_sel, len, b),
                 }
             }
-            View::Games(sys) => {
-                let len = self.library.systems[sys].games.len();
+            View::Games(list) => {
+                let len = self.game_count(list);
+                let selected = self.selection(list).min(len.saturating_sub(1));
                 match button {
                     Button::B => self.view = View::Systems,
-                    Button::A => {
-                        let system = &self.library.systems[sys];
-                        let game = &system.games[self.game_sel[sys]];
+                    Button::A if len > 0 => {
+                        let (system, game) = self.game_at(list, selected)?;
+                        let id = GameId::new(system, game);
+                        let (system, game) = id.resolve(&self.library)?;
                         match LaunchSpec::retroarch(&self.config, system, game) {
-                            Ok(spec) => return Some(Effect::Launch(spec)),
+                            Ok(spec) => { self.pending_game = Some(id); return Some(Effect::Launch(spec)); }
                             Err(e) => self.error(format!("{e:#}")),
                         }
                     }
                     // Left/Right on the game list jumps between systems.
-                    Button::Left | Button::Right => {
-                        let dir = if button == Button::Left { -1 } else { 1 };
-                        self.system_sel = step(sys, self.library.systems.len(), dir, true);
-                        self.view = View::Games(self.system_sel);
+                    Button::Y if len > 0 => {
+                        let (system, game) = self.game_at(list, selected)?;
+                        let id = GameId::new(system, game);
+                        match self.activity.toggle_favorite(id) {
+                            Ok(added) => self.toast = Some((if added { "Added to Favorites" } else { "Removed from Favorites" }.into(), Instant::now(), false)),
+                            Err(error) => self.error(format!("Saving favorite: {error:#}")),
+                        }
+                        self.rows_for = None;
                     }
-                    b => self.game_sel[sys] = navigate(self.game_sel[sys], len, b),
+                    Button::Left | Button::Right if matches!(list, GameList::System(_)) => {
+                        let GameList::System(sys) = list else { unreachable!() };
+                        let dir = if button == Button::Left { -1 } else { 1 };
+                        let next = step(sys, self.library.systems.len(), dir, true);
+                        self.system_sel = next + 2;
+                        self.view = View::Games(GameList::System(next));
+                    }
+                    b => *self.selection_mut(list) = navigate(selected, len, b),
                 }
             }
         }
         None
     }
 
-    pub fn launch_finished(&mut self, result: anyhow::Result<()>) {
+    pub fn launch_finished(&mut self, result: anyhow::Result<std::process::ExitStatus>) {
+        if let (Some(game), Ok(_)) = (self.pending_game.take(), &result) {
+            if let Err(error) = self.activity.launched(game) {
+                self.error(format!("Saving history: {error:#}"));
+            }
+            self.rows_for = None;
+        }
+        let result = result.and_then(|status| {
+            if status.success() { Ok(()) } else { anyhow::bail!("emulator exited with {status}") }
+        });
         if let Err(e) = result {
             eprintln!("oxmux: launch failed: {e:#}");
             self.error(format!("{e:#}"));
@@ -185,6 +236,25 @@ impl App {
 
     /// Periodic housekeeping: toast expiry, clock and battery.
     pub fn tick(&mut self, now: Instant) {
+        if let Some(receiver) = &self.scan {
+            match receiver.try_recv() {
+                Ok(library) => {
+                    self.scan = None;
+                    self.game_sel = vec![0; library.systems.len()];
+                    self.system_sel = self.system_sel.min(library.systems.len() + 1);
+                    self.collection_sel = [0; 2];
+                    self.view = View::Systems;
+                    self.rows_for = None;
+                    self.toast = Some((format!("Found {} games", library.game_count()), now, false));
+                    self.library = library;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.scan = None;
+                    self.error("Library scan worker failed".into());
+                }
+            }
+        }
         if self.toast.as_ref().is_some_and(|(_, at, _)| now >= *at + TOAST_DURATION) {
             self.toast = None;
         }
@@ -195,7 +265,7 @@ impl App {
     }
 
     pub fn next_deadline(&self) -> Instant {
-        let status = self.status_checked + STATUS_REFRESH;
+        let status = if self.scan.is_some() { Instant::now() + Duration::from_millis(50) } else { self.status_checked + STATUS_REFRESH };
         match &self.toast {
             Some((_, at, _)) => status.min(*at + TOAST_DURATION),
             None => status,
@@ -218,12 +288,19 @@ impl App {
     fn activate(&mut self, item: MenuItem) -> Option<Effect> {
         match item {
             MenuItem::Rescan => {
-                self.library = Library::scan(&self.config);
-                self.game_sel = vec![0; self.library.systems.len()];
-                self.system_sel = self.system_sel.min(self.library.systems.len().saturating_sub(1));
-                self.view = View::Systems;
-                self.rows_for = None;
-                self.toast = Some((format!("Found {} games", self.library.game_count()), Instant::now(), false));
+                if self.scan.is_none() {
+                    let config = self.config.clone();
+                    let (sender, receiver) = std::sync::mpsc::channel();
+                    match std::thread::Builder::new().name("oxmux-library".into()).spawn(move || {
+                        let _ = sender.send(Library::scan(&config));
+                    }) {
+                        Ok(_) => {
+                            self.scan = Some(receiver);
+                            self.toast = Some(("Scanning library…".into(), Instant::now(), false));
+                        }
+                        Err(error) => self.error(format!("Starting library scan: {error}")),
+                    }
+                }
                 None
             }
             MenuItem::Sleep => self.power("suspend"),
@@ -245,14 +322,54 @@ impl App {
         self.toast = Some((msg, Instant::now(), true));
     }
 
+    fn game_count(&self, list: GameList) -> usize {
+        match list {
+            GameList::System(index) => self.library.systems[index].games.len(),
+            GameList::Favorites => self.activity.favorites().filter(|id| id.resolve(&self.library).is_some()).count(),
+            GameList::Recent => self.activity.recent().filter(|id| id.resolve(&self.library).is_some()).count(),
+        }
+    }
+
+    fn game_at(&self, list: GameList, index: usize) -> Option<(&System, &Game)> {
+        match list {
+            GameList::System(system) => {
+                let system = self.library.systems.get(system)?;
+                Some((system, system.games.get(index)?))
+            }
+            GameList::Favorites => self.activity.favorites().filter_map(|id| id.resolve(&self.library)).nth(index),
+            GameList::Recent => self.activity.recent().filter_map(|id| id.resolve(&self.library)).nth(index),
+        }
+    }
+
+    fn selection(&self, list: GameList) -> usize {
+        match list {
+            GameList::System(index) => self.game_sel[index],
+            GameList::Favorites => self.collection_sel[0],
+            GameList::Recent => self.collection_sel[1],
+        }
+    }
+
+    fn selection_mut(&mut self, list: GameList) -> &mut usize {
+        match list {
+            GameList::System(index) => &mut self.game_sel[index],
+            GameList::Favorites => &mut self.collection_sel[0],
+            GameList::Recent => &mut self.collection_sel[1],
+        }
+    }
+
     /// Pushes state into the UI. Slint only repaints what actually changed.
     fn sync(&mut self) {
         let ui = &self.ui;
         let (title, selected, total) = match self.view {
-            View::Systems => ("Systems", self.system_sel, self.library.systems.len()),
-            View::Games(sys) => {
-                let system = &self.library.systems[sys];
-                (system.name.as_str(), self.game_sel[sys], system.games.len())
+            View::Systems => ("Systems", self.system_sel, self.library.systems.len() + 2),
+            View::Games(list) => {
+                let title = match list {
+                    GameList::System(index) => self.library.systems[index].name.as_str(),
+                    GameList::Favorites => "Favorites",
+                    GameList::Recent => "Recent Games",
+                };
+                let len = self.game_count(list);
+                (title, self.selection(list).min(len.saturating_sub(1)), len)
             }
         };
 
@@ -268,13 +385,19 @@ impl App {
             let start = selected.saturating_sub(ROW_WINDOW / 2).min(max_start);
             let range = start..(start + ROW_WINDOW).min(total);
             let rows: Vec<Row> = match self.view {
-                View::Systems => self.library.systems[range]
-                    .iter()
-                    .map(|s| Row { label: s.name.as_str().into(), detail: s.games.len().to_string().into() })
-                    .collect(),
-                View::Games(sys) => self.library.systems[sys].games[range]
-                    .iter()
-                    .map(|g| Row { label: g.title.as_str().into(), detail: SharedString::new() })
+                View::Systems => range.map(|index| match index {
+                    0 => Row { label: "Favorites".into(), detail: self.game_count(GameList::Favorites).to_string().into() },
+                    1 => Row { label: "Recent Games".into(), detail: self.game_count(GameList::Recent).to_string().into() },
+                    index => {
+                        let system = &self.library.systems[index - 2];
+                        Row { label: system.name.as_str().into(), detail: system.games.len().to_string().into() }
+                    }
+                }).collect(),
+                View::Games(list) => range
+                    .filter_map(|index| self.game_at(list, index).map(|(system, game)| Row {
+                        label: game.title.as_str().into(),
+                        detail: format!("{}{}", if self.activity.is_favorite(&GameId::new(system, game)) { "★ " } else { "" }, if matches!(list, GameList::System(_)) { "" } else { system.name.as_str() }).into(),
+                    }))
                     .collect(),
             };
             ui.set_rows(ModelRc::from(Rc::new(VecModel::from(rows))));
@@ -285,6 +408,11 @@ impl App {
         }
 
         ui.set_heading(title.into());
+        ui.set_empty_message(match self.view {
+            View::Games(GameList::Favorites) => "Press Y on a game to add a favorite".to_owned(),
+            View::Games(GameList::Recent) => "Games you launch will appear here".to_owned(),
+            _ => format!("No games found in {}", self.config.rom_roots.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")),
+        }.into());
         ui.set_selected(selected as i32);
         ui.set_menu_selected(self.menu.map_or(-1, |m| m as i32));
 

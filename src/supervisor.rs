@@ -6,7 +6,6 @@
 //! exponential backoff; a service that crash-loops is replaced by its `fallback` command.
 
 use std::collections::BTreeMap;
-use std::fs::OpenOptions;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -47,7 +46,6 @@ pub struct ServiceConfig {
     #[serde(default)]
     pub optional: bool,
 }
-
 #[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
@@ -84,10 +82,10 @@ fn default_log_dir() -> PathBuf {
     "/run/oxmux/log".into()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug)]
 enum State {
     Pending,
-    Running { pid: i32 },
+    Running { pid: i32, _log: crate::logging::LogPump },
     /// Oneshot finished successfully.
     Done,
     /// Waiting to restart.
@@ -100,7 +98,30 @@ struct Service {
     cfg: ServiceConfig,
     state: State,
     crashes: Vec<Instant>,
-    in_fallback: bool,
+    command: CommandChoice,
+}
+
+enum CommandChoice {
+    Primary,
+    Fallback(Vec<String>),
+}
+
+#[derive(Debug, PartialEq)]
+enum ExitDecision { Complete, Dead, Restart }
+
+fn exit_decision(kind: Kind, restart: Restart, success: bool) -> ExitDecision {
+    match (kind, success, restart) {
+        (Kind::Oneshot, true, _) => ExitDecision::Complete,
+        (Kind::Oneshot, false, _) => ExitDecision::Dead,
+        (Kind::Simple, _, Restart::Never) | (Kind::Simple, true, Restart::OnFailure) => ExitDecision::Dead,
+        (Kind::Simple, _, _) => ExitDecision::Restart,
+    }
+}
+
+fn blocked_dependency(services: &[Service], index: usize) -> Option<&str> {
+    services[index].cfg.after.iter().find(|dependency| {
+        services.iter().any(|service| &service.cfg.name == *dependency && matches!(service.state, State::Dead) && !service.cfg.optional)
+    }).map(String::as_str)
 }
 
 /// Why the supervisor loop stopped.
@@ -123,8 +144,9 @@ pub struct Supervisor {
     pid1: bool,
 }
 
-impl Supervisor {
-    pub fn new(cfg: &SupervisorConfig, pid1: bool) -> Result<Self> {
+impl SupervisorConfig {
+    pub fn validate(&self) -> Result<()> {
+        let cfg = self;
         let mut names = std::collections::HashSet::new();
         for s in &cfg.services {
             if !names.insert(s.name.as_str()) {
@@ -133,14 +155,35 @@ impl Supervisor {
             if s.exec.is_empty() {
                 bail!("service {:?} has an empty exec", s.name);
             }
+            if s.fallback.as_ref().is_some_and(|command| command.is_empty()) {
+                bail!("service {:?} has an empty fallback", s.name);
+            }
         }
-        for s in &cfg.services {
-            for dep in &s.after {
-                if !names.contains(dep.as_str()) {
-                    bail!("service {:?} is after unknown service {dep:?}", s.name);
+        for service in &cfg.services {
+            for dependency in &service.after {
+                if !names.contains(dependency.as_str()) {
+                    bail!("service {:?} is after unknown service {dependency:?}", service.name);
                 }
             }
         }
+        let mut ordered = std::collections::HashSet::new();
+        loop {
+            let before = ordered.len();
+            for service in &cfg.services {
+                if service.after.iter().all(|dependency| ordered.contains(dependency.as_str())) {
+                    ordered.insert(service.name.as_str());
+                }
+            }
+            if ordered.len() == cfg.services.len() { break; }
+            if before == ordered.len() { bail!("service dependency graph contains a cycle"); }
+        }
+        Ok(())
+    }
+}
+
+impl Supervisor {
+    pub fn new(cfg: &SupervisorConfig, pid1: bool) -> Result<Self> {
+        cfg.validate()?;
         std::fs::create_dir_all(&cfg.log_dir).with_context(|| format!("creating {}", cfg.log_dir.display()))?;
         for name in &cfg.replaces {
             sys::kill_by_name(name);
@@ -150,7 +193,7 @@ impl Supervisor {
             services: cfg
                 .services
                 .iter()
-                .map(|c| Service { cfg: c.clone(), state: State::Pending, crashes: Vec::new(), in_fallback: false })
+                .map(|c| Service { cfg: c.clone(), state: State::Pending, crashes: Vec::new(), command: CommandChoice::Primary })
                 .collect(),
             started: Vec::new(),
             signals: sys::SignalFd::new()?,
@@ -182,22 +225,38 @@ impl Supervisor {
 
     fn start_ready(&mut self) {
         let now = Instant::now();
-        for i in 0..self.services.len() {
-            let ready = match self.services[i].state {
-                State::Pending => self.deps_met(i) && self.services[i].cfg.wait_for.iter().all(|p| p.exists()),
-                State::Backoff { until } => now >= until,
-                _ => false,
-            };
-            if ready {
-                self.spawn(i);
+        loop {
+            let mut changed = false;
+            for index in 0..self.services.len() {
+                if !matches!(self.services[index].state, State::Pending | State::Backoff { .. }) { continue; }
+                let failed = blocked_dependency(&self.services, index).map(str::to_string);
+                if let Some(dependency) = failed {
+                    log(format_args!("{} cannot start: required dependency {dependency} is dead", self.services[index].cfg.name));
+                    self.services[index].state = State::Dead;
+                    changed = true;
+                }
             }
+            for i in 0..self.services.len() {
+                let ready = match &self.services[i].state {
+                    State::Pending => self.deps_met(i) && self.services[i].cfg.wait_for.iter().all(|p| p.exists()),
+                    State::Backoff { until } => now >= *until && self.deps_met(i),
+                    _ => false,
+                };
+                if ready {
+                    self.spawn(i);
+                    changed = true;
+                }
+            }
+            // Spawn failures and optional services can unblock dependents in
+            // either declaration order. Resolve the graph before sleeping.
+            if !changed { break; }
         }
     }
 
     fn deps_met(&self, i: usize) -> bool {
         self.services[i].cfg.after.iter().all(|dep| {
             let d = self.services.iter().find(|s| &s.cfg.name == dep).expect("validated in new()");
-            match (d.cfg.kind, d.state) {
+            match (d.cfg.kind, &d.state) {
                 (Kind::Oneshot, State::Done) => true,
                 (Kind::Simple, State::Running { .. }) => true,
                 // A dead optional dependency doesn't block dependents.
@@ -209,14 +268,14 @@ impl Supervisor {
 
     fn spawn(&mut self, i: usize) {
         let svc = &mut self.services[i];
-        let argv = match (&svc.cfg.fallback, svc.in_fallback) {
-            (Some(fallback), true) => fallback.clone(),
-            _ => svc.cfg.exec.clone(),
+        let argv = match &svc.command {
+            CommandChoice::Fallback(fallback) => fallback.clone(),
+            CommandChoice::Primary => svc.cfg.exec.clone(),
         };
         let log_path = svc.cfg.log.clone().unwrap_or_else(|| self.log_dir.join(format!("{}.log", svc.cfg.name)));
 
-        let result = (|| -> Result<i32> {
-            let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+        let result = (|| -> Result<(i32, crate::logging::LogPump)> {
+            let (log, pump) = crate::logging::LogPump::open(&log_path)?;
             let mut cmd = Command::new(&argv[0]);
             cmd.args(&argv[1..]).envs(&svc.cfg.env).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
             // SAFETY: only async-signal-safe calls between fork and exec.
@@ -228,13 +287,13 @@ impl Supervisor {
                 });
             }
             let child = cmd.spawn().with_context(|| format!("starting {:?}", argv[0]))?;
-            Ok(child.id() as i32)
+            Ok((child.id() as i32, pump))
         })();
 
         match result {
-            Ok(pid) => {
+            Ok((pid, pump)) => {
                 log(format_args!("started {} (pid {pid})", svc.cfg.name));
-                svc.state = State::Running { pid };
+                svc.state = State::Running { pid, _log: pump };
                 self.started.retain(|&s| s != i);
                 self.started.push(i);
             }
@@ -251,7 +310,7 @@ impl Supervisor {
 
     fn reap(&mut self) {
         while let Some((pid, status)) = sys::reap_any() {
-            let Some(i) = self.services.iter().position(|s| s.state == State::Running { pid }) else {
+            let Some(i) = self.services.iter().position(|s| matches!(s.state, State::Running { pid: running, .. } if running == pid)) else {
                 if !self.pid1 {
                     log(format_args!("reaped unknown pid {pid}"));
                 }
@@ -260,46 +319,24 @@ impl Supervisor {
             let svc = &mut self.services[i];
             let ok = status == 0;
             log(format_args!("{} exited with status {status}", svc.cfg.name));
-            match (svc.cfg.kind, ok, svc.cfg.restart) {
-                (Kind::Oneshot, true, _) => svc.state = State::Done,
-                (Kind::Oneshot, false, _) => svc.state = State::Dead,
-                (Kind::Simple, _, Restart::Never) | (Kind::Simple, true, Restart::OnFailure) => svc.state = State::Dead,
-                (Kind::Simple, true, Restart::Always) => {
-                    svc.state = State::Backoff { until: Instant::now() + Duration::from_millis(200) }
-                }
-                (Kind::Simple, false, _) => self.failed(i),
+            match exit_decision(svc.cfg.kind, svc.cfg.restart, ok) {
+                ExitDecision::Complete => svc.state = State::Done,
+                ExitDecision::Dead => svc.state = State::Dead,
+                ExitDecision::Restart => self.failed(i),
             }
         }
     }
 
     fn failed(&mut self, i: usize) {
-        let now = Instant::now();
-        let svc = &mut self.services[i];
-        svc.crashes.retain(|t| now.duration_since(*t) < CRASH_WINDOW);
-        svc.crashes.push(now);
-        if svc.cfg.kind == Kind::Oneshot || svc.cfg.restart == Restart::Never {
-            svc.state = State::Dead;
-            return;
-        }
-        if svc.crashes.len() >= CRASH_LIMIT && svc.cfg.fallback.is_some() && !svc.in_fallback {
-            log(format_args!("{} is crash-looping; switching to its fallback", svc.cfg.name));
-            svc.in_fallback = true;
-            svc.crashes.clear();
-            svc.state = State::Backoff { until: now };
-            return;
-        }
-        let exp = svc.crashes.len().saturating_sub(1).min(5) as u32;
-        let delay = (Duration::from_secs(1) * 2u32.pow(exp)).min(MAX_BACKOFF);
-        svc.state = State::Backoff { until: now + delay };
+        self.services[i].failed(Instant::now());
     }
 
     fn next_timeout(&self) -> Option<Duration> {
         let now = Instant::now();
         let mut timeout: Option<Duration> = None;
         for (i, s) in self.services.iter().enumerate() {
-            let t = match s.state {
-                State::Backoff { until } => until.saturating_duration_since(now),
-                // Poll for wait_for paths to appear.
+            let t = match &s.state {
+                State::Backoff { until } if self.deps_met(i) => until.saturating_duration_since(now),
                 State::Pending if self.deps_met(i) => Duration::from_millis(250),
                 _ => continue,
             };
@@ -310,8 +347,7 @@ impl Supervisor {
 
     fn stop_all(&mut self) {
         for &i in self.started.iter().rev() {
-            if let State::Running { pid } = self.services[i].state {
-                // Signal the whole session/process group (spawned with setsid).
+            if let State::Running { pid, .. } = self.services[i].state {
                 sys::kill(-pid, libc::SIGTERM);
             }
         }
@@ -319,13 +355,13 @@ impl Supervisor {
         while self.services.iter().any(|s| matches!(s.state, State::Running { .. })) && Instant::now() < deadline {
             let _ = self.signals.wait(Some(Duration::from_millis(100)));
             while let Some((pid, _)) = sys::reap_any() {
-                if let Some(s) = self.services.iter_mut().find(|s| s.state == State::Running { pid }) {
+                if let Some(s) = self.services.iter_mut().find(|s| matches!(s.state, State::Running { pid: running, .. } if running == pid)) {
                     s.state = State::Dead;
                 }
             }
         }
         for s in &mut self.services {
-            if let State::Running { pid } = s.state {
+            if let State::Running { pid, .. } = s.state {
                 log(format_args!("killing {} (pid {pid})", s.cfg.name));
                 sys::kill(-pid, libc::SIGKILL);
                 s.state = State::Dead;
@@ -335,6 +371,113 @@ impl Supervisor {
     }
 }
 
+impl Service {
+    fn failed(&mut self, now: Instant) {
+        let svc = self;
+        svc.crashes.retain(|t| now.duration_since(*t) < CRASH_WINDOW);
+        svc.crashes.push(now);
+        if svc.cfg.kind == Kind::Oneshot || svc.cfg.restart == Restart::Never {
+            svc.state = State::Dead;
+            return;
+        }
+        if svc.crashes.len() >= CRASH_LIMIT && matches!(svc.command, CommandChoice::Primary) {
+            if let Some(fallback) = &svc.cfg.fallback {
+                log(format_args!("{} is crash-looping; switching to its fallback", svc.cfg.name));
+                svc.command = CommandChoice::Fallback(fallback.clone());
+                svc.crashes.clear();
+                svc.state = State::Backoff { until: now };
+                return;
+            }
+        }
+        let exp = svc.crashes.len().saturating_sub(1).min(5) as u32;
+        let delay = (Duration::from_secs(1) * 2u32.pow(exp)).min(MAX_BACKOFF);
+        svc.state = State::Backoff { until: now + delay };
+    }
+
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) { self.stop_all(); }
+}
+
 fn log(args: std::fmt::Arguments) {
     eprintln!("oxmux-supervisor: {args}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service(name: &str) -> Service {
+        Service {
+            cfg: ServiceConfig { name: name.into(), exec: vec!["/bin/true".into()], kind: Kind::Simple,
+                restart: Restart::Always, after: Vec::new(), wait_for: Vec::new(), env: BTreeMap::new(),
+                fallback: None, log: None, optional: false },
+            state: State::Pending, crashes: Vec::new(), command: CommandChoice::Primary,
+        }
+    }
+
+    #[test]
+    fn clean_exit_always_restarts_through_crash_policy() {
+        assert_eq!(exit_decision(Kind::Simple, Restart::Always, true), ExitDecision::Restart);
+        assert_eq!(exit_decision(Kind::Simple, Restart::OnFailure, true), ExitDecision::Dead);
+        assert_eq!(exit_decision(Kind::Simple, Restart::Never, false), ExitDecision::Dead);
+    }
+
+    #[test]
+    fn oneshot_completion_is_distinct_from_failure() {
+        assert_eq!(exit_decision(Kind::Oneshot, Restart::Always, true), ExitDecision::Complete);
+        assert_eq!(exit_decision(Kind::Oneshot, Restart::Always, false), ExitDecision::Dead);
+    }
+
+    #[test]
+    fn restarts_back_off_and_have_a_cap() {
+        let mut service = service("app");
+        let now = Instant::now();
+        for seconds in [1, 2, 4, 8, 16, 30, 30] {
+            service.failed(now);
+            assert!(matches!(service.state, State::Backoff { until } if until == now + Duration::from_secs(seconds)));
+        }
+    }
+
+    #[test]
+    fn fifth_restart_selects_owned_fallback_command() {
+        let mut service = service("app");
+        service.cfg.fallback = Some(vec!["/bin/rescue".into()]);
+        let now = Instant::now();
+        for _ in 0..5 { service.failed(now); }
+        assert!(matches!(&service.command, CommandChoice::Fallback(command) if command == &["/bin/rescue"]));
+        assert!(service.crashes.is_empty());
+    }
+
+    #[test]
+    fn old_failures_expire() {
+        let mut service = service("app");
+        let now = Instant::now();
+        service.failed(now);
+        service.failed(now + CRASH_WINDOW);
+        assert_eq!(service.crashes.len(), 1);
+    }
+
+    #[test]
+    fn required_dead_dependency_blocks_but_optional_does_not() {
+        let mut dependency = service("storage");
+        dependency.state = State::Dead;
+        let mut app = service("app");
+        app.cfg.after = vec!["storage".into()];
+        let mut services = vec![dependency, app];
+        assert_eq!(blocked_dependency(&services, 1), Some("storage"));
+        services[0].cfg.optional = true;
+        assert_eq!(blocked_dependency(&services, 1), None);
+    }
+
+    #[test]
+    fn dependency_cycles_are_rejected_before_process_setup() {
+        let mut a = service("a").cfg;
+        let mut b = service("b").cfg;
+        a.after = vec!["b".into()];
+        b.after = vec!["a".into()];
+        let cfg = SupervisorConfig { log_dir: "/unused".into(), replaces: Vec::new(), services: vec![a, b] };
+        assert!(Supervisor::new(&cfg, false).is_err());
+    }
 }

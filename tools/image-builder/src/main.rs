@@ -334,6 +334,11 @@ fn main() -> Result<()> {
         &upstream.join("usr/share/libretro/autoconfig"),
         &root.join("usr/share/libretro/autoconfig"),
     )?;
+    for path in ["usr/share/xkeyboard-config-2", "usr/share/fontconfig", "usr/share/fonts", "etc/fonts"] {
+        copy_tree(&upstream.join(path), &root.join(path))?;
+    }
+    fs::create_dir_all(root.join("usr/share/X11"))?;
+    symlink("/usr/share/xkeyboard-config-2", root.join("usr/share/X11/xkb"))?;
     // Rules are explicit: do not pull in upstream's systemd service hooks.
     write(&root, "etc/udev/rules.d/70-gamepad.rules", "SUBSYSTEM==\"input\", KERNEL==\"event*\", ATTRS{name}==\"H700 Gamepad\", ENV{ID_INPUT}=\"1\", ENV{ID_INPUT_JOYSTICK}=\"1\"\n")?;
     let mut closure = Closure {

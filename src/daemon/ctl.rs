@@ -23,17 +23,18 @@ pub struct Status {
     pub volume: u8,
     pub battery: Option<u8>,
     pub charging: bool,
+    pub suspend: bool,
 }
 
 impl Status {
     fn to_line(self) -> String {
         let battery = self.battery.map_or("none".to_string(), |b| b.to_string());
-        format!("ok brightness={} volume={} battery={battery} charging={}", self.brightness, self.volume, self.charging as u8)
+        format!("ok brightness={} volume={} battery={battery} charging={} suspend={}", self.brightness, self.volume, self.charging as u8, self.suspend as u8)
     }
 
     #[cfg(test)]
     fn parse(line: &str) -> Result<Self> {
-        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false };
+        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false, suspend: false };
         let body = line.strip_prefix("ok").ok_or_else(|| anyhow!("{}", line.trim()))?;
         for kv in body.split_whitespace() {
             let Some((k, v)) = kv.split_once('=') else { continue };
@@ -42,6 +43,7 @@ impl Status {
                 "volume" => s.volume = v.parse()?,
                 "battery" => s.battery = v.parse().ok(),
                 "charging" => s.charging = v == "1",
+                "suspend" => s.suspend = v == "1",
                 _ => {}
             }
         }
@@ -64,6 +66,7 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
     let reply = (|| -> Result<String> {
         match words.next() {
             Some("status") | None => {}
+            Some("activity") => d.activity(),
             Some("brightness") => {
                 let v = level(words.next(), d.settings.brightness)?;
                 d.set_brightness(v);
@@ -72,8 +75,12 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
                 let v = level(words.next(), d.settings.volume)?;
                 d.set_volume(v);
             }
+            Some("stop-emulator") => crate::emulator::stop()?,
             // Reply before acting: these may not return (poweroff) or block (suspend).
             Some(cmd @ ("suspend" | "poweroff" | "reboot")) => {
+                if cmd == "suspend" && d.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
+                    bail!("suspend is disabled until native wake is validated");
+                }
                 (&stream).write_all(b"ok\n")?;
                 let action = match cmd {
                     "suspend" => Action::Suspend,
@@ -103,7 +110,10 @@ pub fn request(socket: &Path, command: &str) -> Result<String> {
     stream.write_all(format!("{command}\n").as_bytes())?;
     let mut reply = String::new();
     BufReader::new(&stream).read_line(&mut reply)?;
-    Ok(reply.trim_end().to_string())
+    let reply = reply.trim_end();
+    if let Some(error) = reply.strip_prefix("err ") { bail!("{error}"); }
+    if !reply.starts_with("ok") { bail!("invalid daemon reply {reply:?}"); }
+    Ok(reply.to_string())
 }
 
 #[cfg(test)]
@@ -120,7 +130,7 @@ mod tests {
 
     #[test]
     fn status_roundtrip() {
-        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true };
+        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true, suspend: true };
         assert_eq!(Status::parse(&s.to_line()).unwrap(), s);
         let none = Status { battery: None, ..s };
         assert_eq!(Status::parse(&none.to_line()).unwrap(), none);

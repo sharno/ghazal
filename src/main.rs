@@ -3,11 +3,13 @@
 mod daemon;
 mod debug;
 mod device;
+mod emulator;
 mod frontend;
 mod hw;
 mod init;
 mod input_bridge;
 mod install;
+mod logging;
 mod profile;
 mod supervisor;
 mod sys;
@@ -83,6 +85,7 @@ fn run() -> Result<()> {
     match command.as_str() {
         "ssh-key" => debug::ssh_key(),
         "kernel-log" => debug::kernel_log(),
+        "rescue" => init::rescue(),
         "frontend" => run_frontend(&profile, rest),
         "daemon" => daemon::run(&profile.device()?, &profile.system()?),
         "supervise" => {
@@ -159,6 +162,9 @@ fn run_init(profile: &Profile) -> Result<()> {
         Err(_) => anyhow!("panicked"),
     };
     eprintln!("oxmux init failed: {err:#}");
+    if std::process::id() == 1 && std::path::Path::new("/etc/oxmux/hardware.lock").exists() {
+        return init::rescue().context("standalone recovery failed");
+    }
     let fallbacks = ["/init.muos", "/opt/muos/script/init/sysinit.oxmux-orig"];
     for f in fallbacks.iter().filter(|f| std::path::Path::new(f).exists()) {
         use std::os::unix::process::CommandExt;

@@ -1,3 +1,8 @@
+[init.rescue]
+counter = "/var/lib/oxmux/boot-attempts"
+max_attempts = 3
+exec = ["/opt/oxmux/oxmux", "rescue"]
+
 [[init.step]]
 mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
 [[init.step]]
@@ -24,6 +29,8 @@ mkdir = "/run/dbus"
 mkdir = "/run/sshd"
 
 [power]
+suspend = "disabled"
+suspend_checkpoint = "/var/lib/oxmux/suspend-checkpoint"
 poweroff = "signal-init"
 reboot = "signal-init"
 # Require true suspend-to-RAM; do not silently select s2idle.
@@ -35,6 +42,9 @@ after_resume = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]]
 [daemon]
 state = "/var/lib/oxmux/settings.toml"
 socket = "/run/oxmux/daemon.sock"
+[daemon.idle]
+# Native wake is under investigation; keep the device usable until validated.
+sleep_after = 0
 [[daemon.hotkey]]
 keys = ["vol_up"]
 action = "volume-up"
@@ -44,6 +54,9 @@ action = "volume-down"
 [[daemon.hotkey]]
 keys = ["menu", "vol_up"]
 action = "brightness-up"
+[[daemon.hotkey]]
+keys = ["menu", "start"]
+action = "stop-emulator"
 [[daemon.hotkey]]
 keys = ["menu", "vol_down"]
 action = "brightness-down"
@@ -115,6 +128,6 @@ restart = "always"
 name = "frontend"
 exec = ["/opt/oxmux/oxmux", "frontend"]
 after = ["daemon"]
-wait_for = ["/dev/dri"]
+wait_for = ["/dev/dri", "/run/oxmux/daemon.sock"]
 restart = "always"
 env = { OXMUX_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }

@@ -37,9 +37,10 @@ You can move a muOS install forward one stage at a time and back again.
 - **Preflight.** `install` checks that every config parses and every service binary
   exists before it changes anything. It refuses if one is missing.
 - **Backups.** Replaced files are kept as `*.oxmux-orig`, and `oxmux uninstall` restores them.
-- **Rescue.** In stages 3 and 4, a boot counter is reset only once the menu has drawn its
-  first frame. After 3 boots that never reach the menu, oxmux hands over to the init it
-  replaced (muOS's sysinit, or `/init.muos`). The same happens if its config fails to load.
+- **Rescue.** The standalone image records boot attempts durably and resets the counter
+  after the menu draws its first frame. Three incomplete boots enter a built-in Wi-Fi/SSH
+  recovery supervisor. Startup configuration and supervisor errors enter recovery directly.
+  Legacy muOS installs retain their original-init recovery path.
 - **Fallback frontend.** In stage 2, if the oxmux frontend crash-loops (5 times in a
   minute), the supervisor runs muOS's own frontend instead.
 
@@ -148,14 +149,16 @@ handshake, plus hooks. So the same userland sleeps on whichever kernel can.
 
 ## Known gaps
 
-- Nothing has run on real hardware yet. The device paths and codes come from the muOS
-  source and still need confirming on a unit.
+- The standalone image runs on an RG40XX-V with the v2 panel: menu, controls,
+  Wi-Fi, SSH, SD2 discovery and Syncthing are confirmed. Native suspend remains unresolved and is disabled
+  in the standalone profile, including automatic sleep and the Power-button tap.
 - Stage 2 skips muOS's charge-only boot mode and factory-reset hook, both of which live in S99muos.sh.
 - RetroArch save-state-on-sleep (muOS sends `SAVE_STATE` before suspending) isn't done yet.
 - Bluetooth, the RGB LEDs (serial MCU on ttyS5), HDMI switching and the USB gadget are not
   ported yet.
-- Stage 4 still uses muOS's rootfs userland (udev, glibc, RetroArch). A rootfs built from
-  scratch (e.g. with Nix) is the next step after that.
+- The standalone rootfs uses a checksum-pinned ROCKNIX hardware/runtime bundle,
+  with oxmux as PID 1 and its own service plan. The legacy stage-4 script remains
+  available for muOS migration.
 
 ## License
 

@@ -121,9 +121,22 @@ pub fn mount(source: &str, target: &Path, fstype: &str, flags: libc::c_ulong, da
 pub fn umount(target: &Path) -> Result<()> {
     let t = cstr(target)?;
     // SAFETY: valid path.
-    if unsafe { libc::umount2(t.as_ptr(), libc::MNT_DETACH) } < 0 {
+    if unsafe { libc::umount2(t.as_ptr(), 0) } < 0 {
         bail!("umount {}: {}", target.display(), last_err());
     }
+    Ok(())
+}
+
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let parent = path.parent().context("atomic file has no parent")?;
+    std::fs::create_dir_all(parent)?;
+    let pending = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&pending)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    std::fs::rename(pending, path)?;
+    std::fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
 

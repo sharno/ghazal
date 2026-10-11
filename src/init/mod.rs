@@ -124,6 +124,7 @@ fn default_wait() -> u64 {
 }
 
 pub fn run(system: SystemConfig, device: &DeviceConfig) -> Result<()> {
+    system.validate()?;
     let pid1 = std::process::id() == 1;
     log(format_args!("starting (pid1={pid1}, kernel {})", sys::kernel_release()));
     // The kernel starts init with an almost empty environment; services use bare names.
@@ -164,13 +165,7 @@ pub fn run(system: SystemConfig, device: &DeviceConfig) -> Result<()> {
 }
 
 fn run_pid1(system: &SystemConfig, device: &DeviceConfig) -> Result<()> {
-    let stop = match Supervisor::new(&system.supervisor, true).and_then(|mut s| s.run()) {
-        Ok(stop) => stop,
-        Err(e) => {
-            log(format_args!("supervisor failed: {e:#}; rebooting"));
-            Stop::Reboot
-        }
-    };
+    let stop = Supervisor::new(&system.supervisor, true)?.run()?;
     shutdown();
     let cmd = match stop {
         Stop::Poweroff => libc::RB_POWER_OFF,
@@ -192,36 +187,62 @@ fn run_pid1(system: &SystemConfig, device: &DeviceConfig) -> Result<()> {
 
 /// Unmounts everything we can (reverse mount order) after services have stopped.
 fn shutdown() {
+    match crate::emulator::active() {
+        Ok(true) => { if let Err(error) = crate::emulator::stop() { log(format_args!("stopping emulator: {error:#}")); } },
+        Ok(false) => {},
+        Err(error) => log(format_args!("checking emulator at shutdown: {error:#}")),
+    }
     sys::sync();
     sys::swapoff_all();
     let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
     let keep = ["/", "/proc", "/sys", "/dev", "/dev/pts", "/run"];
     for target in mounts.lines().rev().filter_map(|l| l.split(' ').nth(1)) {
         if !keep.contains(&target) {
-            let _ = sys::umount(Path::new(target));
+            if let Err(error) = sys::umount(Path::new(target)) {
+                log(format_args!("{error:#}; remounting {target} read-only"));
+                if let Err(error) = sys::mount("none", Path::new(target), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
+                    log(format_args!("could not make {target} read-only: {error:#}"));
+                }
+            }
         }
     }
     sys::sync();
+    if let Err(error) = sys::mount("none", Path::new("/"), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
+        log(format_args!("could not remount root read-only: {error:#}"));
+    }
+}
+
+/// Recovery uses the compiled standalone profile, independent of damaged SD config.
+pub fn rescue() -> Result<()> {
+    let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
+    let device: DeviceConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/device.toml"))?;
+    system.init.rescue = None;
+    system.supervisor.services.retain(|service| matches!(service.name.as_str(),
+        "kernel-log" | "udev" | "udev-trigger" | "udev-settle" | "dbus" | "wifi" | "ssh-host-key" | "sshd"));
+    log(format_args!("starting standalone recovery: Wi-Fi and SSH, without frontend or suspend"));
+    run(system, &device)
 }
 
 fn check_rescue(rescue: &Rescue) -> Result<()> {
-    let attempts: u32 = std::fs::read_to_string(&rescue.counter).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    if rescue.max_attempts == 0 || rescue.exec.is_empty() { bail!("rescue requires a command and positive max_attempts"); }
+    let attempts: u32 = match std::fs::read_to_string(&rescue.counter) {
+        Ok(contents) => contents.trim().parse().context("invalid boot counter")?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error.into()),
+    };
+    std::env::set_var("OXMUX_BOOT_COUNTER", &rescue.counter);
     if attempts >= rescue.max_attempts && !rescue.exec.is_empty() {
         log(format_args!("{attempts} boots never reached the UI; handing over to {:?}", rescue.exec));
-        let _ = std::fs::write(&rescue.counter, "0");
         use std::os::unix::process::CommandExt;
         let err = std::process::Command::new(&rescue.exec[0]).args(&rescue.exec[1..]).exec();
         bail!("exec rescue: {err}");
     }
-    if let Some(dir) = rescue.counter.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let next = (attempts + 1).to_string();
-    if std::fs::write(&rescue.counter, &next).is_err() {
+    let next = attempts.saturating_add(1).to_string();
+    if crate::sys::write_atomic(&rescue.counter, next.as_bytes()).is_err() {
         // The root filesystem may still be read-only this early.
         let _ = sys::mount("none", Path::new("/"), "none", libc::MS_REMOUNT, "");
-        if let Err(e) = std::fs::write(&rescue.counter, &next) {
-            log(format_args!("can't record boot attempt, rescue disabled: {e}"));
+        if let Err(e) = crate::sys::write_atomic(&rescue.counter, next.as_bytes()) {
+            return Err(e).context("could not persist boot attempt");
         }
     }
     Ok(())
@@ -230,7 +251,9 @@ fn check_rescue(rescue: &Rescue) -> Result<()> {
 /// Called by the frontend once it is on screen: this boot counts as good.
 pub fn mark_boot_ok() {
     if let Some(counter) = std::env::var_os("OXMUX_BOOT_COUNTER") {
-        let _ = std::fs::write(counter, "0");
+        if let Err(error) = crate::sys::write_atomic(Path::new(&counter), b"0") {
+            log(format_args!("could not mark boot successful: {error:#}"));
+        }
     }
 }
 

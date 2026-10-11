@@ -126,7 +126,7 @@ pub fn run(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
 fn build_app(config: FrontendConfig) -> Result<App> {
     let ui = AppWindow::new().map_err(|e| anyhow!("creating UI: {e}"))?;
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
-    Ok(App::new(config, ui))
+    App::new(config, ui)
 }
 /// Where frames go on the device: fbdev (vendor kernels) or DRM/KMS (mainline).
 enum Display {

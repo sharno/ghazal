@@ -50,9 +50,11 @@ pub struct Daemon<'a> {
     /// Ignore the power key right after resume (the wake press/release).
     ignore_power_until: Instant,
     muted_from: Option<u8>,
+    settings_dirty: Option<Instant>,
 }
 
 pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
+    sys.validate()?;
     let cfg = &sys.daemon;
     let settings: Settings = std::fs::read_to_string(&cfg.state).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
 
@@ -81,6 +83,7 @@ pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
         low_led: false,
         ignore_power_until: Instant::now(),
         muted_from: None,
+        settings_dirty: None,
     };
     d.rescan_inputs();
     d.apply_settings();
@@ -98,6 +101,9 @@ impl Daemon<'_> {
             self.check_battery(now);
             self.check_idle(now);
             self.check_power_hold(now);
+            if self.settings_dirty.is_some_and(|at| now >= at + Duration::from_millis(500)) {
+                self.save();
+            }
             if now.duration_since(self.inputs_scanned) >= INPUT_RESCAN {
                 self.rescan_inputs();
             }
@@ -117,15 +123,23 @@ impl Daemon<'_> {
             }
             let (input_fds, sock) = fds.split_at(fds.len() - 1);
             let ready: Vec<usize> = input_fds.iter().enumerate().filter(|(_, f)| f.revents != 0).map(|(i, _)| i).collect();
+            let mut removed = Vec::new();
             for i in ready {
+                if input_fds[i].revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                    removed.push(i);
+                    continue;
+                }
                 let events: Vec<_> = match self.inputs[i].1.fetch_events() {
                     Ok(ev) => ev.filter(|e| e.event_type() == EventType::KEY).map(|e| (e.code(), e.value())).collect(),
-                    Err(_) => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                    Err(_) => { removed.push(i); continue; },
                 };
                 for (code, value) in events {
                     self.on_key(code, value);
                 }
             }
+            if !removed.is_empty() { self.clear_keys(); }
+            for index in removed.into_iter().rev() { self.inputs.remove(index); }
             if sock[0].revents != 0 {
                 self.serve_ctl();
             }
@@ -136,6 +150,7 @@ impl Daemon<'_> {
     /// aren't reading yet, and drops ones that went away. Nothing is grabbed.
     fn rescan_inputs(&mut self) {
         self.inputs_scanned = Instant::now();
+        if self.inputs.iter().any(|(path, _)| !path.exists()) { self.clear_keys(); }
         self.inputs.retain(|(path, _)| path.exists());
         for (path, d) in evdev::enumerate() {
             if self.inputs.iter().any(|(p, _)| *p == path) || !d.supported_events().contains(EventType::KEY) {
@@ -151,10 +166,17 @@ impl Daemon<'_> {
         }
     }
 
+    fn clear_keys(&mut self) {
+        self.held.clear();
+        self.consumed.clear();
+        self.power_down_at = None;
+    }
+
     fn next_wake(&self, now: Instant) -> Instant {
         let idle = &self.sys.daemon.idle;
         let mut t = self.battery_checked + Duration::from_secs(self.sys.daemon.battery.poll_secs.max(5));
         t = t.min(self.inputs_scanned + INPUT_RESCAN);
+        if let Some(at) = self.settings_dirty { t = t.min(at + Duration::from_millis(500)); }
         if idle.dim_after > 0 && !self.dimmed {
             t = t.min(self.last_input + Duration::from_secs(idle.dim_after));
         }
@@ -240,6 +262,18 @@ impl Daemon<'_> {
     }
 
     fn check_idle(&mut self, now: Instant) {
+        let emulator = match crate::emulator::active() {
+            Ok(active) => active,
+            Err(error) => { eprintln!("oxmux-daemon: emulator activity: {error:#}"); return; },
+        };
+        let ssh = std::fs::read_dir("/proc").is_ok_and(|entries| entries.flatten().any(|entry| {
+            entry.file_name().to_string_lossy().bytes().all(|byte| byte.is_ascii_digit())
+                && std::fs::read_to_string(entry.path().join("comm")).is_ok_and(|name| name.trim() == "sshd-session")
+        }));
+        if emulator || ssh {
+            self.activity();
+            return;
+        }
         let idle = &self.sys.daemon.idle;
         let quiet = now.duration_since(self.last_input);
         if idle.sleep_after > 0 && quiet >= Duration::from_secs(idle.sleep_after) {
@@ -254,6 +288,14 @@ impl Daemon<'_> {
         if idle.dim_after > 0 && !self.dimmed && quiet >= Duration::from_secs(idle.dim_after) {
             self.dimmed = true;
             self.apply_brightness(idle.dim_to.min(self.settings.brightness));
+        }
+    }
+
+    fn activity(&mut self) {
+        self.last_input = Instant::now();
+        if self.dimmed {
+            self.dimmed = false;
+            self.apply_brightness(self.settings.brightness);
         }
     }
 
@@ -286,13 +328,13 @@ impl Daemon<'_> {
                 let b = step(self.settings.brightness, d.brightness_step, *action == Action::BrightnessUp).max(5);
                 self.settings.brightness = b;
                 self.apply_brightness(b);
-                self.save();
+                self.settings_dirty = Some(Instant::now());
             }
             Action::VolumeUp | Action::VolumeDown => {
                 self.settings.volume = step(self.settings.volume, d.volume_step, *action == Action::VolumeUp);
                 self.muted_from = None;
                 self.apply_volume(self.settings.volume);
-                self.save();
+                self.settings_dirty = Some(Instant::now());
             }
             Action::Mute => match self.muted_from.take() {
                 Some(v) => self.apply_volume(v),
@@ -304,6 +346,9 @@ impl Daemon<'_> {
             Action::Suspend => self.suspend(),
             Action::Poweroff => self.power(&self.sys.power.poweroff.clone(), libc::SIGUSR2),
             Action::Reboot => self.power(&self.sys.power.reboot.clone(), libc::SIGTERM),
+            Action::StopEmulator => {
+                if let Err(error) = crate::emulator::stop() { eprintln!("oxmux-daemon: stop emulator: {error:#}"); }
+            }
             Action::Exec(argv) => spawn_detached(argv),
         }
     }
@@ -311,6 +356,11 @@ impl Daemon<'_> {
     /// Mirrors muOS's suspend.sh: LED off, mute, backlight off, panel blank, hooks, then
     /// sleep; an RTC alarm wakes us to power off after a long sleep.
     fn suspend(&mut self) {
+        if self.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
+            eprintln!("oxmux-daemon: suspend disabled until native wake is validated");
+            return;
+        }
+        self.save();
         let power = &self.sys.power;
         hw::set_led(&self.hw.leds.power, false);
         self.apply_volume(0);
@@ -325,7 +375,7 @@ impl Daemon<'_> {
             let _ = crate::sys::write_file(path, &format!("+{}", power.sleep_poweroff_after));
         }
         let slept_from = std::time::SystemTime::now();
-        if let Err(e) = hw::suspend(power.mem_sleep.as_deref()) {
+        if let Err(e) = hw::suspend(power.mem_sleep.as_deref(), power.suspend_checkpoint.as_deref()) {
             eprintln!("oxmux-daemon: {e:#}");
         }
         // Back from sleep. Wall-clock time keeps counting while suspended.
@@ -385,15 +435,20 @@ impl Daemon<'_> {
         }
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
+        if self.settings_dirty.is_none() { return; }
         let path = &self.sys.daemon.state;
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let tmp = path.with_extension("tmp");
-        let text = toml::to_string(&self.settings).unwrap_or_default();
-        if std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).is_err() {
-            eprintln!("oxmux-daemon: couldn't save {}", path.display());
+        let result = toml::to_string(&self.settings).map_err(anyhow::Error::from)
+            .and_then(|text| crate::sys::write_atomic(path, text.as_bytes()));
+        match result {
+            Ok(()) => self.settings_dirty = None,
+            Err(error) => {
+                eprintln!("oxmux-daemon: couldn't save {}: {error}", path.display());
+                self.settings_dirty = Some(Instant::now() + Duration::from_secs(5));
+            }
         }
     }
 
@@ -404,6 +459,7 @@ impl Daemon<'_> {
             volume: if self.muted_from.is_some() { 0 } else { self.settings.volume },
             battery: battery.map(|b| b.percent),
             charging: battery.is_some_and(|b| b.charging),
+            suspend: self.sys.power.suspend == crate::system::SuspendPolicy::Enabled,
         }
     }
 
@@ -420,14 +476,14 @@ impl Daemon<'_> {
     fn set_brightness(&mut self, percent: u8) {
         self.settings.brightness = percent.clamp(5, 100);
         self.apply_brightness(self.settings.brightness);
-        self.save();
+        self.settings_dirty = Some(Instant::now());
     }
 
     fn set_volume(&mut self, percent: u8) {
         self.settings.volume = percent.min(100);
         self.muted_from = None;
         self.apply_volume(self.settings.volume);
-        self.save();
+        self.settings_dirty = Some(Instant::now());
     }
 }
 

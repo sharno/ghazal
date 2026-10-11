@@ -3,6 +3,7 @@
 
 # SD1 first, then SD2.
 rom_roots = ["/mnt/mmc/ROMS", "/mnt/sdcard/ROMS"]
+activity_file = "/mnt/mmc/.oxmux/activity.toml"
 
 [retroarch]
 bin = "/usr/bin/retroarch"

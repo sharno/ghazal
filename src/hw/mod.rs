@@ -90,35 +90,33 @@ enum SuspendPhase {
     Resumed,
 }
 
-/// The daemon's stderr is a supervisor-owned regular log file. Commit each
-/// checkpoint before the next operation so a hardware reset preserves it.
-fn suspend_checkpoint(phase: SuspendPhase) -> Result<()> {
+/// The dedicated checkpoint is committed before moving to the next phase.
+fn suspend_checkpoint(phase: SuspendPhase, checkpoint: Option<&Path>) -> Result<()> {
     eprintln!("oxmux: suspend checkpoint {phase:?}");
-    let log = std::fs::File::open("/proc/self/fd/2")?;
-    if log.metadata()?.is_file() {
-        log.sync_all().context("persisting suspend checkpoint")?;
+    if let Some(path) = checkpoint {
+        sys::write_atomic(path, format!("{phase:?}\n").as_bytes()).context("persisting suspend checkpoint")?;
     }
     Ok(())
 }
 
-pub fn suspend(mem_sleep: Option<&str>) -> Result<()> {
-    suspend_checkpoint(SuspendPhase::Synchronizing)?;
+pub fn suspend(mem_sleep: Option<&str>, checkpoint: Option<&Path>) -> Result<()> {
+    suspend_checkpoint(SuspendPhase::Synchronizing, checkpoint)?;
     sys::sync();
     if let Some(mode) = mem_sleep {
-        suspend_checkpoint(SuspendPhase::SelectingMode)?;
+        suspend_checkpoint(SuspendPhase::SelectingMode, checkpoint)?;
         sys::write_file(Path::new("/sys/power/mem_sleep"), mode)
             .with_context(|| format!("selecting {mode} sleep"))?;
     }
     let count_path = Path::new("/sys/power/wakeup_count");
-    suspend_checkpoint(SuspendPhase::ArmingWakeCount)?;
+    suspend_checkpoint(SuspendPhase::ArmingWakeCount, checkpoint)?;
     if let Ok(count) = std::fs::read_to_string(count_path) {
         if sys::write_file(count_path, count.trim()).is_err() {
             anyhow::bail!("wakeup event pending, not suspending");
         }
     }
-    suspend_checkpoint(SuspendPhase::EnteringKernel)?;
+    suspend_checkpoint(SuspendPhase::EnteringKernel, checkpoint)?;
     sys::write_file(Path::new("/sys/power/state"), "mem").context("suspending")?;
-    suspend_checkpoint(SuspendPhase::Resumed)
+    suspend_checkpoint(SuspendPhase::Resumed, checkpoint)
 }
 
 /// Everything the daemon controls, opened from the device profile. Missing pieces are

@@ -9,6 +9,15 @@ use anyhow::{bail, Result};
 pub fn kernel_log() -> Result<()> {
     use std::io::Write;
     let mut source = std::fs::File::open("/dev/kmsg")?;
+    std::fs::create_dir_all("/run/oxmux")?;
+    match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/oxmux/kernel-log.started") {
+        Ok(_) => {},
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            use std::io::Seek;
+            source.seek(std::io::SeekFrom::End(0))?;
+        }
+        Err(error) => return Err(error.into()),
+    }
     let mut output = std::io::stdout().lock();
     let mut record = [0u8; 65536];
     loop {
@@ -17,10 +26,6 @@ pub fn kernel_log() -> Result<()> {
             Ok(size) => {
                 output.write_all(&record[..size])?;
                 output.flush()?;
-                if record[..size].windows(4).any(|bytes| bytes == b"PM: ") {
-                    let log = std::fs::File::open("/proc/self/fd/1")?;
-                    if log.metadata()?.is_file() { log.sync_all()?; }
-                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted || error.raw_os_error() == Some(libc::EPIPE) => continue,
             Err(error) => return Err(error.into()),
