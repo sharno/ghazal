@@ -56,6 +56,9 @@ impl Kms {
                 if resources.connectors().iter().any(|&handle| {
                     card.get_connector(handle, true).is_ok_and(|c| c.state() == connector::State::Connected && !c.modes().is_empty())
                 }) {
+                    // The first open owns DRM master. Close it before reopening
+                    // the selected node so the modesetting handle owns master.
+                    drop(card);
                     return Self::open(&node.path());
                 }
             }
