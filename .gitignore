@@ -5,3 +5,4 @@
 /build
 /secrets
 /tools/image-builder/target
+/tools/data-migration/target
