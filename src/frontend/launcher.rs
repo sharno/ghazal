@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::os::unix::process::CommandExt;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use super::config::FrontendConfig;
 use super::library::{Game, System};
@@ -61,7 +61,11 @@ impl LaunchSpec {
         let mut session = crate::emulator::Session::register(child)?;
         on_started();
         let status = session.wait()?;
-        drop(pump);
+        let diagnostic = pump.map(crate::logging::LogPump::finish).transpose()?.flatten();
+        if !status.success() {
+            if let Some(diagnostic) = diagnostic { bail!("{diagnostic} (emulator exited with {status})"); }
+            bail!("emulator exited with {status}");
+        }
         Ok(status)
     }
 }

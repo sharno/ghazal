@@ -81,9 +81,15 @@ core = "mupen64plus_next_libretro.so"
 
 [[system]]
 name = "Arcade"
-dirs = ["ARCADE", "FBNEO", "MAME", "CPS1", "CPS2", "CPS3", "NEOGEO"]
+dirs = ["ARCADE", "FBNEO", "CPS1", "CPS2", "CPS3", "NEOGEO"]
 extensions = ["zip", "7z"]
 core = "fbneo_libretro.so"
+
+[[system]]
+name = "MAME 2003 Plus"
+dirs = ["MAME"]
+extensions = ["zip"]
+core = "mame2003_plus_libretro.so"
 
 [[system]]
 name = "Neo Geo Pocket"
@@ -117,8 +123,14 @@ core = "ppsspp_libretro.so"
 
 [[system]]
 name = "Dreamcast"
-dirs = ["DREAMCAST", "DC", "NAOMI"]
+dirs = ["DREAMCAST", "DC"]
 extensions = ["chd", "gdi", "cdi", "m3u", "zip"]
+core = "flycast_libretro.so"
+
+[[system]]
+name = "Naomi"
+dirs = ["NAOMI"]
+extensions = ["zip", "chd", "m3u"]
 core = "flycast_libretro.so"
 
 [[system]]
@@ -150,3 +162,21 @@ name = "PC Engine CD"
 dirs = ["PCECD"]
 extensions = ["cue", "chd", "m3u"]
 core = "beetle_pce_fast_libretro.so"
+
+[[system]]
+name = "Sega 32X"
+dirs = ["SEGA32X", "32X"]
+extensions = ["32x", "smd", "bin", "md", "zip", "7z"]
+core = "picodrive_libretro.so"
+
+[[system]]
+name = "Virtual Boy"
+dirs = ["VB", "Virtual Boy"]
+extensions = ["vb", "zip", "7z"]
+core = "beetle_vb_libretro.so"
+
+[[system]]
+name = "Saturn"
+dirs = ["SATURN"]
+extensions = ["cue", "chd", "iso", "zip"]
+core = "yabasanshiro_libretro.so"

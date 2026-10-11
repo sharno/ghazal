@@ -51,7 +51,7 @@ impl RollingLog {
 #[derive(Debug)]
 pub struct LogPump {
     stopping: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle<Option<String>>>,
 }
 
 impl LogPump {
@@ -63,6 +63,7 @@ impl LogPump {
         let requested = stopping.clone();
         let thread = std::thread::Builder::new().name("oxmux-log".into()).spawn(move || {
             let mut bytes = [0; 16384];
+            let mut diagnostic = Diagnostics::default();
             let result = (|| -> Result<()> {
                 let mut drain_deadline = None;
                 loop {
@@ -72,7 +73,10 @@ impl LogPump {
                     }
                     match reader.read(&mut bytes) {
                         Ok(0) => return Ok(()),
-                        Ok(size) => log.append(&bytes[..size])?,
+                        Ok(size) => {
+                            diagnostic.feed(&bytes[..size]);
+                            log.append(&bytes[..size])?;
+                        }
                         Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
                             if requested.load(Ordering::Acquire) { return Ok(()); }
                         }
@@ -82,8 +86,59 @@ impl LogPump {
                 }
             })();
             if let Err(error) = result { eprintln!("oxmux: log writer failed: {error:#}"); }
+            diagnostic.finish()
         })?;
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))
+    }
+
+    pub fn finish(mut self) -> Result<Option<String>> {
+        self.stopping.store(true, Ordering::Release);
+        self.thread.take().context("log worker already finished")?.join()
+            .map_err(|_| anyhow::anyhow!("log worker panicked"))
+    }
+}
+
+#[derive(Default)]
+struct Diagnostics {
+    partial: Vec<u8>,
+    last: Option<(DiagnosticSource, String)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DiagnosticSource { Content, Frontend, Core }
+
+impl Diagnostics {
+    fn feed(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            if *byte == b'\n' {
+                self.line();
+            } else if self.partial.len() < 16384 {
+                self.partial.push(*byte);
+            }
+        }
+    }
+
+    fn line(&mut self) {
+        let line = String::from_utf8_lossy(&self.partial);
+        let message = if let Some((_, body)) = line.split_once("[libretro ERROR]") {
+            Some((DiagnosticSource::Core, body.trim()))
+        } else if let Some((_, body)) = line.split_once("[Environ] SET_MESSAGE:") {
+            let lower = body.to_ascii_lowercase();
+            ["error", "not found", "missing", "failed", "required"].iter().any(|word| lower.contains(word)).then_some((DiagnosticSource::Core, body.trim()))
+        } else if line.contains("[ERROR]") && !line.contains("GET_VARIABLE") {
+            Some((if line.contains("[Content] Failed to load") { DiagnosticSource::Content } else { DiagnosticSource::Frontend }, line.trim()))
+        } else { None };
+        if let Some((priority, message)) = message {
+            if self.last.as_ref().is_none_or(|(previous, _)| priority >= *previous) {
+                self.last = Some((priority, message.chars().take(500).collect()));
+            }
+        }
+        self.partial.clear();
+    }
+
+    fn finish(mut self) -> Option<String> {
+        self.line();
+        self.last.map(|(_, text)| text)
     }
 }
 
@@ -97,6 +152,31 @@ impl Drop for LogPump {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn core_error_survives_generic_failure_and_split_records() {
+        let mut capture = Diagnostics::default();
+        capture.feed(b"[libretro ERROR] Missing BI");
+        capture.feed(b"OS\n[ERROR] [Content] Failed to load content.\n");
+        assert_eq!(capture.finish().as_deref(), Some("Missing BIOS"));
+    }
+
+    #[test]
+    fn firmware_message_is_kept_and_unrelated_core_options_are_ignored() {
+        let mut capture = Diagnostics::default();
+        capture.feed(b"[INFO] [Environ] SET_MESSAGE: Firmware not found: syscard3.pce\n[ERROR] [Environ] GET_VARIABLE: invalid value\n");
+        assert_eq!(capture.finish().as_deref(), Some("Firmware not found: syscard3.pce"));
+    }
+
+    #[test]
+    fn binary_and_unterminated_records_are_bounded() {
+        let mut capture = Diagnostics::default();
+        capture.feed(&[0xff; 65536]);
+        assert_eq!(capture.partial.len(), 16384);
+        capture.feed(b"\n[libretro ERROR] ");
+        capture.feed(&[b'x'; 65536]);
+        assert_eq!(capture.finish().unwrap().len(), 500);
+    }
 
     #[test]
     fn rotation_bounds_current_previous_and_legacy_files() {
