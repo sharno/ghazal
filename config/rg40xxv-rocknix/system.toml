@@ -89,6 +89,14 @@ exec = ["/usr/sbin/sshd", "-D", "-e"]
 after = ["ssh-host-key"]
 restart = "always"
 [[supervisor.service]]
+name = "syncthing"
+exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.oxmux/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
+# ROMS exists only on the prepared data card; never write identity/database to
+# the empty mount point on the OS card when SD2 is absent.
+wait_for = ["/mnt/games/ROMS"]
+restart = "always"
+env = { HOME = "/root", GOMAXPROCS = "2" }
+[[supervisor.service]]
 name = "mixer"
 kind = "oneshot"
 exec = ["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]

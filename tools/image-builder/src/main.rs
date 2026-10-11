@@ -343,6 +343,7 @@ fn main() -> Result<()> {
     };
     for name in [
         "/usr/bin/retroarch",
+        "/usr/bin/syncthing",
         "/usr/bin/amixer",
         "/usr/sbin/alsactl",
         "/usr/bin/alsaucm",
