@@ -14,13 +14,13 @@ env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
 
 [[system]]
 name = "Game Boy"
-dirs = ["GB", "Game Boy", "Nintendo Game Boy"]
+dirs = ["GB", "Game Boy", "Nintendo Game Boy", "Nintendo - Game Boy"]
 extensions = ["gb", "zip", "7z"]
 core = "gambatte_libretro.so"
 
 [[system]]
 name = "Game Boy Color"
-dirs = ["GBC", "Game Boy Color", "Nintendo Game Boy Color"]
+dirs = ["GBC", "Game Boy Color", "Nintendo Game Boy Color", "Nintendo - Game Boy Color"]
 extensions = ["gbc", "gb", "zip", "7z"]
 core = "gambatte_libretro.so"
 
@@ -32,13 +32,13 @@ core = "mgba_libretro.so"
 
 [[system]]
 name = "NES"
-dirs = ["NES", "FC", "Famicom", "Nintendo NES"]
+dirs = ["NES", "FC", "Famicom", "Nintendo NES", "Nintendo - Nintendo Entertainment System (Headered)"]
 extensions = ["nes", "fds", "unf", "zip", "7z"]
 core = "fceumm_libretro.so"
 
 [[system]]
 name = "SNES"
-dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES"]
+dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES", "Nintendo - Super Nintendo Entertainment System"]
 extensions = ["sfc", "smc", "zip", "7z"]
 core = "snes9x_libretro.so"
 
@@ -113,3 +113,39 @@ name = "PSP"
 dirs = ["PSP", "Sony PSP"]
 extensions = ["iso", "cso", "pbp", "chd"]
 core = "ppsspp_libretro.so"
+
+[[system]]
+name = "Dreamcast"
+dirs = ["DREAMCAST", "DC", "NAOMI"]
+extensions = ["chd", "gdi", "cdi", "m3u", "zip"]
+core = "flycast_libretro.so"
+
+[[system]]
+name = "Nintendo DS"
+dirs = ["NDS", "Nintendo DS"]
+extensions = ["nds", "zip", "7z"]
+core = "melonds_libretro.so"
+
+[[system]]
+name = "MSX"
+dirs = ["MSX", "MSX2"]
+extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip"]
+core = "bluemsx_libretro.so"
+
+[[system]]
+name = "Mega CD"
+dirs = ["MDCD", "SEGACD"]
+extensions = ["cue", "chd", "m3u"]
+core = "picodrive_libretro.so"
+
+[[system]]
+name = "Game & Watch"
+dirs = ["GW", "Game & Watch"]
+extensions = ["mgw", "zip"]
+core = "gw_libretro.so"
+
+[[system]]
+name = "PC Engine CD"
+dirs = ["PCECD"]
+extensions = ["cue", "chd", "m3u"]
+core = "beetle_pce_fast_libretro.so"

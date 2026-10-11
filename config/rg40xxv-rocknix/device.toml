@@ -45,4 +45,5 @@ control = "DAC Playback Volume"
 path = "/sys/class/power_supply/battery"
 
 [rtc]
-wakealarm = "/sys/class/rtc/rtc0/wakealarm"
+# rtc0 is the battery-backed PCF8563 without a wake IRQ; rtc1 is the SoC RTC.
+wakealarm = "/sys/class/rtc/rtc1/wakealarm"

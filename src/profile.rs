@@ -16,9 +16,9 @@ use crate::device::DeviceConfig;
 use crate::frontend::config::FrontendConfig;
 use crate::system::SystemConfig;
 
-pub const DEFAULT_DEVICE: &str = include_str!("../config/rg40xxv/device.toml");
-pub const DEFAULT_FRONTEND: &str = include_str!("../config/rg40xxv/frontend.toml");
-pub const DEFAULT_SYSTEM: &str = include_str!("../config/rg40xxv/system-app.toml");
+pub const DEFAULT_DEVICE: &str = include_str!("../config/rg40xxv-rocknix/device.toml");
+pub const DEFAULT_FRONTEND: &str = include_str!("../config/rg40xxv-rocknix/frontend.toml");
+pub const DEFAULT_SYSTEM: &str = include_str!("../config/rg40xxv-rocknix/system.toml");
 
 const FILES: [&str; 3] = ["device.toml", "frontend.toml", "system.toml"];
 
