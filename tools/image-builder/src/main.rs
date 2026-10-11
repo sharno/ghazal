@@ -334,6 +334,12 @@ fn main() -> Result<()> {
         &upstream.join("usr/share/libretro/autoconfig"),
         &root.join("usr/share/libretro/autoconfig"),
     )?;
+    // The H700 kernel labels BTN_NORTH as physical X and BTN_WEST as Y.
+    // Own this board mapping rather than inheriting the generic Xbox ordering.
+    copy(
+        &repo.join("config/rg40xxv-rocknix/gamepad.cfg"),
+        &root.join("usr/share/libretro/autoconfig/H700 Gamepad.cfg"),
+    )?;
     for path in ["usr/share/xkeyboard-config-2", "usr/share/fontconfig", "usr/share/fonts", "etc/fonts"] {
         copy_tree(&upstream.join(path), &root.join(path))?;
     }

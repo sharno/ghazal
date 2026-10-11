@@ -12,14 +12,16 @@ are included. See [the standalone build and device runbook](docs/standalone.md).
 nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/oxmux-rg40xxv.img"
 ```
 
-This initially targets DDR4 boards. Real-device boot and sleep acceptance remain
-required; build success and user-mode emulation do not prove hardware support.
+This targets DDR4 boards and has booted on an RG40XX-V with the v2 panel.
+Display, controls, networking, sample emulator launches and persistent save states
+have been checked on that device. Native suspend is disabled pending reliable wake.
 The older muOS stages below are retained as legacy development tools.
 
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
-one static binary and three declarative TOML files. The vendor kernel, bootloader, drivers,
-RetroArch, and cores are reused from muOS.
+one static binary and three declarative TOML files. The standalone image reuses the
+pinned ROCKNIX hardware/runtime bundle. The legacy muOS migration tools retain
+their vendor kernel, drivers and emulator binaries.
 
 ## Stages
 
@@ -30,7 +32,7 @@ You can move a muOS install forward one stage at a time and back again.
 | 1 | oxmux as a muOS **application**; muOS runs everything else | `scripts/deploy.sh` | delete the app folder |
 | 2 | muOS boots, but **S99muos.sh** starts `oxmux supervise` (daemon + frontend) instead of muOS's frontend, hotkey, battery and low-power scripts | `oxmux install frontend` | `oxmux uninstall` |
 | 3 | busybox init's **sysinit** runs `oxmux init`; no muOS script runs at all | `oxmux install init` | `oxmux uninstall` |
-| 4 | an **SD image** where oxmux is `/init` (PID 1) | `scripts/build-image.sh` | reflash |
+| 4 | a standalone **SD image** where oxmux owns PID 1 | `nix run .#image -- ...` | reflash |
 
 ### Safety nets
 
@@ -101,7 +103,8 @@ DEVICE=root@<ip> scripts/deploy.sh init       # stage 3; reboot
 On the device, `oxmux status` shows the current stage, `oxmux check` validates configs,
 `oxmux ctl status` talks to the daemon, and logs are in `/run/oxmux/log/`.
 
-Stage 4 needs an official muOS RG40XXV image:
+The legacy muOS-based image builder needs an official muOS RG40XXV image. It is
+separate from the standalone `nix run .#image` recipe:
 
 ```bash
 nix develop -c scripts/build-image.sh MustardOS_RG40XXV_<version>.img.xz dist/oxmux-rg40xxv.img
@@ -117,13 +120,13 @@ nix run .#vm          # boot it in QEMU aarch64: KMS on virtio-gpu, keyboard as 
 nix build .#uboot     # mainline U-Boot + TF-A for H700 (anbernic_rg35xx_h700_defconfig)
 ```
 
-The VM image is the base the device image grows from. It uses the stock nixpkgs kernel
+The VM exercises the same userland on virtual hardware. It uses the stock nixpkgs kernel
 (prebuilt on cache.nixos.org), a static busybox for a serial shell, and oxmux's own driver
 loading (`coldplug`: modalias → modules.alias) instead of udev. Its profile is in
 `config/qemu/`. `OXMUX_VM_HEADLESS=1 OXMUX_VM_MONITOR=/tmp/mon nix run .#vm` runs it without
 a window, for scripted `sendkey`/`screendump` tests.
 
-What the RG40XXV needs beyond that (from upstream Linux, U-Boot and ROCKNIX as of 2026-09):
+The standalone handheld image supplies the following hardware components:
 - **Kernel:** mainline has no RG40XX device tree and no H700 display pipeline. ROCKNIX runs
   7.2 with patches for the DE33/TCON display pipeline, the PWM backlight, the RG40XX panels
   (firmware init sequences), GPU OPPs and suspend. Their `rg40xx-v.dts` builds on mainline's
@@ -134,14 +137,13 @@ What the RG40XXV needs beyond that (from upstream Linux, U-Boot and ROCKNIX as o
   `/sys/class/backlight`, and battery and input names change. This is a second
   `device.toml`, with no code changes.
 
-### Sleep on either kernel
+### Suspend policy
 
 oxmux's suspend path is kernel-agnostic: `/sys/power/state` = `mem` with the wakeup_count
 handshake, plus hooks. So the same userland sleeps on whichever kernel can.
 
-- **Vendor kernel (4.9, from muOS):** suspend-to-RAM works today, and muOS uses it. Stages
-  1–3 and the muOS-based stage 4 image run this kernel. A Nix image could reuse it too,
-  taking the kernel, DTB and modules from the muOS image as a fixed-output input.
+- **Vendor kernel (4.9, from muOS):** legacy stages 1–3 and the legacy image retain
+  muOS's vendor suspend path. These were not part of the standalone acceptance run.
 - **Mainline:** needs ROCKNIX's suspend patches (display and codec suspend, OPPs) plus their
   `h700-suspend-stub`, a PSCI SYSTEM_SUSPEND stub in SRAM. How well it works on the RG40XXV
   needs testing. Getting H700 suspend upstream (TF-A/crust + the driver patches) is the

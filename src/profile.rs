@@ -71,6 +71,21 @@ impl Profile {
 mod tests {
     use super::*;
 
+    #[test]
+    fn standalone_joypad_indices_match_physical_button_codes() {
+        let device: DeviceConfig = toml::from_str(DEFAULT_DEVICE).unwrap();
+        let gamepad: std::collections::BTreeMap<String, String> = toml::from_str(include_str!("../config/rg40xxv-rocknix/gamepad.cfg")).unwrap();
+        // RetroArch's udev driver enumerates supported BTN_* codes in order.
+        // Power and volume KEY_* codes belong to separate devices.
+        let mut codes: Vec<_> = device.buttons.values().copied().filter(|code| *code >= 0x100).collect();
+        codes.sort_unstable();
+        codes.dedup();
+        for (physical, binding) in [("a", "a"), ("b", "b"), ("x", "x"), ("y", "y"), ("l1", "l"), ("r1", "r"), ("l2", "l2"), ("r2", "r2"), ("start", "start"), ("select", "select"), ("menu", "enable_hotkey"), ("x", "menu_toggle"), ("y", "fps_toggle"), ("l1", "load_state"), ("r1", "save_state")] {
+            let index = codes.iter().position(|code| *code == device.buttons[physical]).unwrap();
+            assert_eq!(gamepad[&format!("input_{binding}_btn")], index.to_string(), "physical {physical}");
+        }
+    }
+
     /// Every shipped config must parse, so a typo can't brick a device at boot.
     #[test]
     fn shipped_configs_parse() {
