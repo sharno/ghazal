@@ -64,7 +64,11 @@ fn resolve(root: &Path, path: &Path) -> Result<PathBuf> {
                 }
                 _ => return Err("invalid path".into()),
             }
-            if fs::symlink_metadata(&cur)?.file_type().is_symlink() {
+            if fs::symlink_metadata(&cur)
+                .map_err(|error| format!("reading {}: {error}", cur.display()))?
+                .file_type()
+                .is_symlink()
+            {
                 let link = fs::read_link(&cur)?;
                 pending = if link.is_absolute() {
                     link

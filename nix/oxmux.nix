@@ -22,7 +22,9 @@ stdenv.mkDerivation {
         [ "Cargo.toml" "Cargo.lock" "build.rs" ".cargo" "src" "ui" "assets" "config" ];
   };
 
-  cargoDeps = rustPlatform.importCargoLock { lockFile = "${src}/Cargo.lock"; };
+  # Copy only this file into the store: image tooling/docs must not invalidate the
+  # vendor derivation and force a full device rebuild.
+  cargoDeps = rustPlatform.importCargoLock { lockFile = ../Cargo.lock; };
   nativeBuildInputs = [ toolchain rustPlatform.cargoSetupHook ];
 
   buildPhase = ''
