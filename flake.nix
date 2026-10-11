@@ -36,13 +36,14 @@
       # Cross toolchain for the bootloader (small C builds; the rest comes from the cache).
       cross = pkgs.pkgsCross.aarch64-multiplatform;
       uboot = cross.callPackage ./nix/uboot.nix { };
+      h700-debug-kernel = cross.callPackage ./nix/h700-debug-kernel.nix { };
 
       # winit/softbuffer dlopen these at runtime for the desktop simulator.
       simLibs = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr ];
     in
     {
       packages.${system} = {
-        inherit oxmux uboot image-builder;
+        inherit oxmux uboot image-builder h700-debug-kernel;
         vm-initrd = vm.initrd;
         vm = vm.runner;
         default = vm.runner;
