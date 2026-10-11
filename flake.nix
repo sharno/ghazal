@@ -48,8 +48,10 @@
         default = vm.runner;
       };
 
-      apps.${system}.vm = { type = "app"; program = "${vm.runner}/bin/oxmux-vm"; };
-      apps.${system}.image = { type = "app"; program = "${image-builder}/bin/oxmux-image-builder"; };
+      apps.${system} = {
+        vm = { type = "app"; program = "${vm.runner}/bin/oxmux-vm"; };
+        image = { type = "app"; program = "${image-builder}/bin/oxmux-image-builder"; };
+      };
 
       devShells.${system}.default = pkgs.mkShell {
         # rustup for the toolchain; the rest is for scripts/build-image.sh and the VM.
