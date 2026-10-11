@@ -309,6 +309,7 @@ fn main() -> Result<()> {
         symlink("busybox", root.join("usr/bin").join(applet))?;
     }
     symlink("/opt/oxmux/oxmux", root.join("usr/sbin/resolvconf"))?;
+    symlink("../bin/busybox", root.join("usr/sbin/modprobe"))?;
     copy_tree(
         &repo.join("config/rg40xxv-rocknix"),
         &root.join("etc/oxmux"),
@@ -402,7 +403,7 @@ fn main() -> Result<()> {
         "NAME=Oxmux\nID=oxmux\nVERSION_ID=0.1.0\n",
     )?;
     write(&root, "etc/machine-id", format!("{stamp:032x}\n"))?;
-    write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
+    write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
     copy(
         &secrets.join("authorized_keys"),
         &root.join("root/.ssh/authorized_keys"),

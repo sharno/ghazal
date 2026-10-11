@@ -1,5 +1,21 @@
 # oxmux
 
+## Standalone RG40XX-V image
+
+The standalone target now assembles its own ext4 root filesystem and boots
+oxmux as PID 1. A checksum-pinned ROCKNIX H700 bundle supplies hardware support,
+RetroArch/cores and their library dependencies. No muOS scripts or
+EmulationStation are used. SSH, Wi-Fi with DHCP/DNS and persistent service logs
+are included. See [the standalone build and device runbook](docs/standalone.md).
+
+```sh
+nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/oxmux-rg40xxv.img"
+```
+
+This initially targets DDR4 boards. Real-device boot and sleep acceptance remain
+required; build success and user-mode emulation do not prove hardware support.
+The older muOS stages below are retained as legacy development tools.
+
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
 one static binary and three declarative TOML files. The vendor kernel, bootloader, drivers,
