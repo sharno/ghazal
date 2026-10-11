@@ -1,0 +1,7 @@
+# Auditable binary hardware source. The image builder verifies this digest before use.
+release=nightly-20261010
+url=https://github.com/ROCKNIX/distribution-nightly/releases/download/nightly-20261010/ROCKNIX-H700.aarch64-20261010-DDR4.img.gz
+sha256=39323ec252acd3cf54a7cdc7f45334dc20f060c4d2da437ff6995025f0a7a8f0
+source_revision=bac971fe00a7fdf72ad8933f9086d18884f82844
+device_tree=sun50i-h700-anbernic-rg40xx-v.dtb
+memory=DDR4
