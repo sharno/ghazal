@@ -100,7 +100,7 @@ core = "beetle_wswan_libretro.so"
 name = "Atari 2600"
 dirs = ["ATARI", "A2600", "Atari 2600"]
 extensions = ["a26", "bin", "zip", "7z"]
-core = "stella2014_libretro.so"
+core = "stella_libretro.so"
 
 [[system]]
 name = "Atari Lynx"
