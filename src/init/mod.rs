@@ -192,6 +192,12 @@ fn shutdown() {
         Ok(false) => {},
         Err(error) => log(format_args!("checking emulator at shutdown: {error:#}")),
     }
+    // Anything still alive (SSH sessions, detached helpers) can hold files open
+    // for writing and make the read-only remount fail, leaving ext4 dirty.
+    for (signal, grace) in [(libc::SIGTERM, Duration::from_secs(2)), (libc::SIGKILL, Duration::from_secs(1))] {
+        sys::kill(-1, signal);
+        if sys::wait_no_children(grace) { break; }
+    }
     sys::sync();
     sys::swapoff_all();
     let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();

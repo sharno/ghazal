@@ -528,7 +528,9 @@ fn main() -> Result<()> {
     for name in ["KERNEL", "dtb.img", "initramfs.gz"] {
         copy(&work.join(name), &boot.join(name))?;
     }
-    write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  INITRD /initramfs.gz\n  FDT /dtb.img\n  APPEND rdinit=/oxmux-bootstrap oxmux.root=/dev/mmcblk0p2 console=ttyS0,115200 console=tty0 rootwait panic=0\n")?;
+    // `quiet`: printing the boot log over the 115200-baud serial console alone
+    // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
+    write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  INITRD /initramfs.gz\n  FDT /dtb.img\n  APPEND rdinit=/oxmux-bootstrap oxmux.root=/dev/mmcblk0p2 console=ttyS0,115200 console=tty0 rootwait panic=0 quiet\n")?;
     let boot_image = work.join("boot.fat");
     File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
     run(Command::new("mkfs.vfat")

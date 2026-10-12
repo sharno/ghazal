@@ -72,7 +72,7 @@ pub struct App {
     ui: AppWindow,
     menu_items: Vec<MenuItem>,
     catalog: Catalog,
-    scan: Option<std::sync::mpsc::Receiver<Library>>,
+    scan: Option<Scan>,
     collection_sel: [usize; 2],
     view: View,
     system_sel: usize,
@@ -89,13 +89,25 @@ pub struct App {
     hints_for: Option<usize>,
 }
 
+struct Scan {
+    results: std::sync::mpsc::Receiver<Library>,
+    announce: bool,
+}
+
 impl App {
     pub fn new(config: FrontendConfig, ui: AppWindow) -> anyhow::Result<Self> {
-        let activity = Activity::load(&config.activity_file)?;
-        let library = Library::scan(&config);
-        eprintln!("oxmux: {} systems, {} games", library.systems().len(), library.game_count());
-        let roots: Vec<_> = config.rom_roots.iter().map(|p| p.display().to_string()).collect();
-        ui.set_empty_message(format!("No games found in {}", roots.join(", ")).into());
+        // Damaged favorites/history must not keep the menu from starting.
+        let (activity, activity_warning) = match Activity::load(&config.activity_file) {
+            Ok(activity) => (activity, None),
+            Err(error) => {
+                let aside = Activity::set_aside(&config.activity_file)?;
+                eprintln!("oxmux: {error:#}; moved it to {}", aside.display());
+                (Activity::load(&config.activity_file)?, Some(format!("Favorites and history were unreadable; kept them as {}", aside.display())))
+            }
+        };
+        // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
+        let library = Library::from_systems(Vec::new());
+        ui.set_empty_message("Loading games…".into());
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
         let mut menu_items = vec![MenuItem::Rescan];
         if config.daemon_socket.exists() {
@@ -130,6 +142,8 @@ impl App {
             row_start: 0,
             hints_for: None,
         };
+        app.start_scan(false);
+        if let Some(warning) = activity_warning { app.error(warning); }
         app.refresh_status(Instant::now());
         app.refresh_levels();
         app.sync();
@@ -245,16 +259,21 @@ impl App {
             self.levels_visible_until = None;
             self.ui.set_levels_visible(false);
         }
-        if let Some(receiver) = &self.scan {
-            match receiver.try_recv() {
+        if let Some(scan) = &self.scan {
+            match scan.results.try_recv() {
                 Ok(library) => {
-                    self.scan = None;
+                    eprintln!("oxmux: {} systems, {} games", library.systems().len(), library.game_count());
+                    let roots: Vec<_> = self.config.rom_roots.iter().map(|p| p.display().to_string()).collect();
+                    self.ui.set_empty_message(format!("No games found in {}", roots.join(", ")).into());
+                    let announce = self.scan.take().is_some_and(|scan| scan.announce);
                     self.game_sel = vec![0; library.systems().len()];
                     self.system_sel = self.system_sel.min(library.systems().len() + 1);
                     self.collection_sel = [0; 2];
                     self.view = View::Systems;
                     self.rows_for = None;
-                    self.toast = Some((format!("Found {} games", library.game_count()), now, false));
+                    if announce {
+                        self.toast = Some((format!("Found {} games", library.game_count()), now, false));
+                    }
                     self.catalog.replace_library(library);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {},
@@ -311,21 +330,30 @@ impl App {
         }
     }
 
+    /// Scans in a worker so input and drawing continue. Only user-requested
+    /// rescans announce their result.
+    fn start_scan(&mut self, announce: bool) -> bool {
+        let config = self.config.clone();
+        let (sender, results) = std::sync::mpsc::channel();
+        match std::thread::Builder::new().name("oxmux-library".into()).spawn(move || {
+            let _ = sender.send(Library::scan(&config));
+        }) {
+            Ok(_) => {
+                self.scan = Some(Scan { results, announce });
+                true
+            }
+            Err(error) => {
+                self.error(format!("Starting library scan: {error}"));
+                false
+            }
+        }
+    }
+
     fn activate(&mut self, item: MenuItem) -> Option<Effect> {
         match item {
             MenuItem::Rescan => {
-                if self.scan.is_none() {
-                    let config = self.config.clone();
-                    let (sender, receiver) = std::sync::mpsc::channel();
-                    match std::thread::Builder::new().name("oxmux-library".into()).spawn(move || {
-                        let _ = sender.send(Library::scan(&config));
-                    }) {
-                        Ok(_) => {
-                            self.scan = Some(receiver);
-                            self.toast = Some(("Scanning library…".into(), Instant::now(), false));
-                        }
-                        Err(error) => self.error(format!("Starting library scan: {error}")),
-                    }
+                if self.scan.is_none() && self.start_scan(true) {
+                    self.toast = Some(("Scanning library…".into(), Instant::now(), false));
                 }
                 None
             }

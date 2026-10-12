@@ -20,7 +20,12 @@ mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,
 [[init.step]]
 hostname = "oxmux"
 [[init.step]]
-coldplug = {}
+# Bluetooth is unused, and hci_uart blocks module loading for ~0.6 s while it
+# uploads controller firmware.
+coldplug = { exclude = ["hci_uart"] }
+[[init.step]]
+# The pinned rtw88 firmware fails to acknowledge SDIO deep power-save transitions.
+write = { path = "/sys/module/rtw88_core/parameters/disable_lps_deep", value = "Y" }
 [[init.step]]
 mount = { source = "/dev/mmcblk1p1", target = "/mnt/games", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 3, optional = true }
 [[init.step]]
@@ -63,6 +68,9 @@ action = "brightness-down"
 
 [supervisor]
 log_dir = "/var/log/oxmux"
+# The boot critical path is audio -> daemon -> frontend. They use kernel device
+# nodes directly, so none of them waits for udev; udev only serves RetroArch.
+# Background work waits for the first menu frame so it can't slow it down.
 [[supervisor.service]]
 name = "kernel-log"
 exec = ["/opt/oxmux/oxmux", "kernel-log"]
@@ -106,14 +114,14 @@ name = "syncthing"
 exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.oxmux/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
 # ROMS exists only on the prepared data card; never write identity/database to
 # the empty mount point on the OS card when SD2 is absent.
-wait_for = ["/mnt/games/ROMS"]
+wait_for = ["/mnt/games/ROMS", "/run/oxmux/first-frame-ready"]
 restart = "always"
 env = { HOME = "/root", GOMAXPROCS = "2" }
 [[supervisor.service]]
 name = "audio"
 kind = "oneshot"
 exec = ["/opt/oxmux/oxmux", "audio-init"]
-after = ["udev-settle"]
+wait_for = ["/dev/snd/controlC0"]
 [[supervisor.service]]
 name = "daemon"
 exec = ["/opt/oxmux/oxmux", "daemon"]

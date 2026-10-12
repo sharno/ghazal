@@ -20,6 +20,11 @@ const CRASH_WINDOW: Duration = Duration::from_secs(60);
 const CRASH_LIMIT: usize = 5;
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+/// `wait_for` paths are polled. Poll quickly while booting, where every
+/// interval delays the menu, and rarely afterwards (e.g. a missing SD card).
+const BOOT_POLL: Duration = Duration::from_millis(20);
+const IDLE_POLL: Duration = Duration::from_secs(2);
+const BOOT_PERIOD: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -85,7 +90,7 @@ fn default_log_dir() -> PathBuf {
 #[derive(Debug)]
 enum State {
     Pending,
-    Running { pid: i32, _log: crate::logging::LogPump },
+    Running { pid: i32, log: crate::logging::LogPump },
     /// Oneshot finished successfully.
     Done,
     /// Waiting to restart.
@@ -142,6 +147,7 @@ pub struct Supervisor {
     signals: sys::SignalFd,
     /// When PID 1, reap every orphan, not just our children.
     pid1: bool,
+    created: Instant,
 }
 
 impl SupervisorConfig {
@@ -198,6 +204,7 @@ impl Supervisor {
             started: Vec::new(),
             signals: sys::SignalFd::new()?,
             pid1,
+            created: Instant::now(),
         })
     }
 
@@ -293,7 +300,7 @@ impl Supervisor {
         match result {
             Ok((pid, pump)) => {
                 log(format_args!("started {} (pid {pid})", svc.cfg.name));
-                svc.state = State::Running { pid, _log: pump };
+                svc.state = State::Running { pid, log: pump };
                 self.started.retain(|&s| s != i);
                 self.started.push(i);
             }
@@ -336,11 +343,12 @@ impl Supervisor {
 
     fn next_timeout(&self) -> Option<Duration> {
         let now = Instant::now();
+        let poll = if now.duration_since(self.created) < BOOT_PERIOD { BOOT_POLL } else { IDLE_POLL };
         let mut timeout: Option<Duration> = None;
         for (i, s) in self.services.iter().enumerate() {
             let t = match &s.state {
                 State::Backoff { until } if self.deps_met(i) => until.saturating_duration_since(now),
-                State::Pending if self.deps_met(i) => Duration::from_millis(250),
+                State::Pending if self.deps_met(i) => poll,
                 _ => continue,
             };
             timeout = Some(timeout.map_or(t, |x| x.min(t)));
@@ -348,19 +356,22 @@ impl Supervisor {
         timeout
     }
 
+    /// Stops every service, then closes their log files. As PID 1 this must
+    /// leave no writer open on the root filesystem, or it can't become read-only.
     fn stop_all(&mut self) {
         for &i in self.started.iter().rev() {
             if let State::Running { pid, .. } = self.services[i].state {
                 sys::kill(-pid, libc::SIGTERM);
             }
         }
+        let mut pumps = Vec::new();
         let deadline = Instant::now() + STOP_TIMEOUT;
         while self.services.iter().any(|s| matches!(s.state, State::Running { .. })) && Instant::now() < deadline {
             let _ = self.signals.wait(Some(Duration::from_millis(100)));
             while let Some((pid, _)) = sys::reap_any() {
                 if let Some(s) = self.services.iter_mut().find(|s| matches!(s.state, State::Running { pid: running, .. } if running == pid)) {
                     sys::kill(-pid, libc::SIGKILL);
-                    s.state = State::Dead;
+                    pumps.extend(s.retire());
                 }
             }
         }
@@ -368,14 +379,28 @@ impl Supervisor {
             if let State::Running { pid, .. } = s.state {
                 log(format_args!("killing {} (pid {pid})", s.cfg.name));
                 sys::kill(-pid, libc::SIGKILL);
-                s.state = State::Dead;
+                pumps.extend(s.retire());
             }
         }
         while sys::reap_any().is_some() {}
+        // Helpers outside a service's group (SSH sessions, emulator children)
+        // can still hold a log pipe; stop every worker, then wait for all of them.
+        for pump in &pumps { pump.stop(); }
+        for pump in pumps {
+            if let Err(error) = pump.finish() { log(format_args!("closing service log: {error:#}")); }
+        }
     }
 }
 
 impl Service {
+    /// Marks the service dead and hands back its log worker, if it had one.
+    fn retire(&mut self) -> Option<crate::logging::LogPump> {
+        match std::mem::replace(&mut self.state, State::Dead) {
+            State::Running { log, .. } => Some(log),
+            _ => None,
+        }
+    }
+
     fn failed(&mut self, now: Instant) {
         let svc = self;
         svc.crashes.retain(|t| now.duration_since(*t) < CRASH_WINDOW);

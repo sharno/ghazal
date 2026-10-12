@@ -126,6 +126,14 @@ pub struct Activity {
 }
 
 impl Activity {
+    /// Moves an unreadable file out of the way, keeping it for inspection.
+    pub fn set_aside(path: &Path) -> Result<PathBuf> {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let aside = path.with_extension(format!("toml.invalid-{stamp}"));
+        fs::rename(path, &aside).with_context(|| format!("moving {} aside", path.display()))?;
+        Ok(aside)
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let stored = match fs::read_to_string(path) {
             Ok(contents) => toml::from_str(&contents)
@@ -268,5 +276,8 @@ mod tests {
         fs::write(directory.file(), "version = 'unknown'").unwrap();
         assert!(Activity::load(&directory.file()).is_err());
         assert_eq!(fs::read_to_string(directory.file()).unwrap(), "version = 'unknown'");
+        let aside = Activity::set_aside(&directory.file()).unwrap();
+        assert_eq!(fs::read_to_string(aside).unwrap(), "version = 'unknown'");
+        assert!(Activity::load(&directory.file()).is_ok());
     }
 }

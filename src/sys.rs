@@ -86,6 +86,22 @@ pub fn reap_any() -> Option<(i32, i32)> {
     Some((pid, code))
 }
 
+/// Reaps children until none remain (true) or `timeout` passes (false). As
+/// PID 1 this covers every process, since orphans are reparented to us.
+pub fn wait_no_children(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        // SAFETY: plain waitpid.
+        let pid = unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) };
+        match pid {
+            -1 if std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD) => return true,
+            0 | -1 if std::time::Instant::now() >= deadline => return false,
+            0 | -1 => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => {}
+        }
+    }
+}
+
 pub fn kill(pid: i32, signal: i32) {
     // SAFETY: plain kill.
     unsafe { libc::kill(pid, signal) };

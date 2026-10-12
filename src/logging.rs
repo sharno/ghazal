@@ -91,8 +91,13 @@ impl LogPump {
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))
     }
 
-    pub fn finish(mut self) -> Result<Option<String>> {
+    /// Asks the worker to drain for at most 500 ms more, then close the log.
+    pub fn stop(&self) {
         self.stopping.store(true, Ordering::Release);
+    }
+
+    pub fn finish(mut self) -> Result<Option<String>> {
+        self.stop();
         self.thread.take().context("log worker already finished")?.join()
             .map_err(|_| anyhow::anyhow!("log worker panicked"))
     }
