@@ -144,6 +144,16 @@ pub struct Audio {
     /// Percent of the control's range used as 100% (some codecs clip near the top).
     #[serde(default = "default_ceiling")]
     pub ceiling: u8,
+    /// Fixed signal-path controls applied before the daemon restores user volume.
+    #[serde(default)]
+    pub route: Vec<AudioSetting>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub enum AudioSetting {
+    Switch { control: String, enabled: bool },
+    Volume { control: String, percent: u8 },
 }
 
 fn default_ceiling() -> u8 {

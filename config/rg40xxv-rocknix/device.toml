@@ -40,6 +40,12 @@ min = 1
 [audio]
 card = 0
 control = "DAC Playback Volume"
+route = [
+  { switch = { control = "DAC Playback Switch", enabled = true } },
+  { volume = { control = "Line Out Playback Volume", percent = 100 } },
+  { switch = { control = "Line Out Playback Switch", enabled = true } },
+  { switch = { control = "Speaker Switch", enabled = true } },
+]
 
 [battery]
 path = "/sys/class/power_supply/battery"

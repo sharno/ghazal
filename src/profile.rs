@@ -72,6 +72,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn standalone_audio_route_includes_the_analog_output_before_daemon_start() {
+        use crate::device::AudioSetting;
+        let audio = Profile { dir: None }.device().unwrap().audio.unwrap();
+        assert!(audio.route.iter().any(|setting| matches!(setting, AudioSetting::Volume { control, percent: 100 } if control == "Line Out Playback Volume")));
+        for required in ["DAC Playback Switch", "Line Out Playback Switch", "Speaker Switch"] {
+            assert!(audio.route.iter().any(|setting| matches!(setting, AudioSetting::Switch { control, enabled: true } if control == required)), "{required}");
+        }
+        let system = Profile { dir: None }.system().unwrap();
+        let audio = system.supervisor.services.iter().find(|service| service.name == "audio").unwrap();
+        assert_eq!(audio.kind, crate::supervisor::Kind::Oneshot);
+        assert_eq!(audio.exec, ["/opt/oxmux/oxmux", "audio-init"]);
+        assert!(system.supervisor.services.iter().find(|service| service.name == "daemon").unwrap().after.contains(&"audio".to_string()));
+    }
+
+    #[test]
     fn standalone_joypad_indices_match_physical_button_codes() {
         let device: DeviceConfig = toml::from_str(DEFAULT_DEVICE).unwrap();
         let gamepad: std::collections::BTreeMap<String, String> = toml::from_str(include_str!("../config/rg40xxv-rocknix/gamepad.cfg")).unwrap();

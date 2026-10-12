@@ -110,19 +110,14 @@ wait_for = ["/mnt/games/ROMS"]
 restart = "always"
 env = { HOME = "/root", GOMAXPROCS = "2" }
 [[supervisor.service]]
-name = "mixer"
+name = "audio"
 kind = "oneshot"
-exec = ["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]
+exec = ["/opt/oxmux/oxmux", "audio-init"]
 after = ["udev-settle"]
-[[supervisor.service]]
-name = "speaker"
-kind = "oneshot"
-exec = ["/usr/bin/amixer", "-c", "0", "sset", "Speaker", "on"]
-after = ["mixer"]
 [[supervisor.service]]
 name = "daemon"
 exec = ["/opt/oxmux/oxmux", "daemon"]
-after = ["mixer"]
+after = ["audio"]
 restart = "always"
 [[supervisor.service]]
 name = "frontend"
