@@ -163,6 +163,29 @@ impl Closure<'_> {
         Ok(())
     }
 }
+/// Sets `key = value` pairs from `overrides` in the matching `[section]`s of
+/// `base`, appending a key to its section when the base lacks it.
+fn merge_ini(base: &str, overrides: &str) -> Result<String> {
+    let mut lines: Vec<String> = base.lines().map(str::to_owned).collect();
+    let mut section = String::new();
+    for line in overrides.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(';')) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = name.to_owned();
+            continue;
+        }
+        let (key, _) = line.split_once('=').ok_or_else(|| format!("invalid override {line:?}"))?;
+        let key = key.trim();
+        let header = format!("[{section}]");
+        let start = lines.iter().position(|l| l.trim_start_matches('\u{feff}').trim() == header)
+            .ok_or_else(|| format!("section {header} missing"))?;
+        let end = lines[start + 1..].iter().position(|l| l.starts_with('[')).map_or(lines.len(), |i| start + 1 + i);
+        match lines[start + 1..end].iter().position(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == key)) {
+            Some(i) => lines[start + 1 + i] = line.to_owned(),
+            None => lines.insert(end, line.to_owned()),
+        }
+    }
+    Ok(lines.join("\n") + "\n")
+}
 fn splice(src: &Path, dst: &Path, offset: u64) -> Result<()> {
     let mut input = File::open(src)?;
     let mut out = fs::OpenOptions::new().write(true).open(dst)?;
@@ -334,6 +357,11 @@ fn main() -> Result<()> {
     // to its executable), ROCKNIX's H700 defaults and the SDL controller database.
     copy_tree(&upstream.join("usr/config/ppsspp/assets"), &root.join("usr/share/ppsspp/assets"))?;
     copy_tree(&upstream.join("usr/config/ppsspp/PSP"), &root.join("var/lib/oxmux/ppsspp/PSP"))?;
+    let ppsspp = repo.join("config/rg40xxv-rocknix/ppsspp");
+    let system = root.join("var/lib/oxmux/ppsspp/PSP/SYSTEM");
+    copy(&ppsspp.join("controls.ini"), &system.join("controls.ini"))?;
+    let defaults = fs::read_to_string(system.join("ppsspp.ini"))?;
+    fs::write(system.join("ppsspp.ini"), merge_ini(&defaults, &fs::read_to_string(ppsspp.join("ppsspp-overrides.ini"))?)?)?;
     copy_tree(&upstream.join("usr/config/SDL-GameControllerDB"), &root.join("usr/share/SDL-GameControllerDB"))?;
     // ROCKNIX's PPSSPP has its /storage paths compiled in. Point them at our
     // layout: settings on SD1, game saves shared with the libretro core on SD2.
@@ -573,4 +601,17 @@ fn main() -> Result<()> {
         work.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_ini;
+
+    #[test]
+    fn overrides_replace_or_append_within_their_section() {
+        let base = "\u{feff}[General]\nUIScaleFactor = -1\nOther = 1\n[Graphics]\nAnisotropyLevel = 4\n";
+        let merged = merge_ini(base, "; note\n[General]\nUIScaleFactor = -6\n[Graphics]\nAnisotropyLevel = 0\nDepthRasterMode = 2\n").unwrap();
+        assert_eq!(merged, "\u{feff}[General]\nUIScaleFactor = -6\nOther = 1\n[Graphics]\nAnisotropyLevel = 0\nDepthRasterMode = 2\n");
+        assert!(merge_ini(base, "[Missing]\nKey = 1\n").is_err());
+    }
 }

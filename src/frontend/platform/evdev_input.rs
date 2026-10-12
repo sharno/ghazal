@@ -2,10 +2,10 @@ use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use evdev::{Device, EventType, Key};
+use evdev::{Device, EventType, Key as KeyCode};
 
 use crate::device::DeviceConfig;
-use crate::frontend::input::Button;
+use crate::frontend::input::{Button, Key};
 
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
@@ -22,6 +22,9 @@ struct Pad {
 
 pub struct Input {
     pads: Vec<Pad>,
+    /// Other key devices (volume, power). Never grabbed: their keys only tell
+    /// a held Menu/Start that it is part of a daemon hotkey chord.
+    companions: Vec<Device>,
     map: Vec<(u16, Button)>,
     /// Exclusive grab while in the foreground (device.toml input.grab).
     grab: bool,
@@ -44,6 +47,7 @@ impl Input {
 
     fn try_open(dev: &DeviceConfig) -> Result<Self> {
         let mut pads = Vec::new();
+        let mut companions = Vec::new();
         for (path, device) in evdev::enumerate() {
             let name = device.name().unwrap_or("").to_string();
             let wanted = match &dev.input.gamepad {
@@ -51,6 +55,9 @@ impl Input {
                 None => is_gamepad(&device),
             };
             if !wanted {
+                if device.supported_events().contains(EventType::KEY) && set_nonblocking(&device).is_ok() {
+                    companions.push(device);
+                }
                 continue;
             }
             set_nonblocking(&device)?;
@@ -76,7 +83,7 @@ impl Input {
             ("up", Button::Up), ("down", Button::Down), ("left", Button::Left), ("right", Button::Right),
         ];
         let map = names.iter().filter_map(|(n, b)| dev.button(n).map(|code| (code, *b))).collect();
-        let mut input = Self { pads, map, grab: dev.input.grab, grabbed: false };
+        let mut input = Self { pads, companions, map, grab: dev.input.grab, grabbed: false };
         input.acquire();
         Ok(input)
     }
@@ -85,6 +92,9 @@ impl Input {
     /// the emulator ran and, if configured, grabs the pad so nothing else reacts to menu
     /// navigation (the daemon never grabs, so hotkeys keep working either way).
     pub fn acquire(&mut self) {
+        for device in &mut self.companions {
+            while device.fetch_events().is_ok_and(|events| events.count() > 0) {}
+        }
         for pad in &mut self.pads {
             while let Ok(events) = pad.device.fetch_events() {
                 if events.count() == 0 {
@@ -110,12 +120,14 @@ impl Input {
         }
     }
 
-    /// Waits up to `timeout` for input and reports (button, pressed) edges.
-    pub fn poll(&mut self, timeout: Duration, wake_fd: Option<std::os::fd::RawFd>, mut emit: impl FnMut(Button, bool)) -> Result<()> {
+    /// Waits up to `timeout` for input and reports (key, pressed) edges.
+    pub fn poll(&mut self, timeout: Duration, wake_fd: Option<std::os::fd::RawFd>, mut emit: impl FnMut(Key, bool)) -> Result<()> {
         let mut fds: Vec<libc::pollfd> = self
             .pads
             .iter()
-            .map(|p| libc::pollfd { fd: p.device.as_raw_fd(), events: libc::POLLIN, revents: 0 })
+            .map(|p| p.device.as_raw_fd())
+            .chain(self.companions.iter().map(Device::as_raw_fd))
+            .map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 })
             .collect();
         if let Some(fd) = wake_fd { fds.push(libc::pollfd { fd, events: libc::POLLIN, revents: 0 }); }
         let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
@@ -132,6 +144,19 @@ impl Input {
             bail!("levels notification descriptor failed");
         }
 
+        for (device, fd) in self.companions.iter_mut().zip(&fds[self.pads.len()..]) {
+            if fd.revents & libc::POLLIN == 0 {
+                continue;
+            }
+            let events: Vec<_> = match device.fetch_events() {
+                Ok(events) => events.collect(),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            };
+            for ev in events.iter().filter(|ev| ev.event_type() == EventType::KEY && ev.value() != 2) {
+                emit(Key::Other(ev.code()), ev.value() == 1);
+            }
+        }
         for (pad, fd) in self.pads.iter_mut().zip(&fds) {
             if fd.revents & libc::POLLIN == 0 {
                 continue;
@@ -145,9 +170,8 @@ impl Input {
                 match ev.event_type() {
                     // value 2 is kernel autorepeat; we do our own.
                     EventType::KEY if ev.value() != 2 => {
-                        if let Some(&(_, b)) = self.map.iter().find(|(code, _)| *code == ev.code()) {
-                            emit(b, ev.value() == 1);
-                        }
+                        let key = self.map.iter().find(|(code, _)| *code == ev.code()).map_or(Key::Other(ev.code()), |&(_, b)| Key::Button(b));
+                        emit(key, ev.value() == 1);
                     }
                     EventType::ABSOLUTE => {
                         let (slot, dir) = match ev.code() {
@@ -170,10 +194,10 @@ impl Input {
                                 (false, true) => Button::Down,
                             };
                             if prev != 0 {
-                                emit(button(prev), false);
+                                emit(Key::Button(button(prev)), false);
                             }
                             if dir != 0 {
-                                emit(button(dir), true);
+                                emit(Key::Button(button(dir)), true);
                             }
                         }
                     }
@@ -209,7 +233,7 @@ fn stick_direction(value: i32, (min, max): (i32, i32), current: i8) -> i8 {
 fn is_gamepad(device: &Device) -> bool {
     device
         .supported_keys()
-        .is_some_and(|k| k.contains(Key::BTN_SOUTH) || k.contains(Key::BTN_EAST) || k.contains(Key::BTN_DPAD_UP))
+        .is_some_and(|k| k.contains(KeyCode::BTN_SOUTH) || k.contains(KeyCode::BTN_EAST) || k.contains(KeyCode::BTN_DPAD_UP))
 }
 
 fn set_nonblocking(device: &Device) -> Result<()> {
@@ -260,7 +284,7 @@ pub fn probe() -> Result<()> {
                 match ev.event_type() {
                     EventType::KEY => println!(
                         "{t:8.3} {}  KEY  code={:<4} {:?} value={}",
-                        path.display(), ev.code(), Key::new(ev.code()), ev.value()
+                        path.display(), ev.code(), KeyCode::new(ev.code()), ev.value()
                     ),
                     EventType::ABSOLUTE => println!(
                         "{t:8.3} {}  ABS  code={:<4} {:?} value={}",

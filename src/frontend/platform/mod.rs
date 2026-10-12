@@ -198,11 +198,11 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
         if let Some(wake) = screen.next_wake() {
             deadline = deadline.min(now + wake);
         }
-        input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |button, pressed| {
+        input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |key, pressed| {
             if pressed {
-                repeater.press(button, Instant::now());
+                repeater.press(key, Instant::now());
             } else {
-                repeater.release(button);
+                repeater.release(key);
             }
         })?;
         if levels_watch.as_ref().map(crate::levels::Watch::drain).transpose()?.unwrap_or(false) {

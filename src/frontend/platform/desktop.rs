@@ -17,7 +17,7 @@ use super::{build_app, Screen};
 use crate::device::DeviceConfig;
 use crate::frontend::app::{App, Effect};
 use crate::frontend::config::FrontendConfig;
-use crate::frontend::input::{Button, Repeater};
+use crate::frontend::input::{Button, Key, Repeater};
 
 /// RG40XXV panel resolution.
 const WIDTH: u32 = 640;
@@ -176,8 +176,8 @@ impl ApplicationHandler for Sim {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let Some(button) = map_key(code) else { return };
                 match event.state {
-                    ElementState::Pressed => self.repeater.press(button, Instant::now()),
-                    ElementState::Released => self.repeater.release(button),
+                    ElementState::Pressed => self.repeater.press(Key::Button(button), Instant::now()),
+                    ElementState::Released => self.repeater.release(Key::Button(button)),
                 }
             }
             _ => {}
