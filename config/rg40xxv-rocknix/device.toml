@@ -7,8 +7,10 @@ gamepad = "H700 Gamepad"
 [buttons]
 a = 305
 b = 304
-x = 307
-y = 308
+# Pressing the X button sends BTN_WEST (308) and Y sends BTN_NORTH (307),
+# confirmed with a capture of the real pad; the labels don't follow position.
+x = 308
+y = 307
 l1 = 310
 r1 = 311
 l2 = 312

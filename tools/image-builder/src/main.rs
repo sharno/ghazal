@@ -347,7 +347,7 @@ fn main() -> Result<()> {
         &upstream.join("usr/share/libretro/autoconfig"),
         &root.join("usr/share/libretro/autoconfig"),
     )?;
-    // The H700 kernel labels BTN_NORTH as physical X and BTN_WEST as Y.
+    // The H700 pad sends BTN_WEST for its X button and BTN_NORTH for Y.
     // Own this board mapping rather than inheriting the generic Xbox ordering.
     copy(
         &repo.join("config/rg40xxv-rocknix/gamepad.cfg"),
