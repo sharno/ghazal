@@ -268,9 +268,15 @@ impl App {
     pub fn launch_started(&mut self, game: GameId) {
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
-        if let Err(error) = self.catalog.launched(game) {
+        if let Err(error) = self.catalog.launched(game.clone()) {
             eprintln!("oxmux: saving history: {error:#}");
             self.error(format!("Saving history: {error:#}"));
+        }
+        // Launching reorders Recent Games; keep the cursor on the game played.
+        if let View::Games(list) = self.view {
+            if let Some(index) = (0..self.game_count(list)).find(|&i| self.game_at(list, i).is_some_and(|(system, g)| GameId::new(system, g) == game)) {
+                self.game_cursors.insert(list, index);
+            }
         }
         self.rows_for = None;
     }

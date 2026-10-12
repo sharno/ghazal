@@ -361,7 +361,16 @@ fn main() -> Result<()> {
     let system = root.join("var/lib/oxmux/ppsspp/PSP/SYSTEM");
     copy(&ppsspp.join("controls.ini"), &system.join("controls.ini"))?;
     let defaults = fs::read_to_string(system.join("ppsspp.ini"))?;
-    fs::write(system.join("ppsspp.ini"), merge_ini(&defaults, &fs::read_to_string(ppsspp.join("ppsspp-overrides.ini"))?)?)?;
+    let settings = merge_ini(&defaults, &fs::read_to_string(ppsspp.join("ppsspp-overrides.ini"))?)?;
+    fs::write(system.join("ppsspp.ini"), &settings)?;
+    copy_tree(&ppsspp.join("Cheats"), &root.join("var/lib/oxmux/ppsspp/PSP/Cheats"))?;
+    // PPSSPP reads every per-game setting from a game's own ini, so each one
+    // starts from the full settings and changes only that game's overrides.
+    for entry in fs::read_dir(ppsspp.join("games"))? {
+        let path = entry?.path();
+        let id = path.file_stem().and_then(|s| s.to_str()).ok_or("invalid game override name")?;
+        fs::write(system.join(format!("{id}_ppsspp.ini")), merge_ini(&settings, &fs::read_to_string(&path)?)?)?;
+    }
     copy_tree(&upstream.join("usr/config/SDL-GameControllerDB"), &root.join("usr/share/SDL-GameControllerDB"))?;
     // ROCKNIX's PPSSPP has its /storage paths compiled in. Point them at our
     // layout: settings on SD1, game saves shared with the libretro core on SD2.
