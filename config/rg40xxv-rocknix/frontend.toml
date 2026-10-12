@@ -152,6 +152,9 @@ name = "MSX"
 dirs = ["MSX", "MSX2"]
 extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip"]
 core = "bluemsx_libretro.so"
+# blueMSX's free C-BIOS machines and databases (libretro/blueMSX-libretro,
+# system/bluemsx: Databases/ and the three "* - C-BIOS" Machines/ folders).
+requires_any = ["Machines/MSX2+ - C-BIOS/config.ini"]
 
 [[system]]
 name = "Mega CD"
