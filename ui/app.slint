@@ -159,6 +159,11 @@ export component AppWindow inherits Window {
     in property <string> empty-message;
     in property <[Hint]> hints;
     in property <[string]> menu-items;
+    in property <string> menu-title: "Menu";
+    /// Box art of the selected game (see App::request_art).
+    in property <image> art;
+    in property <bool> art-visible;
+    in property <bool> art-ready;
     /// -1 means the menu is closed.
     in property <int> menu-selected: -1;
     in property <string> toast;
@@ -227,6 +232,9 @@ export component AppWindow inherits Window {
             // Keep the cursor roughly centred once the list scrolls.
             property <int> first-row: max(0, min(root.selected - floor(self.visible-rows / 2), root.row-count - self.visible-rows));
             property <bool> scrolls: root.row-count > self.visible-rows;
+            // Box art takes the right side of game lists when thumbnails are on.
+            property <length> art-width: root.art-visible ? 256px : 0px;
+            property <length> list-width: self.width - self.art-width;
             // Not animated: opening another list would visibly scroll through
             // every row between the old and new positions.
             property <length> scroll: self.first-row * Theme.row-height;
@@ -241,14 +249,14 @@ export component AppWindow inherits Window {
                 for row[i] in root.rows: ListRow {
                     x: Theme.pad;
                     y: (root.row-offset + i) * Theme.row-height - area.scroll;
-                    width: area.width - 2 * Theme.pad - (area.scrolls ? 10px : 0);
+                    width: area.list-width - 2 * Theme.pad - (area.scrolls ? 10px : 0);
                     item: row;
                     selected: root.row-offset + i == root.selected;
                 }
             }
 
             if area.scrolls: Rectangle {
-                x: area.width - Theme.pad - 4px;
+                x: area.list-width - Theme.pad - 4px;
                 y: 10px;
                 width: 4px;
                 height: area.visible-rows * Theme.row-height - 4px;
@@ -260,6 +268,29 @@ export component AppWindow inherits Window {
                     y: (parent.height - self.height) * (area.scroll / Theme.row-height) / (root.row-count - area.visible-rows);
                     border-radius: 2px;
                     background: Theme.dim;
+                }
+            }
+
+            if root.art-visible: Rectangle {
+                x: area.list-width;
+                y: 8px;
+                width: area.art-width - Theme.pad;
+                height: area.visible-rows * Theme.row-height;
+                border-radius: 10px;
+                background: Theme.panel;
+                clip: true;
+                if root.art-ready: Image {
+                    width: parent.width - 16px;
+                    height: parent.height - 16px;
+                    source: root.art;
+                    image-fit: contain;
+                }
+                if !root.art-ready: Text {
+                    text: "No art";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 16px;
+                    color: Theme.dim;
                 }
             }
 
@@ -318,7 +349,7 @@ export component AppWindow inherits Window {
                 x: Theme.pad;
                 y: 4px;
                 height: 44px;
-                text: "Menu";
+                text: root.menu-title;
                 vertical-alignment: center;
                 font-size: 20px;
                 font-weight: 700;

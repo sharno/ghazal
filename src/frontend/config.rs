@@ -16,6 +16,13 @@ pub struct FrontendConfig {
     /// Where emulators find BIOS files; systems' `requires_any` are relative to it.
     #[serde(default = "default_bios_dir")]
     pub bios_dir: PathBuf,
+    /// Downloaded box art, one folder per libretro system name.
+    pub thumbnail_cache: Option<PathBuf>,
+    /// muOS's catalogue (`<system>/box/<game>.png`), reused when present.
+    pub muos_catalogue: Option<PathBuf>,
+    /// Menu options chosen on the device.
+    #[serde(default = "default_settings_file")]
+    pub settings_file: PathBuf,
     /// Socket of `oxmux daemon`; enables the Sleep/Restart/Power off menu entries.
     #[serde(default = "default_socket")]
     pub daemon_socket: PathBuf,
@@ -25,6 +32,10 @@ pub struct FrontendConfig {
 
 fn default_socket() -> PathBuf {
     "/run/oxmux/daemon.sock".into()
+}
+
+fn default_settings_file() -> PathBuf {
+    "/var/lib/oxmux/frontend-settings.toml".into()
 }
 
 fn default_bios_dir() -> PathBuf {
@@ -64,6 +75,17 @@ pub struct SystemEntry {
     /// The system is hidden until one of these BIOS files exists, so it never
     /// shows games that can only fail to start.
     pub requires_any: Vec<PathBuf>,
+    pub art: ArtSources,
+}
+
+/// Where a system's box art comes from.
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ArtSources {
+    /// libretro's thumbnail system name (download and cache folder).
+    pub libretro: Option<String>,
+    /// muOS catalogue system folder.
+    pub muos: Option<String>,
 }
 
 /// How a system's games run.
@@ -98,6 +120,8 @@ struct RawSystemEntry {
     log: Option<PathBuf>,
     #[serde(default)]
     requires_any: Vec<PathBuf>,
+    #[serde(default)]
+    art: ArtSources,
 }
 
 impl TryFrom<RawSystemEntry> for SystemEntry {
@@ -112,7 +136,7 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
             (Some(_), Some(_)) => return Err(format!("system {:?} sets both core and command", raw.name)),
             (None, None) => return Err(format!("system {:?} needs a core or a command", raw.name)),
         };
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, requires_any: raw.requires_any })
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, requires_any: raw.requires_any, art: raw.art })
     }
 }
 
@@ -128,6 +152,9 @@ impl FrontendConfig {
         self.rom_roots.iter_mut().for_each(fix);
         fix(&mut self.activity_file);
         fix(&mut self.bios_dir);
+        fix(&mut self.settings_file);
+        if let Some(cache) = &mut self.thumbnail_cache { fix(cache); }
+        if let Some(catalogue) = &mut self.muos_catalogue { fix(catalogue); }
         self.retroarch.core_dirs.iter_mut().for_each(fix);
         self.retroarch.configs.iter_mut().for_each(fix);
         if let Some(log) = &mut self.retroarch.log {

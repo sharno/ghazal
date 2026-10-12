@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn catalog_updates_collections_after_activity_changes_and_library_replacement() {
         let directory = Temp::new();
-        let library = |indices: &[usize]| Library::from_systems(vec![System { name: "GB".into(), launch: Launch::Core("test.so".into()), games: indices.iter().map(|index| Game { title: index.to_string(), path: game(*index).path }).collect() }]);
+        let library = |indices: &[usize]| Library::from_systems(vec![System { name: "GB".into(), art: Default::default(), launch: Launch::Core("test.so".into()), games: indices.iter().map(|index| Game { title: index.to_string(), path: game(*index).path }).collect() }]);
         let mut catalog = Catalog::new(library(&[0, 1]), Activity::load(&directory.file()).unwrap());
         catalog.launched(game(0)).unwrap();
         catalog.launched(game(1)).unwrap();
@@ -238,7 +238,7 @@ mod tests {
         let directory = Temp::new();
         fs::write(directory.file(), "version = '1'\nfavorites = [{system = 'Arcade', path = '/ROMS/MAME/005.zip'}]\nrecent = [{system = 'Arcade', path = '/ROMS/MAME/005.zip'}, {system = 'MAME 2003 Plus', path = '/ROMS/MAME/005.zip'}]").unwrap();
         let loaded = Activity::load(&directory.file()).unwrap();
-        let library = Library::from_systems(vec![System { name: "MAME 2003 Plus".into(), launch: Launch::Core("mame2003_plus_libretro.so".into()), games: vec![Game { title: "005".into(), path: "/ROMS/MAME/005.zip".into() }] }]);
+        let library = Library::from_systems(vec![System { name: "MAME 2003 Plus".into(), art: Default::default(), launch: Launch::Core("mame2003_plus_libretro.so".into()), games: vec![Game { title: "005".into(), path: "/ROMS/MAME/005.zip".into() }] }]);
         let id = GameId::new(&library.systems()[0], &library.systems()[0].games[0]);
         assert!(loaded.is_favorite(&id));
         assert_eq!(loaded.recent().count(), 1);

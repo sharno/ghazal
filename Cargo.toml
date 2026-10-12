@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 [features]
 default = []
 # Desktop simulator window (winit + softbuffer). Not used on the device.
-desktop = ["dep:winit", "dep:softbuffer", "dep:png"]
+desktop = ["dep:winit", "dep:softbuffer"]
 
 [dependencies]
 anyhow = "1"
@@ -22,7 +22,7 @@ evdev = "0.12"
 fontique = { version = "0.11", default-features = false, features = ["fontconfig-dlopen"] }
 winit = { version = "0.30", optional = true }
 softbuffer = { version = "0.4", optional = true }
-png = { version = "0.17", optional = true }
+png = "0.17"
 drm = { version = "0.14", default-features = false }
 
 [build-dependencies]

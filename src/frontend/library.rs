@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 
-use super::config::{FrontendConfig, Launch, SystemEntry};
+use super::config::{ArtSources, FrontendConfig, Launch, SystemEntry};
 
 const MAX_DEPTH: usize = 3;
 
@@ -15,6 +15,7 @@ enum PathMatch { Unique { system: usize, game: usize }, Ambiguous }
 
 pub struct System {
     pub name: String,
+    pub art: ArtSources,
     pub launch: Launch,
     pub games: Vec<Game>,
 }
@@ -47,6 +48,7 @@ impl Library {
                 games.dedup_by(|a, b| a.path == b.path);
                 (!games.is_empty()).then(|| System {
                     name: sys.name.clone(),
+                    art: sys.art.clone(),
                     launch: sys.launch.clone(),
                     games,
                 })
@@ -174,7 +176,7 @@ mod tests {
 
     #[test]
     fn path_index_resolves_unique_paths_and_rejects_ambiguous_assignments() {
-        let system = |name: &str, paths: &[&str]| System { name: name.into(), launch: Launch::Core("test.so".into()), games: paths.iter().map(|path| Game { title: (*path).into(), path: (*path).into() }).collect() };
+        let system = |name: &str, paths: &[&str]| System { name: name.into(), art: ArtSources::default(), launch: Launch::Core("test.so".into()), games: paths.iter().map(|path| Game { title: (*path).into(), path: (*path).into() }).collect() };
         let library = Library::from_systems(vec![system("A", &["/unique", "/shared"]), system("B", &["/shared"])]);
         assert_eq!(library.resolve_path(Path::new("/unique")).unwrap().0.name, "A");
         assert!(library.resolve_path(Path::new("/shared")).is_none());

@@ -4,6 +4,9 @@
 rom_roots = ["/mnt/games/ROMS"]
 # Systems with `requires_any` stay hidden until one of those BIOS files is here.
 bios_dir = "/mnt/games/BIOS"
+# Box art: next to ROMs (Imgs/), muOS's catalogue, then downloads (Options menu).
+thumbnail_cache = "/mnt/games/.oxmux/thumbnails"
+muos_catalogue = "/mnt/games/MUOS/info/catalogue"
 activity_file = "/mnt/games/.oxmux/activity.toml"
 
 [retroarch]
@@ -20,102 +23,119 @@ name = "Game Boy"
 dirs = ["GB", "Game Boy", "Nintendo Game Boy", "Nintendo - Game Boy"]
 extensions = ["gb", "zip", "7z"]
 core = "gambatte_libretro.so"
+art = { libretro = "Nintendo - Game Boy", muos = "Nintendo Game Boy" }
 
 [[system]]
 name = "Game Boy Color"
 dirs = ["GBC", "Game Boy Color", "Nintendo Game Boy Color", "Nintendo - Game Boy Color"]
 extensions = ["gbc", "gb", "zip", "7z"]
 core = "gambatte_libretro.so"
+art = { libretro = "Nintendo - Game Boy Color", muos = "Nintendo Game Boy Color" }
 
 [[system]]
 name = "Game Boy Advance"
 dirs = ["GBA", "Game Boy Advance", "Nintendo Game Boy Advance"]
 extensions = ["gba", "zip", "7z"]
 core = "mgba_libretro.so"
+art = { libretro = "Nintendo - Game Boy Advance", muos = "Nintendo Game Boy Advance" }
 
 [[system]]
 name = "NES"
 dirs = ["NES", "FC", "Famicom", "Nintendo NES", "Nintendo - Nintendo Entertainment System (Headered)"]
 extensions = ["nes", "fds", "unf", "zip", "7z"]
 core = "fceumm_libretro.so"
+art = { libretro = "Nintendo - Nintendo Entertainment System", muos = "Nintendo NES - Famicom" }
 
 [[system]]
 name = "SNES"
 dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES", "Nintendo - Super Nintendo Entertainment System"]
 extensions = ["sfc", "smc", "zip", "7z"]
 core = "snes9x_libretro.so"
+art = { libretro = "Nintendo - Super Nintendo Entertainment System", muos = "Nintendo SNES - SFC" }
 
 [[system]]
 name = "Mega Drive / Genesis"
 dirs = ["MD", "GENESIS", "Mega Drive", "Sega Genesis"]
 extensions = ["md", "gen", "bin", "smd", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+art = { libretro = "Sega - Mega Drive - Genesis", muos = "Sega Mega Drive - Genesis" }
 
 [[system]]
 name = "Master System"
 dirs = ["MS", "SMS", "Master System", "Sega Master System"]
 extensions = ["sms", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+art = { libretro = "Sega - Master System - Mark III", muos = "Sega Master System" }
 
 [[system]]
 name = "Game Gear"
 dirs = ["GG", "Game Gear", "Sega Game Gear"]
 extensions = ["gg", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+art = { libretro = "Sega - Game Gear", muos = "Sega Game Gear" }
 
 [[system]]
 name = "PC Engine"
 dirs = ["PCE", "TG16", "PC Engine", "TurboGrafx-16"]
 extensions = ["pce", "cue", "chd", "zip", "7z"]
 core = "beetle_pce_fast_libretro.so"
+art = { libretro = "NEC - PC Engine - TurboGrafx 16", muos = "NEC PC Engine" }
 
 [[system]]
 name = "PlayStation"
 dirs = ["PS", "PS1", "PSX", "PlayStation", "Sony PlayStation"]
 extensions = ["cue", "chd", "pbp", "m3u", "iso"]
 core = "pcsx_rearmed_libretro.so"
+art = { libretro = "Sony - PlayStation", muos = "Sony PlayStation" }
 
 [[system]]
 name = "Nintendo 64"
 dirs = ["N64", "Nintendo 64"]
 extensions = ["n64", "z64", "v64", "zip", "7z"]
 core = "mupen64plus_next_libretro.so"
+art = { libretro = "Nintendo - Nintendo 64", muos = "Nintendo N64" }
 
 [[system]]
 name = "Arcade"
 dirs = ["ARCADE", "FBNEO", "CPS1", "CPS2", "CPS3", "NEOGEO"]
 extensions = ["zip", "7z"]
 core = "fbneo_libretro.so"
+art = { muos = "Arcade" }
 
 [[system]]
 name = "MAME 2003 Plus"
 dirs = ["MAME"]
 extensions = ["zip"]
 core = "mame2003_plus_libretro.so"
+art = { muos = "Arcade" }
 
 [[system]]
 name = "Neo Geo Pocket"
 dirs = ["NGP", "NGPC", "Neo Geo Pocket", "Neo Geo Pocket Color"]
 extensions = ["ngp", "ngc", "zip", "7z"]
 core = "beetle_ngp_libretro.so"
+art = { libretro = "SNK - Neo Geo Pocket Color", muos = "SNK Neo Geo Pocket - Color" }
 
 [[system]]
 name = "WonderSwan"
 dirs = ["WS", "WSC", "WonderSwan", "WonderSwan Color"]
 extensions = ["ws", "wsc", "zip", "7z"]
 core = "beetle_wswan_libretro.so"
+art = { libretro = "Bandai - WonderSwan Color" }
 
 [[system]]
 name = "Atari 2600"
 dirs = ["ATARI", "A2600", "Atari 2600"]
 extensions = ["a26", "bin", "zip", "7z"]
 core = "stella_libretro.so"
+art = { libretro = "Atari - 2600", muos = "Atari 2600" }
 
 [[system]]
 name = "Atari Lynx"
 dirs = ["LYNX", "Atari Lynx"]
 extensions = ["lnx", "zip", "7z"]
 core = "handy_libretro.so"
+art = { libretro = "Atari - Lynx", muos = "Atari Lynx" }
 
 [[system]]
 name = "PSP"
@@ -127,12 +147,14 @@ extensions = ["iso", "cso", "pbp", "chd"]
 command = ["/usr/bin/ppsspp", "--pause-menu-exit", "{rom}"]
 env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
 log = "/var/log/oxmux/ppsspp.log"
+art = { libretro = "Sony - PlayStation Portable", muos = "Sony PlayStation Portable" }
 
 [[system]]
 name = "Dreamcast"
 dirs = ["DREAMCAST", "DC"]
 extensions = ["chd", "gdi", "cdi", "m3u", "zip"]
 core = "flycast_libretro.so"
+art = { libretro = "Sega - Dreamcast", muos = "Sega Dreamcast" }
 
 [[system]]
 name = "Naomi"
@@ -140,12 +162,14 @@ dirs = ["NAOMI"]
 extensions = ["zip", "chd", "m3u"]
 core = "flycast_libretro.so"
 requires_any = ["dc/naomi.zip"]
+art = { libretro = "Sega - Naomi", muos = "Sega Atomiswave Naomi" }
 
 [[system]]
 name = "Nintendo DS"
 dirs = ["NDS", "Nintendo DS"]
 extensions = ["nds", "zip", "7z"]
 core = "melonds_libretro.so"
+art = { libretro = "Nintendo - Nintendo DS" }
 
 [[system]]
 name = "MSX"
@@ -155,6 +179,7 @@ core = "bluemsx_libretro.so"
 # blueMSX's free C-BIOS machines and databases (libretro/blueMSX-libretro,
 # system/bluemsx: Databases/ and the three "* - C-BIOS" Machines/ folders).
 requires_any = ["Machines/MSX2+ - C-BIOS/config.ini"]
+art = { libretro = "Microsoft - MSX" }
 
 [[system]]
 name = "Mega CD"
@@ -162,12 +187,14 @@ dirs = ["MDCD", "SEGACD"]
 extensions = ["cue", "chd", "m3u"]
 core = "picodrive_libretro.so"
 requires_any = ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
+art = { libretro = "Sega - Mega-CD - Sega CD", muos = "Sega Mega CD - Sega CD" }
 
 [[system]]
 name = "Game & Watch"
 dirs = ["GW", "Game & Watch"]
 extensions = ["mgw", "zip"]
 core = "gw_libretro.so"
+art = { libretro = "Handheld Electronic Game" }
 
 [[system]]
 name = "PC Engine CD"
@@ -175,18 +202,21 @@ dirs = ["PCECD"]
 extensions = ["cue", "chd", "m3u"]
 core = "beetle_pce_fast_libretro.so"
 requires_any = ["syscard3.pce"]
+art = { libretro = "NEC - PC Engine CD - TurboGrafx-CD", muos = "NEC PC Engine CD" }
 
 [[system]]
 name = "Sega 32X"
 dirs = ["SEGA32X", "32X"]
 extensions = ["32x", "smd", "bin", "md", "zip", "7z"]
 core = "picodrive_libretro.so"
+art = { libretro = "Sega - 32X", muos = "Sega 32X" }
 
 [[system]]
 name = "Virtual Boy"
 dirs = ["VB", "Virtual Boy"]
 extensions = ["vb", "zip", "7z"]
 core = "beetle_vb_libretro.so"
+art = { libretro = "Nintendo - Virtual Boy" }
 
 [[system]]
 name = "Saturn"
@@ -194,3 +224,4 @@ dirs = ["SATURN"]
 extensions = ["cue", "chd", "iso", "zip"]
 core = "yabasanshiro_libretro.so"
 requires_any = ["saturn_bios.bin"]
+art = { libretro = "Sega - Saturn" }

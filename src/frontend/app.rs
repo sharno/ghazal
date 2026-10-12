@@ -9,6 +9,8 @@ use super::config::FrontendConfig;
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
+use super::settings::Settings;
+use super::thumbnails::{self, Loader, Progress};
 use crate::daemon::ctl;
 use crate::hw::battery;
 use crate::ui::{AppWindow, Hint, Row};
@@ -62,29 +64,55 @@ impl GameList {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum MenuItem {
     Rescan,
+    Options,
     Sleep,
     Restart,
     PowerOff,
     Quit,
+    Thumbnails,
+    DownloadThumbnails,
+    Back,
 }
 
 impl MenuItem {
-    fn label(self) -> &'static str {
+    fn label(self, settings: &Settings) -> &'static str {
         match self {
             Self::Rescan => "Rescan library",
+            Self::Options => "Options",
             Self::Sleep => "Sleep",
             Self::Restart => "Restart",
             Self::PowerOff => "Power off",
             Self::Quit => "Quit oxmux",
+            Self::Thumbnails if settings.show_thumbnails => "Thumbnails: On",
+            Self::Thumbnails => "Thumbnails: Off",
+            Self::DownloadThumbnails => "Download thumbnails",
+            Self::Back => "Back",
         }
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum MenuPage {
+    Main,
+    Options,
+}
+
+#[derive(Clone, Copy)]
+struct MenuState {
+    page: MenuPage,
+    cursor: usize,
+}
+
+const OPTION_ITEMS: [MenuItem; 3] = [MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
+/// Poll interval while art is loading or downloading.
+const BACKGROUND_POLL: Duration = Duration::from_millis(30);
+
 type Hints = &'static [(&'static str, &'static str)];
 const MENU_HINTS: Hints = &[("A", "Select"), ("B", "Close")];
+const OPTIONS_HINTS: Hints = &[("A", "Select"), ("B", "Back")];
 const SYSTEM_HINTS: Hints = &[("A", "Open"), ("≡", "Menu")];
 const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("◀▶", "System"), ("≡", "Menu")];
 const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")];
@@ -105,7 +133,9 @@ struct Scan {
 pub struct App {
     config: FrontendConfig,
     ui: AppWindow,
-    menu_items: Vec<MenuItem>,
+    /// Main menu entries; the power ones depend on the daemon.
+    main_items: Vec<MenuItem>,
+    settings: Settings,
     catalog: Catalog,
     scan: Option<Scan>,
     view: View,
@@ -113,8 +143,14 @@ pub struct App {
     system_cursor: usize,
     /// Remembered cursor per game list.
     game_cursors: BTreeMap<GameList, usize>,
-    /// Cursor in the open menu.
-    menu: Option<usize>,
+    menu: Option<MenuState>,
+    /// Labels currently in the UI's menu model.
+    menu_labels: Vec<&'static str>,
+    art: Option<Loader>,
+    /// The game whose art is shown or loading, and the pending request.
+    art_for: Option<(GameList, usize)>,
+    art_pending: Option<u64>,
+    download: Option<std::sync::mpsc::Receiver<Progress>>,
     toast: Option<Toast>,
     levels: Option<crate::levels::Levels>,
     levels_visible_until: Option<Instant>,
@@ -138,24 +174,24 @@ impl App {
             }
         };
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
-        let mut menu_items = vec![MenuItem::Rescan];
+        let mut main_items = vec![MenuItem::Rescan, MenuItem::Options];
         if config.daemon_socket.exists() {
             if ctl::request(&config.daemon_socket, "status").is_ok_and(|reply| reply.split_whitespace().any(|field| field == "suspend=1")) {
-                menu_items.push(MenuItem::Sleep);
+                main_items.push(MenuItem::Sleep);
             }
-            menu_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
+            main_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
         }
         if std::env::var_os("OXMUX_EMBEDDED").is_none() {
-            menu_items.push(MenuItem::Quit);
+            main_items.push(MenuItem::Quit);
         }
-        ui.set_menu_items(ModelRc::new(VecModel::from(
-            menu_items.iter().map(|m| SharedString::from(m.label())).collect::<Vec<_>>(),
-        )));
+        let settings = Settings::load(&config.settings_file);
+        let art = Loader::new().inspect_err(|error| eprintln!("oxmux: art loader: {error:#}")).ok();
 
         let mut app = Self {
             config,
             ui,
-            menu_items,
+            main_items,
+            settings,
             // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
             catalog: Catalog::new(Library::from_systems(Vec::new()), activity),
             scan: None,
@@ -163,6 +199,11 @@ impl App {
             system_cursor: 0,
             game_cursors: BTreeMap::new(),
             menu: None,
+            menu_labels: Vec::new(),
+            art,
+            art_for: None,
+            art_pending: None,
+            download: None,
             toast: None,
             levels: None,
             levels_visible_until: None,
@@ -200,21 +241,20 @@ impl App {
     }
 
     fn handle(&mut self, button: Button) -> Option<Effect> {
-        if let Some(cursor) = self.menu {
+        if let Some(MenuState { page, cursor }) = self.menu {
+            let items = self.page_items(page);
             match button {
-                Button::Up => self.menu = Some(step(cursor, self.menu_items.len(), -1, true)),
-                Button::Down => self.menu = Some(step(cursor, self.menu_items.len(), 1, true)),
+                Button::Up => self.menu = Some(MenuState { page, cursor: step(cursor, items.len(), -1, true) }),
+                Button::Down => self.menu = Some(MenuState { page, cursor: step(cursor, items.len(), 1, true) }),
+                Button::B if page == MenuPage::Options => self.open_menu(MenuPage::Main),
                 Button::B | Button::Menu | Button::Start => self.menu = None,
-                Button::A => {
-                    self.menu = None;
-                    return self.activate(self.menu_items[cursor]);
-                }
+                Button::A => return self.activate(items[cursor]),
                 _ => {}
             }
             return None;
         }
         if matches!(button, Button::Menu | Button::Start) {
-            self.menu = Some(0);
+            self.open_menu(MenuPage::Main);
             return None;
         }
         match self.view {
@@ -293,12 +333,14 @@ impl App {
         self.sync();
     }
 
-    /// Periodic housekeeping: scan results, toast expiry, clock and battery.
+    /// Periodic housekeeping: scan results, art, downloads, toast expiry, clock and battery.
     pub fn tick(&mut self, now: Instant) {
         if self.levels_visible_until.is_some_and(|until| now >= until) {
             self.levels_visible_until = None;
         }
         self.receive_scan();
+        self.receive_art();
+        self.receive_download();
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -334,8 +376,54 @@ impl App {
         self.rows_for = None;
     }
 
+    fn receive_art(&mut self) {
+        let Some(loader) = &self.art else { return };
+        while let Some((id, image)) = loader.try_recv() {
+            if Some(id) != self.art_pending { continue; }
+            self.art_pending = None;
+            match image {
+                Some(pixels) => {
+                    self.ui.set_art(slint::Image::from_rgba8(pixels));
+                    self.ui.set_art_ready(true);
+                }
+                None => self.ui.set_art_ready(false),
+            }
+        }
+    }
+
+    fn receive_download(&mut self) {
+        let Some(progress) = &self.download else { return };
+        let mut latest = None;
+        while let Ok(update) = progress.try_recv() { latest = Some(update); }
+        match latest {
+            None => {}
+            Some(Progress::Fetched { done, total }) => self.notice(&format!("Thumbnails {done}/{total}")),
+            Some(Progress::Finished { found, total }) => {
+                self.download = None;
+                self.art_for = None;
+                self.notice(&if total == 0 { "Every game already has a thumbnail".to_owned() } else { format!("Downloaded {found} of {total} thumbnails") });
+            }
+            Some(Progress::Failed(error)) => {
+                self.download = None;
+                self.error(format!("Thumbnail download stopped: {error}"));
+            }
+        }
+    }
+
+    /// Asks the loader for the selected game's art when the selection changes.
+    fn request_art(&mut self, cursor: usize) {
+        let View::Games(list) = self.view else { return };
+        if !self.settings.show_thumbnails || self.art_for == Some((list, cursor)) { return };
+        self.art_for = Some((list, cursor));
+        let paths = self.game_at(list, cursor).map(|(system, game)| thumbnails::candidates(&self.config, system, game)).unwrap_or_default();
+        if let Some(loader) = &mut self.art {
+            self.art_pending = Some(loader.request(paths));
+        }
+    }
+
     pub fn next_deadline(&self) -> Instant {
-        let mut deadline = if self.scan.is_some() { Instant::now() + SCAN_POLL } else { self.status_checked + STATUS_REFRESH };
+        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some();
+        let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
         deadline
@@ -389,11 +477,45 @@ impl App {
         }
     }
 
+    fn page_items(&self, page: MenuPage) -> Vec<MenuItem> {
+        match page {
+            MenuPage::Main => self.main_items.clone(),
+            MenuPage::Options => OPTION_ITEMS.to_vec(),
+        }
+    }
+
+    fn open_menu(&mut self, page: MenuPage) {
+        self.menu = Some(MenuState { page, cursor: 0 });
+    }
+
     fn activate(&mut self, item: MenuItem) -> Option<Effect> {
+        // Option entries keep the Options page open; others close the menu.
+        if !matches!(item, MenuItem::Options | MenuItem::Thumbnails | MenuItem::Back) {
+            self.menu = None;
+        }
         match item {
             MenuItem::Rescan => {
                 if self.scan.is_none() && self.start_scan(true) {
                     self.notice("Scanning library…");
+                }
+                None
+            }
+            MenuItem::Options => { self.open_menu(MenuPage::Options); None }
+            MenuItem::Back => { self.open_menu(MenuPage::Main); None }
+            MenuItem::Thumbnails => {
+                self.settings.show_thumbnails = !self.settings.show_thumbnails;
+                if let Err(error) = self.settings.save(&self.config.settings_file) { self.error(format!("{error:#}")); }
+                self.art_for = None;
+                None
+            }
+            MenuItem::DownloadThumbnails => {
+                if self.download.is_some() {
+                    self.notice("Already downloading thumbnails");
+                } else {
+                    match thumbnails::download(self.config.clone()) {
+                        Ok(progress) => { self.download = Some(progress); self.notice("Looking for missing thumbnails…"); }
+                        Err(error) => self.error(format!("Downloading thumbnails: {error:#}")),
+                    }
                 }
                 None
             }
@@ -476,8 +598,9 @@ impl App {
     }
 
     fn hints(&self) -> Hints {
-        match (self.menu, self.view) {
-            (Some(_), _) => MENU_HINTS,
+        match (self.menu.map(|m| m.page), self.view) {
+            (Some(MenuPage::Options), _) => OPTIONS_HINTS,
+            (Some(MenuPage::Main), _) => MENU_HINTS,
             (None, View::Systems) => SYSTEM_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -522,7 +645,17 @@ impl App {
             _ => format!("No games found in {}", self.config.rom_roots.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")),
         }.into());
         ui.set_selected(cursor as i32);
-        ui.set_menu_selected(self.menu.map_or(-1, |m| m as i32));
+        ui.set_menu_selected(self.menu.map_or(-1, |m| m.cursor as i32));
+        if let Some(MenuState { page, .. }) = self.menu {
+            let labels: Vec<&'static str> = self.page_items(page).iter().map(|item| item.label(&self.settings)).collect();
+            if labels != self.menu_labels {
+                ui.set_menu_items(ModelRc::new(VecModel::from(labels.iter().map(|l| SharedString::from(*l)).collect::<Vec<_>>())));
+                self.menu_labels = labels;
+            }
+            ui.set_menu_title(match page { MenuPage::Main => "Menu", MenuPage::Options => "Options" }.into());
+        }
+        let show_art = self.settings.show_thumbnails && matches!(self.view, View::Games(_)) && total > 0;
+        ui.set_art_visible(show_art);
 
         let (toast, is_error) = self.toast.as_ref().map_or(("", false), |toast| (toast.text.as_str(), toast.error));
         ui.set_toast(toast.into());
@@ -534,6 +667,9 @@ impl App {
             let model: Vec<Hint> = hints.iter().map(|(glyph, label)| Hint { glyph: (*glyph).into(), label: (*label).into() }).collect();
             ui.set_hints(ModelRc::new(VecModel::from(model)));
             self.hints_for = Some(hints);
+        }
+        if show_art {
+            self.request_art(cursor);
         }
     }
 }
