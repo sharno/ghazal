@@ -100,8 +100,9 @@ impl Drop for Mapping {
 
 fn capture(card_path: &Path, output: &Path) -> Result<()> {
     let (card, framebuffer) = active_framebuffer(card_path)?;
-    if framebuffer.pixel_format() != DrmFourcc::Xrgb8888 || framebuffer.modifier().is_some_and(|modifier| modifier != DrmModifier::Linear) {
-        bail!("capture requires linear XRGB8888, got {:?}/{:?}", framebuffer.pixel_format(), framebuffer.modifier());
+    // ARGB8888 (e.g. PPSSPP's scanout) has the same layout; alpha is ignored.
+    if !matches!(framebuffer.pixel_format(), DrmFourcc::Xrgb8888 | DrmFourcc::Argb8888) || framebuffer.modifier().is_some_and(|modifier| modifier != DrmModifier::Linear) {
+        bail!("capture requires linear XRGB8888 or ARGB8888, got {:?}/{:?}", framebuffer.pixel_format(), framebuffer.modifier());
     }
     let (width, height) = framebuffer.size();
     let pitch = framebuffer.pitches()[0] as usize;

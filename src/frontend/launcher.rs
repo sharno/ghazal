@@ -5,7 +5,7 @@ use std::os::unix::process::CommandExt;
 
 use anyhow::{bail, Context, Result};
 
-use super::config::FrontendConfig;
+use super::config::{FrontendConfig, Launch, Standalone};
 use super::library::{Game, System};
 
 pub struct LaunchSpec {
@@ -16,14 +16,21 @@ pub struct LaunchSpec {
 }
 
 impl LaunchSpec {
-    pub fn retroarch(config: &FrontendConfig, system: &System, game: &Game) -> Result<Self> {
+    pub fn new(config: &FrontendConfig, system: &System, game: &Game) -> Result<Self> {
+        match &system.launch {
+            Launch::Core(core) => Self::retroarch(config, core, game),
+            Launch::Standalone(standalone) => Ok(Self::standalone(standalone, game)),
+        }
+    }
+
+    fn retroarch(config: &FrontendConfig, core: &str, game: &Game) -> Result<Self> {
         let ra = &config.retroarch;
         let core = ra
             .core_dirs
             .iter()
-            .map(|dir| dir.join(&system.core))
+            .map(|dir| dir.join(core))
             .find(|p| p.is_file())
-            .with_context(|| format!("core {} not found", system.core))?;
+            .with_context(|| format!("core {core} not found"))?;
 
         let mut args: Vec<OsString> = Vec::new();
         if let Some(cfg) = ra.configs.iter().find(|p| p.is_file()) {
@@ -34,6 +41,13 @@ impl LaunchSpec {
 
         let env = ra.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env })
+    }
+
+    fn standalone(command: &Standalone, game: &Game) -> Self {
+        let mut argv = command.argv.iter().map(|arg| if arg == "{rom}" { game.path.clone().into_os_string() } else { arg.into() });
+        let program = PathBuf::from(argv.next().expect("config rejects an empty command"));
+        let env = command.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Self { program, args: argv.collect(), log: command.log.clone(), env }
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.
@@ -67,5 +81,18 @@ impl LaunchSpec {
             bail!("emulator exited with {status}");
         }
         Ok(status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_substitutes_the_game_path() {
+        let command = Standalone { argv: vec!["/usr/bin/ppsspp".into(), "--fullscreen".into(), "{rom}".into()], env: Default::default(), log: None };
+        let spec = LaunchSpec::standalone(&command, &Game { title: "GoW".into(), path: "/ROMS/PSP/God of War.iso".into() });
+        assert_eq!(spec.program, PathBuf::from("/usr/bin/ppsspp"));
+        assert_eq!(spec.args, [OsString::from("--fullscreen"), OsString::from("/ROMS/PSP/God of War.iso")]);
     }
 }

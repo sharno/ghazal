@@ -330,6 +330,25 @@ fn main() -> Result<()> {
         &repo.join("config/rg40xxv-rocknix/gamepad.cfg"),
         &root.join("usr/share/libretro/autoconfig/H700 Gamepad.cfg"),
     )?;
+    // Standalone PPSSPP: assets (including the PSP flash0 fonts it looks up next
+    // to its executable), ROCKNIX's H700 defaults and the SDL controller database.
+    copy_tree(&upstream.join("usr/config/ppsspp/assets"), &root.join("usr/share/ppsspp/assets"))?;
+    copy_tree(&upstream.join("usr/config/ppsspp/PSP"), &root.join("var/lib/oxmux/ppsspp/PSP"))?;
+    copy_tree(&upstream.join("usr/config/SDL-GameControllerDB"), &root.join("usr/share/SDL-GameControllerDB"))?;
+    // ROCKNIX's PPSSPP has its /storage paths compiled in. Point them at our
+    // layout: settings on SD1, game saves shared with the libretro core on SD2.
+    for (link, target) in [
+        ("usr/bin/assets", "/usr/share/ppsspp/assets"),
+        ("var/lib/oxmux/ppsspp/assets", "/usr/share/ppsspp/assets"),
+        ("storage/.config/ppsspp", "/var/lib/oxmux/ppsspp"),
+        ("storage/.config/SDL-GameControllerDB", "/usr/share/SDL-GameControllerDB"),
+        ("storage/roms/psp", "/mnt/games/SAVES/file/PPSSPP/PSP/SAVEDATA"),
+        ("storage/roms/savestates/psp/ppsspp-sa", "/mnt/games/SAVES/state/PPSSPP-standalone"),
+        ("storage/roms/screenshots", "/mnt/games/SAVES/screenshots"),
+    ] {
+        fs::create_dir_all(root.join(link).parent().ok_or("missing parent")?)?;
+        symlink(target, root.join(link))?;
+    }
     for path in ["usr/share/xkeyboard-config-2", "usr/share/fontconfig", "usr/share/fonts", "etc/fonts"] {
         copy_tree(&upstream.join(path), &root.join(path))?;
     }
@@ -367,6 +386,11 @@ fn main() -> Result<()> {
     for line in frontend.lines().filter(|l| l.starts_with("core = ")) {
         let core = line.split('"').nth(1).ok_or("invalid core profile")?;
         closure.add(&format!("/usr/lib/libretro/{core}"))?;
+    }
+    // Standalone emulators: the first element of each `command`.
+    for line in frontend.lines().filter(|l| l.starts_with("command = [")) {
+        let program = line.split('"').nth(1).ok_or("invalid emulator command")?;
+        closure.add(program)?;
     }
     for name in [
         "/usr/lib/libEGL_mesa.so.0",

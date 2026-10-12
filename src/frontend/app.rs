@@ -246,7 +246,7 @@ impl App {
     fn launch(&mut self, list: GameList, cursor: usize) -> Option<Effect> {
         let (system, game) = self.game_at(list, cursor)?;
         let id = GameId::new(system, game);
-        match LaunchSpec::retroarch(&self.config, system, game) {
+        match LaunchSpec::new(&self.config, system, game) {
             Ok(spec) => Some(Effect::Launch { spec, game: id }),
             Err(error) => {
                 self.error(format!("{error:#}"));

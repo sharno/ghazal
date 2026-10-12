@@ -119,7 +119,12 @@ core = "handy_libretro.so"
 name = "PSP"
 dirs = ["PSP", "Sony PSP"]
 extensions = ["iso", "cso", "pbp", "chd"]
-core = "ppsspp_libretro.so"
+# Standalone PPSSPP runs heavier games (e.g. God of War) better than the
+# libretro core. It shares game saves with the core through /storage links
+# (see the image builder); the pause menu's Exit or Menu + Start quits.
+command = ["/usr/bin/ppsspp", "--pause-menu-exit", "{rom}"]
+env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
+log = "/var/log/oxmux/ppsspp.log"
 
 [[system]]
 name = "Dreamcast"
