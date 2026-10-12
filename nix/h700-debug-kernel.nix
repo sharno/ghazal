@@ -1,6 +1,32 @@
 { lib, stdenv, fetchurl, fetchzip, buildPackages }:
 let
   revision = "7cffc96617df2a051af091182e8a3d270fd794a4";
+  hardware = builtins.listToAttrs (map (line:
+    let fields = builtins.match "([^=]+)=(.*)" line;
+    in { name = builtins.elemAt fields 0; value = builtins.elemAt fields 1; }
+  ) (builtins.filter (line: line != "" && !lib.hasPrefix "#" line) (lib.splitString "\n" (builtins.readFile ../hardware.lock))));
+  bundle = fetchurl { inherit (hardware) url sha256; };
+  earlyFirmware = buildPackages.runCommand "oxmux-h700-early-firmware" {
+    nativeBuildInputs = with buildPackages; [ gzip mtools squashfsTools ];
+  } ''
+    gzip -dc ${bundle} > hardware.img
+    # Match the image builder's verified 16 MiB bootloader layout.
+    start=$(od -An -tu4 -j454 -N4 hardware.img)
+    test "$((start * 512))" -eq 16777216
+    mcopy -i hardware.img@@16777216 ::/SYSTEM SYSTEM
+    prefix=usr/lib/kernel-overlays/base/lib/firmware
+    unsquashfs -no-progress -d extracted SYSTEM \
+      "$prefix/rtw88/rtw8821c_fw.bin" \
+      "$prefix/rtl_bt/rtl8821cs_config.bin" \
+      "$prefix/rtl_bt/rtl8821cs_fw.bin" \
+      "$prefix/panels/anbernic,rg40xx-v2-panel.panel"
+    mkdir -p $out/rtw88 $out/rtl_bt $out/panels
+    for file in rtw88/rtw8821c_fw.bin rtl_bt/rtl8821cs_config.bin \
+      rtl_bt/rtl8821cs_fw.bin panels/anbernic,rg40xx-v2-panel.panel; do
+      test -s "extracted/$prefix/$file"
+      cp "extracted/$prefix/$file" "$out/$file"
+    done
+  '';
   rocknix = fetchzip {
     url = "https://github.com/ROCKNIX/distribution/archive/${revision}.tar.gz";
     sha256 = "1irc0blrc42d7x9asshsdm7g2vrjn76lf07xwjx8yqxgv74xfnag";
@@ -10,7 +36,7 @@ let
     sha256 = "89ade1769d6eb7b4f37265f26407a422cdbcf517487f80eb1c29964904ca138e";
   };
 in
-assert lib.hasInfix "source_revision=${revision}" (builtins.readFile ../hardware.lock);
+assert hardware.source_revision == revision;
 stdenv.mkDerivation {
   pname = "oxmux-h700-debug-kernel";
   version = "7.2";
@@ -69,7 +95,8 @@ stdenv.mkDerivation {
       --enable PSTORE_PMSG --enable DETECT_HUNG_TASK --enable STACKTRACE \
       --enable FTRACE --enable FUNCTION_TRACER --enable DYNAMIC_DEBUG \
       --set-str INITRAMFS_SOURCE "" \
-      --set-str EXTRA_FIRMWARE "" \
+      --set-str EXTRA_FIRMWARE "rtw88/rtw8821c_fw.bin rtl_bt/rtl8821cs_config.bin rtl_bt/rtl8821cs_fw.bin panels/anbernic,rg40xx-v2-panel.panel" \
+      --set-str EXTRA_FIRMWARE_DIR "${earlyFirmware}" \
       --set-str LOCALVERSION "-oxmux-debug" --disable LOCALVERSION_AUTO
   '';
   configurePhase = ''
