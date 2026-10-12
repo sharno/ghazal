@@ -594,6 +594,9 @@ fn main() -> Result<()> {
         "etc/oxmux/retroarch.cfg",
         include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"),
     )?;
+    if devices.iter().any(|device| device.rotation == "left") {
+        closure.add("/usr/lib/libretro/ppsspp_libretro.so")?;
+    }
     fs::write(
         work.join("closure.txt"),
         closure
@@ -607,9 +610,6 @@ fn main() -> Result<()> {
         &repo.join("hardware.lock"),
         &root.join("etc/oxmux/hardware.lock"),
     )?;
-    if devices.iter().any(|device| device.rotation == "left") {
-        closure.add("/usr/lib/libretro/ppsspp_libretro.so")?;
-    }
     if options.public && (!fs::read(root.join("root/.ssh/authorized_keys"))?.is_empty()
         || fs::read_dir(root.join("var/lib/iwd"))?.next().is_some()
         || !fs::read(root.join("etc/machine-id"))?.is_empty()) {

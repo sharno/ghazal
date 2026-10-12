@@ -15,7 +15,8 @@ export struct Hint {
     label: string,
 }
 
-global Theme {
+export global Theme {
+    in-out property <bool> compact: false;
     out property <color> bg: #0f1216;
     out property <color> bar: #171b21;
     out property <color> text: #e6e9ef;
@@ -25,8 +26,8 @@ global Theme {
     out property <color> panel: #222831;
     out property <color> warn: #e5484d;
     out property <color> ok: #46a758;
-    out property <length> pad: 16px;
-    out property <length> row-height: 40px;
+    out property <length> pad: compact ? 8px : 16px;
+    out property <length> row-height: compact ? 30px : 40px;
 }
 
 component ListRow {
@@ -51,7 +52,7 @@ component ListRow {
             horizontal-stretch: 0;
             vertical-alignment: center;
             horizontal-alignment: center;
-            font-size: 24px;
+            font-size: Theme.compact ? 18px : 24px;
             color: selected ? Theme.on-accent : Theme.dim;
         }
         Text {
@@ -59,14 +60,14 @@ component ListRow {
             horizontal-stretch: 1;
             vertical-alignment: center;
             overflow: elide;
-            font-size: 20px;
+            font-size: Theme.compact ? 16px : 20px;
             font-weight: selected ? 700 : 400;
             color: selected ? Theme.on-accent : Theme.text;
         }
         if item.detail != "": Text {
             text: item.detail;
             vertical-alignment: center;
-            font-size: 16px;
+            font-size: Theme.compact ? 12px : 16px;
             color: selected ? Theme.on-accent : Theme.dim;
         }
     }
@@ -123,7 +124,7 @@ component HintPill {
         Text {
             text: hint.label;
             vertical-alignment: center;
-            font-size: 16px;
+            font-size: Theme.compact ? 12px : 16px;
             color: Theme.dim;
         }
     }
@@ -187,7 +188,7 @@ export component AppWindow inherits Window {
 
     VerticalLayout {
         Rectangle {
-            height: 48px;
+            height: Theme.compact ? 36px : 48px;
             background: Theme.bar;
             HorizontalLayout {
                 padding-left: Theme.pad;
@@ -198,12 +199,12 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 1;
                     vertical-alignment: center;
                     overflow: elide;
-                    font-size: 22px;
+                    font-size: Theme.compact ? 16px : 22px;
                     font-weight: 700;
                     color: Theme.text;
                 }
                 Text {
-                    text: root.position;
+                    text: Theme.compact ? "" : root.position;
                     horizontal-stretch: 0;
                     vertical-alignment: center;
                     font-size: 16px;
@@ -213,7 +214,7 @@ export component AppWindow inherits Window {
                     text: root.clock;
                     horizontal-stretch: 0;
                     vertical-alignment: center;
-                    font-size: 18px;
+                    font-size: Theme.compact ? 14px : 18px;
                     font-weight: 700;
                     color: Theme.text;
                 }
@@ -221,7 +222,7 @@ export component AppWindow inherits Window {
                     horizontal-stretch: 0;
                     spacing: 6px;
                     Text {
-                        text: root.battery-percent + "%";
+                        text: Theme.compact ? "" : root.battery-percent + "%";
                         vertical-alignment: center;
                         font-size: 16px;
                         color: Theme.dim;
@@ -243,7 +244,7 @@ export component AppWindow inherits Window {
             property <int> first-row: max(0, min(root.selected - floor(self.visible-rows / 2), root.row-count - self.visible-rows));
             property <bool> scrolls: root.row-count > self.visible-rows;
             // Box art takes the right side of game lists when thumbnails are on.
-            property <length> art-width: root.art-visible ? 256px : 0px;
+            property <length> art-width: root.art-visible && !Theme.compact ? 256px : 0px;
             property <length> list-width: self.width - self.art-width;
             // Not animated: opening another list would visibly scroll through
             // every row between the old and new positions.
@@ -281,7 +282,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.art-visible: Rectangle {
+            if root.art-visible && !Theme.compact: Rectangle {
                 x: area.list-width;
                 y: 8px;
                 width: area.art-width - Theme.pad;
@@ -317,7 +318,7 @@ export component AppWindow inherits Window {
         }
 
         Rectangle {
-            height: 40px;
+            height: Theme.compact ? 32px : 40px;
             background: Theme.bar;
             HorizontalLayout {
                 padding-left: Theme.pad;
@@ -351,7 +352,7 @@ export component AppWindow inherits Window {
         background: #00000096;
         Rectangle {
             property <length> levels-height: root.levels-visible ? 112px : 0;
-            width: 320px;
+            width: min(320px, root.width - 2 * Theme.pad);
             height: 56px + root.menu-items.length * Theme.row-height + self.levels-height;
             border-radius: 14px;
             background: Theme.panel;

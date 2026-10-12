@@ -21,5 +21,13 @@ jobs:
           cargo test --locked --manifest-path tools/image-builder/Cargo.toml
       - name: Build static handheld executable
         run: |
-          export PATH="$(rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin:$PATH"
+          sysroot=$(rustc --print sysroot)
+          export PATH="$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin:$PATH"
           cargo build --release --locked --target aarch64-unknown-linux-musl
+      - name: Exercise first-boot growth and restart recovery on a disposable disk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y exfatprogs
+          cargo test --locked --no-run --message-format=json > /tmp/oxmux-tests.json
+          binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "oxmux") | .executable' /tmp/oxmux-tests.json)
+          sudo "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture

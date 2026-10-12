@@ -39,25 +39,34 @@ pub fn prepare() -> Result<()> {
     if !Path::new(FACTORY).exists() { return Ok(()); }
     if fs::read_to_string(FACTORY)?.trim() != "oxmux-factory-v1" { bail!("unknown factory storage marker"); }
     if crate::sys::is_mounted(Path::new("/mnt/games")) { bail!("factory data is already mounted"); }
-    let mut disk = OpenOptions::new().read(true).write(true).open("/dev/mmcblk0")?;
+    let sectors = fs::read_to_string("/sys/class/block/mmcblk0/size")?.trim().parse()?;
+    prepare_partition(Path::new("/dev/mmcblk0"), Path::new("/dev/mmcblk0p3"), sectors,
+        Path::new("/usr/sbin/mkfs.exfat"), Path::new("/usr/sbin/blkid"), Path::new("/usr/sbin/fsck.exfat"))?;
+    fs::remove_file(FACTORY)?;
+    std::fs::File::open("/var/lib/oxmux")?.sync_all()?;
+    Ok(())
+}
+
+fn prepare_partition(disk_path: &Path, data_path: &Path, sectors: u64, formatter: &Path, labeler: &Path, checker: &Path) -> Result<()> {
+    let mut disk = OpenOptions::new().read(true).write(true).open(disk_path)?;
     let mut mbr = [0; 512];
     disk.read_exact(&mut mbr)?;
     let layout = FactoryLayout::parse(mbr)?;
-    let sectors = fs::read_to_string("/sys/class/block/mmcblk0/size")?.trim().parse()?;
     let expanded = layout.grow(sectors)?;
     // Refuse to overwrite a filesystem even if a factory marker was restored.
-    let mut partition = std::fs::File::open("/dev/mmcblk0p3")?;
+    let mut partition = std::fs::File::open(data_path)?;
     let mut boot = [0; 512];
     partition.read_exact(&mut boot)?;
+    drop(partition);
     let already_formatted = boot[3..11] == *b"EXFAT   ";
     if already_formatted {
-        let label = Command::new("/usr/sbin/blkid").args(["-s", "LABEL", "-o", "value", "/dev/mmcblk0p3"]).output()?;
+        let label = Command::new(labeler).args(["-s", "LABEL", "-o", "value"]).arg(data_path).output()?;
         if !label.status.success() || String::from_utf8(label.stdout)?.trim() != "OXMUXDATA" {
             bail!("refusing to alter an existing data filesystem");
         }
         // The factory transaction formatted the expanded partition on an earlier boot.
         if expanded != mbr { bail!("existing exFAT filesystem does not fill the current card; refusing to resize it"); }
-        if !Command::new("/usr/sbin/fsck.exfat").args(["-n", "/dev/mmcblk0p3"]).status()?.success() {
+        if !Command::new(checker).arg("-n").arg(data_path).status()?.success() {
             bail!("factory exFAT filesystem is incomplete; repair it before retrying");
         }
     } else if boot.iter().any(|&byte| byte != 0) {
@@ -71,6 +80,8 @@ pub fn prepare() -> Result<()> {
         struct Partition { start: i64, length: i64, number: i32, name: [u8; 64], volume: [u8; 64] }
         #[repr(C)]
         struct Argument { op: i32, flags: i32, length: i32, data: *mut libc::c_void }
+        const _: () = assert!(std::mem::size_of::<Partition>() == 152);
+        const _: () = assert!(std::mem::size_of::<Argument>() == 24);
         let data_size = u32::from_le_bytes(expanded[490..494].try_into()?);
         let mut partition = Partition { start: i64::from(DATA_START) * 512, length: i64::from(data_size) * 512, number: 3, name: [0; 64], volume: [0; 64] };
         let mut argument = Argument { op: 3, flags: 0, length: std::mem::size_of::<Partition>() as i32, data: (&mut partition as *mut Partition).cast() };
@@ -79,11 +90,10 @@ pub fn prepare() -> Result<()> {
         if unsafe { libc::ioctl(disk.as_raw_fd(), 0x1269, &mut argument) } < 0 {
             return Err(std::io::Error::last_os_error()).context("updating the TF1 data partition size");
         }
-        let status = Command::new("/usr/sbin/mkfs.exfat").args(["-L", "OXMUXDATA", "/dev/mmcblk0p3"]).status()?;
+        let status = Command::new(formatter).args(["-L", "OXMUXDATA"]).arg(data_path).status()?;
         if !status.success() { bail!("creating the TF1 data filesystem failed"); }
+        std::fs::File::open(data_path)?.sync_all()?;
     }
-    fs::remove_file(FACTORY)?;
-    std::fs::File::open("/var/lib/oxmux")?.sync_all()?;
     Ok(())
 }
 
@@ -121,5 +131,60 @@ mod tests {
         let mut wrong = original; wrong[482] = 0x83; assert!(FactoryLayout::parse(wrong).is_err());
         assert!(FactoryLayout::parse(original).unwrap().grow(1).is_err());
         assert!(FactoryLayout::parse(original).unwrap().grow(u64::MAX).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires root, losetup, mount and exfatprogs; CI runs this on a disposable loop device"]
+    fn factory_loopback_preparation_preserves_existing_data() -> Result<()> {
+        struct Fixture { directory: std::path::PathBuf, disk: std::path::PathBuf, mount: std::path::PathBuf }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if crate::sys::is_mounted(&self.mount) { let _ = Command::new("umount").arg(&self.mount).status(); }
+                let _ = Command::new("losetup").arg("-d").arg(&self.disk).status();
+                let _ = fs::remove_dir_all(&self.directory);
+            }
+        }
+        let directory = std::env::temp_dir().join(format!("oxmux-factory-test-{}", std::process::id()));
+        fs::create_dir(&directory)?;
+        let image = directory.join("disk.img");
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&image)?;
+        let disk_size = 2u64 * 1024 * 1024 * 1024;
+        file.set_len(disk_size)?;
+        let original = factory(); file.write_all(&original)?;
+        file.seek(SeekFrom::Start(16 * 1024 * 1024))?; file.write_all(b"BOOT PRESERVED")?;
+        file.seek(SeekFrom::Start(144 * 1024 * 1024))?; file.write_all(b"ROOT PRESERVED")?;
+        file.sync_all()?;
+        let attached = Command::new("losetup").args(["--find", "--show", "--partscan"]).arg(&image).output()?;
+        if !attached.status.success() { bail!("loop device creation failed: {}", String::from_utf8_lossy(&attached.stderr)); }
+        let disk = std::path::PathBuf::from(String::from_utf8(attached.stdout)?.trim());
+        let mount = directory.join("mounted"); fs::create_dir(&mount)?;
+        let fixture = Fixture { directory, disk, mount };
+        let data = std::path::PathBuf::from(format!("{}p3", fixture.disk.display()));
+        let formatter = std::env::var("OXMUX_TEST_MKFS_EXFAT").unwrap_or_else(|_| "/usr/sbin/mkfs.exfat".into());
+        let checker = std::env::var("OXMUX_TEST_FSCK_EXFAT").unwrap_or_else(|_| "/usr/sbin/fsck.exfat".into());
+        let labeler = std::env::var("OXMUX_TEST_BLKID").unwrap_or_else(|_| "/usr/sbin/blkid".into());
+        prepare_partition(&fixture.disk, &data, disk_size / 512, Path::new(&formatter), Path::new(&labeler), Path::new(&checker))?;
+        for (offset, expected) in [(16 * 1024 * 1024, b"BOOT PRESERVED"), (144 * 1024 * 1024, b"ROOT PRESERVED")] {
+            let mut file = fs::File::open(&image)?; file.seek(SeekFrom::Start(offset))?;
+            let mut actual = [0; 14]; file.read_exact(&mut actual[..expected.len()])?;
+            assert_eq!(&actual[..expected.len()], expected);
+        }
+        assert!(Command::new("mount").args(["-t", "exfat"]).arg(&data).arg(&fixture.mount).status()?.success());
+        fs::write(fixture.mount.join("save.srm"), b"USER SAVE")?;
+        assert!(Command::new("umount").arg(&fixture.mount).status()?.success());
+        // Simulate power loss after formatting but before removing the factory marker.
+        prepare_partition(&fixture.disk, &data, disk_size / 512, Path::new(&formatter), Path::new(&labeler), Path::new(&checker))?;
+        assert!(Command::new("mount").args(["-t", "exfat"]).arg(&data).arg(&fixture.mount).status()?.success());
+        assert_eq!(fs::read(fixture.mount.join("save.srm"))?, b"USER SAVE");
+        assert!(Command::new("umount").arg(&fixture.mount).status()?.success());
+        // Unknown filesystems must be rejected without changing their bytes.
+        let mut partition = OpenOptions::new().read(true).write(true).open(&data)?;
+        let mut changed = [0; 512]; partition.read_exact(&mut changed)?; changed[3] = b'X';
+        partition.seek(SeekFrom::Start(0))?; partition.write_all(&changed)?; partition.sync_all()?;
+        drop(partition);
+        assert!(prepare_partition(&fixture.disk, &data, disk_size / 512, Path::new(&formatter), Path::new(&labeler), Path::new(&checker)).is_err());
+        let mut actual = [0; 512]; fs::File::open(&data)?.read_exact(&mut actual)?;
+        assert_eq!(actual, changed);
+        Ok(())
     }
 }

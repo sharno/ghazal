@@ -29,14 +29,24 @@ jobs:
           extra_nix_config: |
             max-jobs = 2
             cores = 2
+      - uses: actions/cache@v4
+        with:
+          path: build/release-tools/runtime.nar.gz
+          key: h700-runtime-${{ runner.os }}-${{ hashFiles('flake.lock', 'nix/**', 'hardware.lock', 'Cargo.lock', 'tools/image-builder/Cargo.lock', 'config/**', 'src/**', 'ui/**', 'assets/**', 'tools/image-builder/src/**') }}
+          restore-keys: h700-runtime-${{ runner.os }}-
       - name: Build shared runtime, all device trees and both bootloaders
         run: |
           nix flake check --no-build
           mkdir -p build/release-tools
+          if test -f build/release-tools/runtime.nar.gz; then
+            gzip -dc build/release-tools/runtime.nar.gz | nix-store --import
+          fi
           builder=$(nix build .#image-builder --no-link --print-out-paths)
           printf '%s\n' "$builder" > build/release-tools/store-path.txt
           "$builder/bin/oxmux-image-builder" --matrix > build/release-tools/devices.json
-          nix-store --export $(nix-store --query --requisites "$builder") | gzip -1 > build/release-tools/runtime.nar.gz
+          nix-store --query --requisites "$builder" > build/release-tools/paths.txt
+          mapfile -t paths < build/release-tools/paths.txt
+          nix-store --export "${paths[@]}" | gzip -1 > build/release-tools/runtime.nar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: release-tools
@@ -67,7 +77,7 @@ jobs:
           builder=$(cat build/release-tools/store-path.txt)
           "$builder/bin/oxmux-image-builder" --all --memory '${{ matrix.memory }}' --version "$VERSION" "$PWD" "$PWD/dist"
           cd dist
-          sha256sum -c *.sha256
+          sha256sum -c ./*.sha256
           expected=$(jq '.include | map(select(.memory == "${{ matrix.memory }}")) | length' ../build/release-tools/devices.json)
           actual=$(find . -maxdepth 1 -name '*.img.gz' | wc -l)
           test "$actual" -eq "$expected"
@@ -97,8 +107,8 @@ jobs:
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
           cd dist
-          sha256sum -c *.sha256
-          cat *.sha256 > SHA256SUMS
+          sha256sum -c ./*.sha256
+          cat ./*.sha256 > SHA256SUMS
           cd ..
           gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "oxmux $TAG — H700 beta" --notes-file docs/beta-release.md
           gh release upload "$TAG" dist/*.img.gz dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
