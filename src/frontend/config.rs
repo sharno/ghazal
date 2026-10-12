@@ -13,6 +13,9 @@ pub struct FrontendConfig {
     #[serde(default = "default_activity_file")]
     pub activity_file: PathBuf,
     pub retroarch: RetroArch,
+    /// Where emulators find BIOS files; systems' `requires_any` are relative to it.
+    #[serde(default = "default_bios_dir")]
+    pub bios_dir: PathBuf,
     /// Socket of `oxmux daemon`; enables the Sleep/Restart/Power off menu entries.
     #[serde(default = "default_socket")]
     pub daemon_socket: PathBuf,
@@ -22,6 +25,10 @@ pub struct FrontendConfig {
 
 fn default_socket() -> PathBuf {
     "/run/oxmux/daemon.sock".into()
+}
+
+fn default_bios_dir() -> PathBuf {
+    "/mnt/games/BIOS".into()
 }
 
 fn default_activity_file() -> PathBuf {
@@ -54,6 +61,9 @@ pub struct SystemEntry {
     pub dirs: Vec<String>,
     pub extensions: Vec<String>,
     pub launch: Launch,
+    /// The system is hidden until one of these BIOS files exists, so it never
+    /// shows games that can only fail to start.
+    pub requires_any: Vec<PathBuf>,
 }
 
 /// How a system's games run.
@@ -86,6 +96,8 @@ struct RawSystemEntry {
     #[serde(default)]
     env: BTreeMap<String, String>,
     log: Option<PathBuf>,
+    #[serde(default)]
+    requires_any: Vec<PathBuf>,
 }
 
 impl TryFrom<RawSystemEntry> for SystemEntry {
@@ -100,7 +112,7 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
             (Some(_), Some(_)) => return Err(format!("system {:?} sets both core and command", raw.name)),
             (None, None) => return Err(format!("system {:?} needs a core or a command", raw.name)),
         };
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch })
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, requires_any: raw.requires_any })
     }
 }
 
@@ -115,6 +127,7 @@ impl FrontendConfig {
         };
         self.rom_roots.iter_mut().for_each(fix);
         fix(&mut self.activity_file);
+        fix(&mut self.bios_dir);
         self.retroarch.core_dirs.iter_mut().for_each(fix);
         self.retroarch.configs.iter_mut().for_each(fix);
         if let Some(log) = &mut self.retroarch.log {

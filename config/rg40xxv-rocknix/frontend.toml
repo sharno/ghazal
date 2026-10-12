@@ -2,6 +2,8 @@
 
 # Games live on SD2.
 rom_roots = ["/mnt/games/ROMS"]
+# Systems with `requires_any` stay hidden until one of those BIOS files is here.
+bios_dir = "/mnt/games/BIOS"
 activity_file = "/mnt/games/.oxmux/activity.toml"
 
 [retroarch]
@@ -137,6 +139,7 @@ name = "Naomi"
 dirs = ["NAOMI"]
 extensions = ["zip", "chd", "m3u"]
 core = "flycast_libretro.so"
+requires_any = ["dc/naomi.zip"]
 
 [[system]]
 name = "Nintendo DS"
@@ -155,6 +158,7 @@ name = "Mega CD"
 dirs = ["MDCD", "SEGACD"]
 extensions = ["cue", "chd", "m3u"]
 core = "picodrive_libretro.so"
+requires_any = ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
 
 [[system]]
 name = "Game & Watch"
@@ -167,6 +171,7 @@ name = "PC Engine CD"
 dirs = ["PCECD"]
 extensions = ["cue", "chd", "m3u"]
 core = "beetle_pce_fast_libretro.so"
+requires_any = ["syscard3.pce"]
 
 [[system]]
 name = "Sega 32X"
@@ -185,3 +190,4 @@ name = "Saturn"
 dirs = ["SATURN"]
 extensions = ["cue", "chd", "iso", "zip"]
 core = "yabasanshiro_libretro.so"
+requires_any = ["saturn_bios.bin"]

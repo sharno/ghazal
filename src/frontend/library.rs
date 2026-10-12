@@ -29,6 +29,13 @@ impl Library {
         let systems = config
             .systems
             .iter()
+            .filter(|sys| {
+                let available = sys.requires_any.is_empty() || sys.requires_any.iter().any(|bios| config.bios_dir.join(bios).exists());
+                if !available {
+                    eprintln!("oxmux: hiding {}: needs one of {:?} in {}", sys.name, sys.requires_any, config.bios_dir.display());
+                }
+                available
+            })
             .filter_map(|sys| {
                 let mut games = Vec::new();
                 for root in &config.rom_roots {
@@ -139,6 +146,31 @@ fn clean_title(stem: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn systems_needing_bios_stay_hidden_until_it_exists() {
+        let root = std::env::temp_dir().join(format!("oxmux-bios-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("ROMS/PCECD")).unwrap();
+        std::fs::create_dir_all(root.join("BIOS")).unwrap();
+        std::fs::write(root.join("ROMS/PCECD/Game.chd"), b"").unwrap();
+        let config: FrontendConfig = toml::from_str(&format!(r#"
+            rom_roots = ["{root}/ROMS"]
+            bios_dir = "{root}/BIOS"
+            [retroarch]
+            bin = "retroarch"
+            core_dirs = []
+            [[system]]
+            name = "PC Engine CD"
+            dirs = ["PCECD"]
+            extensions = ["chd"]
+            core = "pce.so"
+            requires_any = ["syscard3.pce"]
+        "#, root = root.display())).unwrap();
+        assert!(Library::scan(&config).systems().is_empty());
+        std::fs::write(root.join("BIOS/syscard3.pce"), b"").unwrap();
+        assert_eq!(Library::scan(&config).systems().len(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn path_index_resolves_unique_paths_and_rejects_ambiguous_assignments() {
