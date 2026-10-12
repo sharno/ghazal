@@ -1,4 +1,4 @@
-{ lib, rustPlatform, writeShellApplication, oxmux, kernel, uboot, uboot-ddr3, busybox, tools, src }:
+{ lib, rustPlatform, writeShellApplication, bash, oxmux, kernel, uboot, uboot-ddr3, busybox, tools, src }:
 let
   builder = rustPlatform.buildRustPackage {
     pname = "oxmux-image-builder";
@@ -10,13 +10,14 @@ let
   };
 in writeShellApplication {
   name = "oxmux-image-builder";
-  runtimeInputs = tools;
+  runtimeInputs = tools ++ [ bash ];
   text = ''
     export OXMUX_BINARY=${oxmux}/bin/oxmux
     export OXMUX_BUSYBOX=${busybox}/bin/busybox
     export OXMUX_KERNEL=${kernel}
     export OXMUX_UBOOT=${uboot}/u-boot-sunxi-with-spl.bin
     export OXMUX_UBOOT_DDR3=${uboot-ddr3}/u-boot-sunxi-with-spl.bin
+    export OXMUX_BUILDER_SHELL=${bash}/bin/bash
     exec ${builder}/bin/oxmux-image-builder "$@"
   '';
 }

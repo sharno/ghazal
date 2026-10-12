@@ -81,14 +81,17 @@ OXMUXROOT/
 ├── var/lib/oxmux/
 │   ├── settings.toml     # brightness and volume
 │   ├── frontend-settings.toml
+│   ├── data-card          # auto / tf1 / tf2 preference
 │   └── boot-attempts
 ├── var/lib/iwd/           # provisioned Wi-Fi credentials
 ├── root/.ssh/authorized_keys
 └── var/log/oxmux/         # bounded service and emulator logs
 ```
 
-`/run` and `/tmp` are RAM filesystems. The live level snapshot, control socket
+`/run` and `/tmp` are RAM filesystems. The active data-card record, live level snapshot, control socket
 and emulator session record live there and disappear on reboot. The factory
-storage marker is removed after successful initial data preparation.
+storage marker has Fresh and Formatting ownership states. It is durably
+changed before the formatter writes, allowing an interrupted initial format
+to resume. It is removed before the volume is ever mounted for user data.
 Wi-Fi credentials, SSH keys and frontend settings are on the OS card; saves
 and history are on the selected data card. A TF1 reflash resets the former.

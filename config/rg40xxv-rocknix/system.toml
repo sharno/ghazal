@@ -20,13 +20,15 @@ mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,
 [[init.step]]
 hostname = "oxmux"
 [[init.step]]
-mount = { source = "/dev/mmcblk0p1", target = "/mnt/boot", fstype = "vfat", options = "rw,noatime" }
+mount = { source = "/dev/mmcblk0p1", target = "/mnt/boot", fstype = "vfat", options = "rw,noatime", optional = true }
+[[init.step]]
+retry-boot = "/mnt/boot/retry-boot"
 [[init.step]]
 provision = "/mnt/boot/provision.toml"
 [[init.step]]
 storage = {}
 [[init.step]]
-mount = { source = "/dev/mmcblk0p3", prefer = "/dev/mmcblk1p1", target = "/mnt/games", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 3 }
+data-mount = {}
 [[init.step]]
 data-directories = {}
 [[init.step]]

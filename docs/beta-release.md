@@ -16,6 +16,11 @@ machine ID and SSH host key. SHA256SUMS covers every compressed image.
 CI builds both bootloaders, all device trees and the common kernel from pinned
 sources, runs Rust checks, audits public provisioning, checks both image
 filesystems and verifies the complete artifact inventory before publication.
+A disposable loop-device test grows p3 while p1/p2 are mounted, kills a
+formatter after its first write, recovers that transaction, checks save retention
+and proves unknown data is refused. Provisioning errors are reported on the
+boot volume and the device can continue offline; a retry-boot request lets
+users leave recovery without SSH.
 Kernel/U-Boot and the emulator runtime reuse the pinned ROCKNIX source/bundle;
 their source provenance is recorded in hardware.lock and image.json.
 

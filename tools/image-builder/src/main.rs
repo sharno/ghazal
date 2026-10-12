@@ -12,29 +12,62 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-struct Device { id: String, name: String, dtb: String, rotation: String, wifi: bool }
+struct Device {
+    id: String,
+    name: String,
+    dtb: String,
+    rotation: String,
+    wifi: bool,
+}
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Catalog { devices: Vec<Device> }
+struct Catalog {
+    devices: Vec<Device>,
+}
 fn catalog() -> Result<Catalog> {
     let catalog: Catalog = toml::from_str(include_str!("../../../config/h700/devices.toml"))?;
     let mut ids = BTreeSet::new();
     for device in &catalog.devices {
-        if !ids.insert(&device.id) || device.id.is_empty()
-            || !device.id.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        if !ids.insert(&device.id)
+            || device.id.is_empty()
+            || !device
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
             || !device.dtb.starts_with("sun50i-h700-anbernic-")
-            || !device.dtb.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-            || !matches!(device.rotation.as_str(), "normal" | "left" | "right" | "inverted") {
+            || !device
+                .dtb
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || !matches!(
+                device.rotation.as_str(),
+                "normal" | "left" | "right" | "inverted"
+            )
+        {
             return Err("invalid or duplicate device catalog entry".into());
         }
     }
     Ok(catalog)
 }
 
-struct Options { args: Vec<String>, device: String, memory: String, public: bool, all: bool, version: String }
+struct Options {
+    args: Vec<String>,
+    device: String,
+    memory: String,
+    public: bool,
+    all: bool,
+    version: String,
+}
 impl Options {
     fn parse() -> Result<Self> {
-        let mut options = Self { args: Vec::new(), device: "rg40xx-v-v2".into(), memory: "ddr4".into(), public: false, all: false, version: "v0.1.0-beta.1".into() };
+        let mut options = Self {
+            args: Vec::new(),
+            device: "rg40xx-v-v2".into(),
+            memory: "ddr4".into(),
+            public: false,
+            all: false,
+            version: "v0.1.0-beta.1".into(),
+        };
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -42,18 +75,32 @@ impl Options {
                 "--memory" => options.memory = args.next().ok_or("missing memory")?,
                 "--version" => options.version = args.next().ok_or("missing version")?,
                 "--public" => options.public = true,
-                "--all" => { options.all = true; options.public = true; },
+                "--all" => {
+                    options.all = true;
+                    options.public = true;
+                }
                 "--matrix" => {
                     let matrix: Vec<_> = catalog()?.devices.into_iter().flat_map(|device| ["ddr3", "ddr4"].map(move |memory| serde_json::json!({"device": device.id, "memory": memory}))).collect();
                     println!("{}", serde_json::json!({"include":matrix}));
                     std::process::exit(0);
                 }
-                flag if flag.starts_with('-') => return Err(format!("unknown option {flag}").into()),
+                flag if flag.starts_with('-') => {
+                    return Err(format!("unknown option {flag}").into())
+                }
                 _ => options.args.push(arg),
             }
         }
-        if !matches!(options.memory.as_str(), "ddr3" | "ddr4") { return Err("memory must be ddr3 or ddr4".into()); }
-        if options.version.is_empty() || !options.version.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte)) { return Err("invalid release version".into()); }
+        if !matches!(options.memory.as_str(), "ddr3" | "ddr4") {
+            return Err("memory must be ddr3 or ddr4".into());
+        }
+        if options.version.is_empty()
+            || !options
+                .version
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
+        {
+            return Err("invalid release version".into());
+        }
         if options.args.len() != if options.public { 2 } else { 3 } {
             return Err("usage: oxmux-image-builder [--device ID] [--memory ddr3|ddr4] SOURCE_DIRECTORY SECRETS_DIRECTORY OUTPUT.img; public builds: --public SOURCE_DIRECTORY OUTPUT.img; release batch: --all --memory ddr3|ddr4 --version TAG SOURCE_DIRECTORY OUTPUT_DIRECTORY".into());
         }
@@ -219,18 +266,32 @@ impl Closure<'_> {
 fn merge_ini(base: &str, overrides: &str) -> Result<String> {
     let mut lines: Vec<String> = base.lines().map(str::to_owned).collect();
     let mut section = String::new();
-    for line in overrides.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(';')) {
+    for line in overrides
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with(';'))
+    {
         if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             section = name.to_owned();
             continue;
         }
-        let (key, _) = line.split_once('=').ok_or_else(|| format!("invalid override {line:?}"))?;
+        let (key, _) = line
+            .split_once('=')
+            .ok_or_else(|| format!("invalid override {line:?}"))?;
         let key = key.trim();
         let header = format!("[{section}]");
-        let start = lines.iter().position(|l| l.trim_start_matches('\u{feff}').trim() == header)
+        let start = lines
+            .iter()
+            .position(|l| l.trim_start_matches('\u{feff}').trim() == header)
             .ok_or_else(|| format!("section {header} missing"))?;
-        let end = lines[start + 1..].iter().position(|l| l.starts_with('[')).map_or(lines.len(), |i| start + 1 + i);
-        match lines[start + 1..end].iter().position(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == key)) {
+        let end = lines[start + 1..]
+            .iter()
+            .position(|l| l.starts_with('['))
+            .map_or(lines.len(), |i| start + 1 + i);
+        match lines[start + 1..end]
+            .iter()
+            .position(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == key))
+        {
             Some(i) => lines[start + 1 + i] = line.to_owned(),
             None => lines.insert(end, line.to_owned()),
         }
@@ -247,11 +308,24 @@ fn splice(src: &Path, dst: &Path, offset: u64) -> Result<()> {
 fn main() -> Result<()> {
     let options = Options::parse()?;
     let mut args = options.args.clone();
-    if options.public { args.insert(1, String::new()); }
+    if options.public {
+        args.insert(1, String::new());
+    }
     let devices = catalog()?.devices;
-    let devices: Vec<_> = if options.all { devices } else { vec![devices.into_iter().find(|device| device.id == options.device).ok_or("unknown H700 device")?] };
+    let devices: Vec<_> = if options.all {
+        devices
+    } else {
+        vec![devices
+            .into_iter()
+            .find(|device| device.id == options.device)
+            .ok_or("unknown H700 device")?]
+    };
     let repo = fs::canonicalize(&args[0])?;
-    let secrets = if options.public { None } else { Some(fs::canonicalize(&args[1])?) };
+    let secrets = if options.public {
+        None
+    } else {
+        Some(fs::canonicalize(&args[1])?)
+    };
     let image = std::env::current_dir()?.join(&args[2]);
     if image.exists() && !options.all {
         return Err("output exists; choose a new filename".into());
@@ -261,7 +335,12 @@ fn main() -> Result<()> {
     // Repository-built kernel and device tree (nix/h700-kernel.nix): all drivers
     // built in, so the bundle's kernel, modules and an initramfs are not used.
     let kernel = PathBuf::from(std::env::var("OXMUX_KERNEL")?);
-    let uboot = PathBuf::from(std::env::var(if options.memory == "ddr3" { "OXMUX_UBOOT_DDR3" } else { "OXMUX_UBOOT" })?);
+    let uboot = PathBuf::from(std::env::var(if options.memory == "ddr3" {
+        "OXMUX_UBOOT_DDR3"
+    } else {
+        "OXMUX_UBOOT"
+    })?);
+    let builder_shell = std::env::var("OXMUX_BUILDER_SHELL")?;
     let lock: BTreeMap<_, _> = fs::read_to_string(repo.join("hardware.lock"))?
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -366,11 +445,61 @@ fn main() -> Result<()> {
     copy(&binary, &root.join("opt/oxmux/oxmux"))?;
     copy(&busybox, &root.join("usr/bin/busybox"))?;
     for applet in [
-        "sh", "ls", "cat", "ps", "mount", "umount", "dmesg", "grep", "top", "kill", "mkdir", "rm",
-        "cp", "mv", "echo", "vi", "free", "df", "uname", "sleep", "ip", "ping", "sync", "date",
-        "tail", "head", "find", "chmod", "chown", "modprobe", "lsmod", "insmod", "rmmod", "stat",
-        "du", "wc", "tee", "reboot", "poweroff", "sed", "awk", "cut", "sort", "uniq", "tr", "diff",
-        "strings", "dd", "time", "less", "xargs", "md5sum", "sha256sum", "ln", "hexdump",
+        "sh",
+        "ls",
+        "cat",
+        "ps",
+        "mount",
+        "umount",
+        "dmesg",
+        "grep",
+        "top",
+        "kill",
+        "mkdir",
+        "rm",
+        "cp",
+        "mv",
+        "echo",
+        "vi",
+        "free",
+        "df",
+        "uname",
+        "sleep",
+        "ip",
+        "ping",
+        "sync",
+        "date",
+        "tail",
+        "head",
+        "find",
+        "chmod",
+        "chown",
+        "modprobe",
+        "lsmod",
+        "insmod",
+        "rmmod",
+        "stat",
+        "du",
+        "wc",
+        "tee",
+        "reboot",
+        "poweroff",
+        "sed",
+        "awk",
+        "cut",
+        "sort",
+        "uniq",
+        "tr",
+        "diff",
+        "strings",
+        "dd",
+        "time",
+        "less",
+        "xargs",
+        "md5sum",
+        "sha256sum",
+        "ln",
+        "hexdump",
     ] {
         symlink("busybox", root.join("usr/bin").join(applet))?;
     }
@@ -405,42 +534,80 @@ fn main() -> Result<()> {
     )?;
     // Standalone PPSSPP: assets (including the PSP flash0 fonts it looks up next
     // to its executable), ROCKNIX's H700 defaults and the SDL controller database.
-    copy_tree(&upstream.join("usr/config/ppsspp/assets"), &root.join("usr/share/ppsspp/assets"))?;
-    copy_tree(&upstream.join("usr/config/ppsspp/PSP"), &root.join("var/lib/oxmux/ppsspp/PSP"))?;
+    copy_tree(
+        &upstream.join("usr/config/ppsspp/assets"),
+        &root.join("usr/share/ppsspp/assets"),
+    )?;
+    copy_tree(
+        &upstream.join("usr/config/ppsspp/PSP"),
+        &root.join("var/lib/oxmux/ppsspp/PSP"),
+    )?;
     let ppsspp = repo.join("config/rg40xxv-rocknix/ppsspp");
     let system = root.join("var/lib/oxmux/ppsspp/PSP/SYSTEM");
     copy(&ppsspp.join("controls.ini"), &system.join("controls.ini"))?;
     let defaults = fs::read_to_string(system.join("ppsspp.ini"))?;
-    let settings = merge_ini(&defaults, &fs::read_to_string(ppsspp.join("ppsspp-overrides.ini"))?)?;
+    let settings = merge_ini(
+        &defaults,
+        &fs::read_to_string(ppsspp.join("ppsspp-overrides.ini"))?,
+    )?;
     fs::write(system.join("ppsspp.ini"), &settings)?;
-    copy_tree(&ppsspp.join("Cheats"), &root.join("var/lib/oxmux/ppsspp/PSP/Cheats"))?;
+    copy_tree(
+        &ppsspp.join("Cheats"),
+        &root.join("var/lib/oxmux/ppsspp/PSP/Cheats"),
+    )?;
     // PPSSPP reads every per-game setting from a game's own ini, so each one
     // starts from the full settings and changes only that game's overrides.
     for entry in fs::read_dir(ppsspp.join("games"))? {
         let path = entry?.path();
-        let id = path.file_stem().and_then(|s| s.to_str()).ok_or("invalid game override name")?;
-        fs::write(system.join(format!("{id}_ppsspp.ini")), merge_ini(&settings, &fs::read_to_string(&path)?)?)?;
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or("invalid game override name")?;
+        fs::write(
+            system.join(format!("{id}_ppsspp.ini")),
+            merge_ini(&settings, &fs::read_to_string(&path)?)?,
+        )?;
     }
-    copy_tree(&upstream.join("usr/config/SDL-GameControllerDB"), &root.join("usr/share/SDL-GameControllerDB"))?;
+    copy_tree(
+        &upstream.join("usr/config/SDL-GameControllerDB"),
+        &root.join("usr/share/SDL-GameControllerDB"),
+    )?;
     // ROCKNIX's PPSSPP has its /storage paths compiled in. Point them at our
     // layout: settings on SD1, game saves shared with the libretro core on SD2.
     for (link, target) in [
         ("usr/bin/assets", "/usr/share/ppsspp/assets"),
         ("var/lib/oxmux/ppsspp/assets", "/usr/share/ppsspp/assets"),
         ("storage/.config/ppsspp", "/var/lib/oxmux/ppsspp"),
-        ("storage/.config/SDL-GameControllerDB", "/usr/share/SDL-GameControllerDB"),
-        ("storage/roms/psp", "/mnt/games/SAVES/file/PPSSPP/PSP/SAVEDATA"),
-        ("storage/roms/savestates/psp/ppsspp-sa", "/mnt/games/SAVES/state/PPSSPP-standalone"),
+        (
+            "storage/.config/SDL-GameControllerDB",
+            "/usr/share/SDL-GameControllerDB",
+        ),
+        (
+            "storage/roms/psp",
+            "/mnt/games/SAVES/file/PPSSPP/PSP/SAVEDATA",
+        ),
+        (
+            "storage/roms/savestates/psp/ppsspp-sa",
+            "/mnt/games/SAVES/state/PPSSPP-standalone",
+        ),
         ("storage/roms/screenshots", "/mnt/games/SAVES/screenshots"),
     ] {
         fs::create_dir_all(root.join(link).parent().ok_or("missing parent")?)?;
         symlink(target, root.join(link))?;
     }
-    for path in ["usr/share/xkeyboard-config-2", "usr/share/fontconfig", "usr/share/fonts", "etc/fonts"] {
+    for path in [
+        "usr/share/xkeyboard-config-2",
+        "usr/share/fontconfig",
+        "usr/share/fonts",
+        "etc/fonts",
+    ] {
         copy_tree(&upstream.join(path), &root.join(path))?;
     }
     fs::create_dir_all(root.join("usr/share/X11"))?;
-    symlink("/usr/share/xkeyboard-config-2", root.join("usr/share/X11/xkb"))?;
+    symlink(
+        "/usr/share/xkeyboard-config-2",
+        root.join("usr/share/X11/xkb"),
+    )?;
     // Rules are explicit: do not pull in upstream's systemd service hooks.
     write(&root, "etc/udev/rules.d/70-gamepad.rules", "SUBSYSTEM==\"input\", KERNEL==\"event*\", ATTRS{name}==\"H700 Gamepad\", ENV{ID_INPUT}=\"1\", ENV{ID_INPUT_JOYSTICK}=\"1\"\n")?;
     let mut closure = Closure {
@@ -523,7 +690,10 @@ fn main() -> Result<()> {
     write(&root, "var/lib/oxmux/factory-data", "oxmux-factory-v1\n")?;
     write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
     if let Some(secrets) = &secrets {
-        copy(&secrets.join("authorized_keys"), &root.join("root/.ssh/authorized_keys"))?;
+        copy(
+            &secrets.join("authorized_keys"),
+            &root.join("root/.ssh/authorized_keys"),
+        )?;
     } else {
         write(&root, "root/.ssh/authorized_keys", "")?;
     }
@@ -544,40 +714,40 @@ fn main() -> Result<()> {
         "[General]\nEnableNetworkConfiguration=true\n[Network]\nNameResolvingService=resolvconf\n",
     )?;
     if let Some(secrets) = &secrets {
-    let ssid = fs::read_to_string(secrets.join("ssid"))?
-        .trim_end_matches('\n')
-        .to_string();
-    let pass = fs::read_to_string(secrets.join("passphrase"))?
-        .trim_end_matches('\n')
-        .to_string();
-    if ssid.is_empty()
-        || ssid.len() > 32
-        || ssid.contains('\n')
-        || pass.contains('\n')
-        || pass.len() < 8
-    {
-        return Err("invalid Wi-Fi build inputs".into());
-    }
-    let filename = if ssid
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b' ')
-    {
-        ssid.clone()
-    } else {
-        format!(
-            "={}",
-            ssid.bytes().map(|b| format!("{b:02x}")).collect::<String>()
-        )
-    };
-    write(
-        &root,
-        &format!("var/lib/iwd/{filename}.psk"),
-        format!("[Security]\nPassphrase={pass}\n[Settings]\nAutoConnect=true\n"),
-    )?;
-    fs::set_permissions(
-        root.join(format!("var/lib/iwd/{filename}.psk")),
-        fs::Permissions::from_mode(0o600),
-    )?;
+        let ssid = fs::read_to_string(secrets.join("ssid"))?
+            .trim_end_matches('\n')
+            .to_string();
+        let pass = fs::read_to_string(secrets.join("passphrase"))?
+            .trim_end_matches('\n')
+            .to_string();
+        if ssid.is_empty()
+            || ssid.len() > 32
+            || ssid.contains('\n')
+            || pass.contains('\n')
+            || pass.len() < 8
+        {
+            return Err("invalid Wi-Fi build inputs".into());
+        }
+        let filename = if ssid
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b' ')
+        {
+            ssid.clone()
+        } else {
+            format!(
+                "={}",
+                ssid.bytes().map(|b| format!("{b:02x}")).collect::<String>()
+            )
+        };
+        write(
+            &root,
+            &format!("var/lib/iwd/{filename}.psk"),
+            format!("[Security]\nPassphrase={pass}\n[Settings]\nAutoConnect=true\n"),
+        )?;
+        fs::set_permissions(
+            root.join(format!("var/lib/iwd/{filename}.psk")),
+            fs::Permissions::from_mode(0o600),
+        )?;
     }
     write(
         &root,
@@ -610,106 +780,174 @@ fn main() -> Result<()> {
         &repo.join("hardware.lock"),
         &root.join("etc/oxmux/hardware.lock"),
     )?;
-    if options.public && (!fs::read(root.join("root/.ssh/authorized_keys"))?.is_empty()
-        || fs::read_dir(root.join("var/lib/iwd"))?.next().is_some()
-        || !fs::read(root.join("etc/machine-id"))?.is_empty()) {
+    if options.public
+        && (!fs::read(root.join("root/.ssh/authorized_keys"))?.is_empty()
+            || fs::read_dir(root.join("var/lib/iwd"))?.next().is_some()
+            || !fs::read(root.join("etc/machine-id"))?.is_empty())
+    {
         return Err("public image contains credentials or a shared machine identity".into());
     }
     let device_template = fs::read_to_string(root.join("etc/oxmux/device.toml"))?;
     let frontend_template = fs::read_to_string(root.join("etc/oxmux/frontend.toml"))?;
     for device in devices {
-    let image = if options.all {
-        image.join(format!("oxmux-{}-{}-{}.img", options.version, device.id, options.memory))
-    } else { image.clone() };
-    let mut profile: toml::Value = toml::from_str(&device_template)?;
-    profile["name"] = toml::Value::String(format!("Anbernic {}", device.name));
-    profile["display"].as_table_mut().ok_or("missing display profile")?.insert("rotation".into(), toml::Value::String(device.rotation.clone()));
-    write(&root, "etc/oxmux/device.toml", toml::to_string(&profile)?)?;
-    let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
-    if device.rotation == "left" {
-        for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
-            if system["name"].as_str() == Some("PSP") {
-                let system = system.as_table_mut().ok_or("invalid PSP profile")?;
-                for key in ["command", "env", "log"] { system.remove(key); }
-                system.insert("core".into(), toml::Value::String("ppsspp_libretro.so".into()));
+        let image = if options.all {
+            image.join(format!(
+                "oxmux-{}-{}-{}.img",
+                options.version, device.id, options.memory
+            ))
+        } else {
+            image.clone()
+        };
+        let mut profile: toml::Value = toml::from_str(&device_template)?;
+        profile["name"] = toml::Value::String(format!("Anbernic {}", device.name));
+        profile["display"]
+            .as_table_mut()
+            .ok_or("missing display profile")?
+            .insert(
+                "rotation".into(),
+                toml::Value::String(device.rotation.clone()),
+            );
+        write(&root, "etc/oxmux/device.toml", toml::to_string(&profile)?)?;
+        let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
+        if device.rotation == "left" {
+            for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
+                if system["name"].as_str() == Some("PSP") {
+                    let system = system.as_table_mut().ok_or("invalid PSP profile")?;
+                    for key in ["command", "env", "log"] {
+                        system.remove(key);
+                    }
+                    system.insert(
+                        "core".into(),
+                        toml::Value::String("ppsspp_libretro.so".into()),
+                    );
+                }
             }
         }
-    }
-    write(&root, "etc/oxmux/frontend.toml", toml::to_string(&frontend)?)?;
-    write(&root, "etc/oxmux/retroarch.cfg", format!("{}\nvideo_rotation = \"{}\"\n", include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"), if device.rotation == "left" { 3 } else { 0 }))?;
-    write(&root, "etc/oxmux/image.json", serde_json::to_vec_pretty(&serde_json::json!({
-        "device":device, "memory":options.memory, "version":options.version, "public":options.public,
-        "data_policy":"TF2 if present, otherwise TF1 data partition", "hardware_revision":value("source_revision")?
-    }))?)?;
-    let root_image = work.join("root.ext4");
-    File::create(&root_image)?.set_len(1024 * 1024 * 1024)?;
-    run(Command::new("fakeroot")
-        .args([
-            "sh",
-            "-ec",
-            "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L OXMUXROOT -d \"$1\" \"$2\"",
-            "image-builder",
-        ])
-        .arg(&root)
-        .arg(&root_image))?;
-    let boot = work.join("boot");
-    fs::create_dir_all(boot.join("extlinux"))?;
-    copy(&kernel.join("boot/KERNEL"), &boot.join("KERNEL"))?;
-    copy(&kernel.join("boot/device_trees").join(format!("{}.dtb", device.dtb)), &boot.join("dtb.img"))?;
-    copy_tree(&kernel.join("boot/device_trees"), &boot.join("device_trees"))?;
-    write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
-    // `quiet`: printing the boot log over the 115200-baud serial console alone
-    // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
-    // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
-    write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
-    let boot_image = work.join("boot.fat");
-    File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
-    run(Command::new("mkfs.vfat")
-        .args(["-F", "32", "-n", "OXMUXBOOT"])
-        .arg(&boot_image))?;
-    for name in ["KERNEL", "dtb.img", "extlinux", "device_trees", "provision.toml.example"] {
-        run(Command::new("mcopy")
-            .args(["-s", "-i"])
-            .arg(&boot_image)
-            .arg(boot.join(name))
-            .arg("::/"))?;
-    }
-    fs::create_dir_all(image.parent().ok_or("missing output directory")?)?;
-    let out = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&image)?;
-    fs::set_permissions(&image, fs::Permissions::from_mode(0o600))?;
-    out.set_len((16 + 128 + 1024 + 128) * 1024 * 1024)?;
-    // The Allwinner boot ROM loads the SPL from 8 KiB; the first partition starts at 16 MiB.
-    splice(&uboot, &image, 8 * 1024)?;
-    let mut disk = Command::new("sfdisk")
-        .args(["--wipe", "never"])
-        .arg(&image)
-        .stdin(Stdio::piped())
-        .spawn()?;
-    disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\nstart=2392064,size=262144,type=7\n")?;
-    if !disk.wait()?.success() {
-        return Err("partition creation failed".into());
-    }
-    splice(&boot_image, &image, 16 * 1024 * 1024)?;
-    splice(&root_image, &image, 144 * 1024 * 1024)?;
-    out.sync_all()?;
-    run(Command::new("e2fsck").args(["-fn"]).arg(&root_image))?;
-    run(Command::new("fsck.vfat").args(["-n"]).arg(&boot_image))?;
-    let artifact = if options.all {
-        run(Command::new("gzip").args(["-n", "-1"]).arg(&image))?;
-        image.with_extension("img.gz")
-    } else { image.clone() };
-    let digest = output(Command::new("sha256sum").arg(&artifact))?;
-    let hash = format!("{}  {}\n", digest.split_whitespace().next().ok_or("missing checksum")?, artifact.file_name().ok_or("missing filename")?.to_string_lossy());
-    fs::write(artifact.with_extension(if options.all { "gz.sha256" } else { "img.sha256" }), hash)?;
-    println!(
-        "Built {} ({}). Work tree: {}",
-        artifact.display(),
-        if options.public { "public: no credentials" } else { "private: contains credentials" },
-        work.display()
-    );
+        write(
+            &root,
+            "etc/oxmux/frontend.toml",
+            toml::to_string(&frontend)?,
+        )?;
+        write(
+            &root,
+            "etc/oxmux/retroarch.cfg",
+            format!(
+                "{}\nvideo_rotation = \"{}\"\n",
+                include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"),
+                if device.rotation == "left" { 3 } else { 0 }
+            ),
+        )?;
+        write(
+            &root,
+            "etc/oxmux/image.json",
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "device":device, "memory":options.memory, "version":options.version, "public":options.public,
+                "data_policy":"TF2 if present, otherwise TF1 data partition", "hardware_revision":value("source_revision")?
+            }))?,
+        )?;
+        let root_image = work.join("root.ext4");
+        File::create(&root_image)?.set_len(1024 * 1024 * 1024)?;
+        run(Command::new("fakeroot")
+            .args([
+                builder_shell.as_str(),
+                "-ec",
+                "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L OXMUXROOT -d \"$1\" \"$2\"",
+                "image-builder",
+            ])
+            .arg(&root)
+            .arg(&root_image))?;
+        let boot = work.join("boot");
+        fs::create_dir_all(boot.join("extlinux"))?;
+        copy(&kernel.join("boot/KERNEL"), &boot.join("KERNEL"))?;
+        copy(
+            &kernel
+                .join("boot/device_trees")
+                .join(format!("{}.dtb", device.dtb)),
+            &boot.join("dtb.img"),
+        )?;
+        copy_tree(
+            &kernel.join("boot/device_trees"),
+            &boot.join("device_trees"),
+        )?;
+        write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\n# auto selects TF2 when inserted; tf1 and tf2 require that chosen card.\ndata_card = \"auto\"\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
+        // `quiet`: printing the boot log over the 115200-baud serial console alone
+        // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
+        // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
+        write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
+        let boot_image = work.join("boot.fat");
+        File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
+        run(Command::new("mkfs.vfat")
+            .args(["-F", "32", "-n", "OXMUXBOOT"])
+            .arg(&boot_image))?;
+        for name in [
+            "KERNEL",
+            "dtb.img",
+            "extlinux",
+            "device_trees",
+            "provision.toml.example",
+        ] {
+            run(Command::new("mcopy")
+                .args(["-s", "-i"])
+                .arg(&boot_image)
+                .arg(boot.join(name))
+                .arg("::/"))?;
+        }
+        fs::create_dir_all(image.parent().ok_or("missing output directory")?)?;
+        let out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&image)?;
+        fs::set_permissions(&image, fs::Permissions::from_mode(0o600))?;
+        out.set_len((16 + 128 + 1024 + 128) * 1024 * 1024)?;
+        // The Allwinner boot ROM loads the SPL from 8 KiB; the first partition starts at 16 MiB.
+        splice(&uboot, &image, 8 * 1024)?;
+        let mut disk = Command::new("sfdisk")
+            .args(["--wipe", "never"])
+            .arg(&image)
+            .stdin(Stdio::piped())
+            .spawn()?;
+        disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\nstart=2392064,size=262144,type=7\n")?;
+        if !disk.wait()?.success() {
+            return Err("partition creation failed".into());
+        }
+        splice(&boot_image, &image, 16 * 1024 * 1024)?;
+        splice(&root_image, &image, 144 * 1024 * 1024)?;
+        out.sync_all()?;
+        run(Command::new("e2fsck").args(["-fn"]).arg(&root_image))?;
+        run(Command::new("fsck.vfat").args(["-n"]).arg(&boot_image))?;
+        let artifact = if options.all {
+            run(Command::new("gzip").args(["-n", "-1"]).arg(&image))?;
+            image.with_extension("img.gz")
+        } else {
+            image.clone()
+        };
+        let digest = output(Command::new("sha256sum").arg(&artifact))?;
+        let hash = format!(
+            "{}  {}\n",
+            digest.split_whitespace().next().ok_or("missing checksum")?,
+            artifact
+                .file_name()
+                .ok_or("missing filename")?
+                .to_string_lossy()
+        );
+        fs::write(
+            artifact.with_extension(if options.all {
+                "gz.sha256"
+            } else {
+                "img.sha256"
+            }),
+            hash,
+        )?;
+        println!(
+            "Built {} ({}). Work tree: {}",
+            artifact.display(),
+            if options.public {
+                "public: no credentials"
+            } else {
+                "private: contains credentials"
+            },
+            work.display()
+        );
     }
     Ok(())
 }
@@ -720,7 +958,8 @@ mod tests {
 
     #[test]
     fn overrides_replace_or_append_within_their_section() {
-        let base = "\u{feff}[General]\nUIScaleFactor = -1\nOther = 1\n[Graphics]\nAnisotropyLevel = 4\n";
+        let base =
+            "\u{feff}[General]\nUIScaleFactor = -1\nOther = 1\n[Graphics]\nAnisotropyLevel = 4\n";
         let merged = merge_ini(base, "; note\n[General]\nUIScaleFactor = -6\n[Graphics]\nAnisotropyLevel = 0\nDepthRasterMode = 2\n").unwrap();
         assert_eq!(merged, "\u{feff}[General]\nUIScaleFactor = -6\nOther = 1\n[Graphics]\nAnisotropyLevel = 0\nDepthRasterMode = 2\n");
         assert!(merge_ini(base, "[Missing]\nKey = 1\n").is_err());

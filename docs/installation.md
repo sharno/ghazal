@@ -50,6 +50,7 @@ After writing, mount `OXMUXBOOT`. Copy `provision.toml.example` to
 
 ```toml
 ssh_authorized_keys = ["ssh-ed25519 YOUR_PUBLIC_KEY your-computer"]
+data_card = "auto" # "tf1" for one card; "tf2" to require the games card
 
 [wifi]
 ssid = "Your network name"
@@ -61,8 +62,12 @@ key. Omit `[wifi]` or the key list if not needed. The image contains no personal
 credentials and has no default SSH password. On boot these settings are stored
 on the OS filesystem and the provisioning file is removed from the boot volume.
 You can create a new `provision.toml` on a later boot to replace these settings.
-Keep your edited file private. The built-in RG28XX and RG35XX 2024 hardware has
-no Wi-Fi; use card transfers or a compatible USB network adapter instead.
+Invalid input is preserved as `provision.rejected-*.toml`; `provision.error.txt`
+on the boot partition explains the error, and the device still boots offline.
+UTF-8 with a BOM and CRLF line endings are accepted. Deletion is not secure
+erasure of FAT storage; keep the edited file and card private. RG28XX and
+RG35XX 2024 have no built-in Wi-Fi; use card transfers or a compatible USB
+Wi-Fi adapter instead.
 
 ## One SD card
 
@@ -77,8 +82,10 @@ no Wi-Fi; use card transfers or a compatible USB network adapter instead.
 
 First boot must happen **before** copying files into the new data partition.
 Factory preparation only handles the reserved TF1 partition. It refuses to
-overwrite an unknown filesystem. A failed first-boot format requires repair;
-it does not automatically erase and retry a populated partition.
+claim an unknown filesystem. A durable formatting transaction permits retry
+after power loss during the initial format, before data has ever been mounted.
+Recognized, healthy data is preserved on retry. Once preparation finishes,
+the factory marker is removed and subsequent boots never format the volume.
 
 ## Two SD cards
 
@@ -92,6 +99,12 @@ it does not automatically erase and retry a populated partition.
 5. TF2 takes priority for games, saves, history, thumbnails and Syncthing state.
    Its filesystem is never formatted or resized by oxmux. TF1 also gets its own
    data partition so it remains usable when TF2 is removed.
+
+Set `data_card = "tf2"` in provision.toml if you want a missing TF2 card to be an
+error rather than using TF1. Set `"tf1"` to always use TF1 and skip automatic
+card detection. Default `"auto"` allows a bounded two-second detection window.
+Information → Data card shows which volume is active. Dirty exFAT volumes get
+a filesystem check before mounting; failures require manual repair.
 
 Insert or remove cards while powered off. An invalid or damaged TF2 partition
 causes a visible boot/recovery failure rather than silently placing saves on
@@ -122,5 +135,11 @@ available when provisioned. Logs are in `/var/log/oxmux/`; use `kernel-log.log`,
 `wifi.log`, `frontend.log` and the emulator log to report a failure. Include
 the filename, board/panel revision and `/etc/oxmux/image.json` in a bug report.
 Native suspend remains disabled. Use Shutdown before removing a card.
+
+To leave recovery without SSH: hold Power to shut down, mount `OXMUXBOOT` on
+the computer, create an empty file named **retry-boot** (no `.txt` extension),
+and safely eject. The next boot clears the counter, removes the request and
+restarts into a normal boot attempt. You can also correct provision.toml while
+in recovery. A broken boot volume needs repair on the computer.
 
 See [storage layout](storage-layout.md) and [beta limitations](beta-release.md).

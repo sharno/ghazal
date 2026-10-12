@@ -27,7 +27,9 @@ jobs:
       - name: Exercise first-boot growth and restart recovery on a disposable disk
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y exfatprogs
+          sudo apt-get install -y exfatprogs exfat-fuse
           cargo test --locked --no-run --message-format=json > /tmp/oxmux-tests.json
           binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "oxmux") | .executable' /tmp/oxmux-tests.json)
-          sudo "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture
+          rustc_path=$(rustup which rustc)
+          mounter=$(command -v mount.exfat-fuse)
+          sudo env OXMUX_TEST_RUSTC="$rustc_path" OXMUX_TEST_MOUNT_EXFAT="$mounter" "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture

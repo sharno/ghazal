@@ -250,6 +250,7 @@ impl App {
             hints_for: None,
         };
         app.start_scan(false);
+        if let Ok(warning) = std::fs::read_to_string("/run/oxmux/provision-warning") { app.error(warning); }
         if let Some(warning) = activity_warning { app.error(warning); }
         app.refresh_status(Instant::now());
         app.refresh_levels();
@@ -571,6 +572,7 @@ impl App {
             ("Device name", hostname.trim().to_owned()),
             ("Kernel", crate::sys::kernel_release()),
             ("LAN address", address),
+            ("Data card", std::fs::read_to_string("/run/oxmux/data-source").map(|source| source.trim().to_owned()).unwrap_or_else(|_| "Unavailable".into())),
             ("Uptime", uptime),
             ("Systems", self.catalog.library().systems().len().to_string()),
             ("Games", self.catalog.library().game_count().to_string()),

@@ -64,7 +64,9 @@ pub enum Step {
     Wait(WaitStep),
     Storage(storage::Prepare),
     DataDirectories(storage::Prepare),
+    DataMount(storage::Prepare),
     Provision(PathBuf),
+    RetryBoot(PathBuf),
 }
 
 #[derive(Debug, Deserialize)]
@@ -250,15 +252,25 @@ impl ShutdownTrace {
 
 /// Recovery uses the compiled standalone profile, independent of damaged SD config.
 pub fn rescue() -> Result<()> {
-    let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
+    let system = recovery_config()?;
     let device: DeviceConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/device.toml"))?;
-    system.init.rescue = None;
-    system.init.steps.retain(|step| !matches!(step, Step::Storage(_) | Step::DataDirectories(_) | Step::Provision(_))
-        && !matches!(step, Step::Mount(mount) if mount.target == Path::new("/mnt/games")));
-    system.supervisor.services.retain(|service| matches!(service.name.as_str(),
-        "kernel-log" | "udev" | "udev-trigger" | "udev-settle" | "dbus" | "wifi" | "ssh-host-key" | "sshd"));
     log(format_args!("starting standalone recovery: Wi-Fi and SSH, without frontend or suspend"));
     run(system, &device)
+}
+
+fn recovery_config() -> Result<SystemConfig> {
+    let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
+    system.init.rescue = None;
+    system.init.steps.retain(|step| !matches!(step, Step::Storage(_) | Step::DataDirectories(_) | Step::DataMount(_))
+        && !matches!(step, Step::Mount(mount) if mount.target == Path::new("/mnt/games")));
+    system.supervisor.services.retain(|service| matches!(service.name.as_str(),
+        "kernel-log" | "udev" | "udev-trigger" | "udev-settle" | "dbus" | "wifi" | "ssh-host-key" | "sshd" | "daemon"));
+    // Power-button shutdown must still work when the display or data volume is broken.
+    if let Some(daemon) = system.supervisor.services.iter_mut().find(|service| service.name == "daemon") {
+        daemon.after = vec!["udev".into()];
+    }
+    system.supervisor.validate()?;
+    Ok(system)
 }
 
 fn check_rescue(rescue: &Rescue) -> Result<()> {
@@ -350,7 +362,9 @@ fn run_step(step: &Step) -> Result<()> {
         Step::Hostname(h) => sys::sethostname(h),
         Step::Storage(_) => storage::prepare(),
         Step::DataDirectories(_) => storage::directories(),
+        Step::DataMount(_) => storage::mount_data(),
         Step::Provision(path) => provision::apply(path),
+        Step::RetryBoot(path) => provision::retry_boot(path),
         Step::Wait(w) => {
             if wait_for(&w.path, Duration::from_secs(w.timeout)) {
                 Ok(())
@@ -444,6 +458,20 @@ fn log(args: std::fmt::Arguments) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_preserves_access_and_power_without_data_dependencies() {
+        let system = recovery_config().unwrap();
+        assert!(system.init.rescue.is_none());
+        assert!(system.init.steps.iter().any(|step| matches!(step, Step::RetryBoot(_))));
+        assert!(system.init.steps.iter().any(|step| matches!(step, Step::Provision(_))));
+        assert!(!system.init.steps.iter().any(|step| matches!(step,
+            Step::Storage(_) | Step::DataDirectories(_) | Step::DataMount(_))));
+        for name in ["daemon", "wifi", "sshd"] {
+            assert!(system.supervisor.services.iter().any(|service| service.name == name));
+        }
+        assert!(!system.supervisor.services.iter().any(|service| service.name == "frontend"));
+    }
 
     #[test]
     fn mount_options() {
