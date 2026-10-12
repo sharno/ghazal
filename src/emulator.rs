@@ -77,10 +77,14 @@ pub fn active() -> Result<bool> {
     }
 }
 
+/// RetroArch writes save RAM and its automatic save state while quitting; a
+/// PSP state is tens of MB, which can take seconds on the SD card.
+const QUIT_GRACE_MS: i32 = 10_000;
+
 pub fn stop() -> Result<()> {
     let Some(control) = Control::open()? else { bail!("no emulator is running"); };
     control.signal(libc::SIGTERM)?;
-    if !control.exited(1500)? {
+    if !control.exited(QUIT_GRACE_MS)? {
         control.signal(libc::SIGKILL)?;
         if !control.exited(1500)? { bail!("emulator did not exit after SIGKILL"); }
     }
