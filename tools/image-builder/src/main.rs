@@ -856,7 +856,9 @@ fn main() -> Result<()> {
             ])
             .arg(&root)
             .arg(&root_image))?;
-        let boot = work.join("boot");
+        // Nix inputs retain read-only modes. Give each variant its own boot tree
+        // instead of overwriting the previous variant's immutable kernel/DTBs.
+        let boot = work.join(format!("boot-{}", device.id));
         fs::create_dir_all(boot.join("extlinux"))?;
         copy(&kernel.join("boot/KERNEL"), &boot.join("KERNEL"))?;
         copy(
