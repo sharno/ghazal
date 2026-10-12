@@ -3,5 +3,4 @@ release=nightly-20261010
 url=https://github.com/ROCKNIX/distribution-nightly/releases/download/nightly-20261010/ROCKNIX-H700.aarch64-20261010-DDR4.img.gz
 sha256=39323ec252acd3cf54a7cdc7f45334dc20f060c4d2da437ff6995025f0a7a8f0
 source_revision=7cffc96617df2a051af091182e8a3d270fd794a4
-device_tree=sun50i-h700-anbernic-rg40xx-v-v2-panel.dtb
 memory=DDR4

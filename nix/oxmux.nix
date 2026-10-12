@@ -44,6 +44,6 @@ stdenv.mkDerivation {
   meta = {
     description = "Rust userland for Anbernic H700 handhelds";
     license = lib.licenses.gpl3Plus;
-    platforms = [ "x86_64-linux" ];
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
   };
 }

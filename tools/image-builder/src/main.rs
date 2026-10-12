@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fs::{self, File};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -185,6 +185,10 @@ fn main() -> Result<()> {
     }
     let binary = PathBuf::from(std::env::var("OXMUX_BINARY")?);
     let busybox = PathBuf::from(std::env::var("OXMUX_BUSYBOX")?);
+    // Repository-built kernel and device tree (nix/h700-kernel.nix): all drivers
+    // built in, so the bundle's kernel, modules and an initramfs are not used.
+    let kernel = PathBuf::from(std::env::var("OXMUX_KERNEL")?);
+    let uboot = PathBuf::from(std::env::var("OXMUX_UBOOT")?);
     let lock: BTreeMap<_, _> = fs::read_to_string(repo.join("hardware.lock"))?
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -242,21 +246,9 @@ fn main() -> Result<()> {
         return Err("unexpected bootloader layout".into());
     }
     let spec = format!("{}@@{start}", raw.display());
-    for (name, dest) in [
-        ("SYSTEM", work.join("SYSTEM")),
-        ("KERNEL", work.join("KERNEL")),
-    ] {
-        run(Command::new("mcopy")
-            .args(["-i", &spec, &format!("::/{name}")])
-            .arg(dest))?;
-    }
     run(Command::new("mcopy")
-        .args([
-            "-i",
-            &spec,
-            &format!("::/device_trees/{}", value("device_tree")?),
-        ])
-        .arg(work.join("dtb.img")))?;
+        .args(["-i", &spec, "::/SYSTEM"])
+        .arg(work.join("SYSTEM")))?;
     run(Command::new("unsquashfs")
         .args(["-no-progress", "-d"])
         .arg(&upstream)
@@ -304,19 +296,17 @@ fn main() -> Result<()> {
         "sh", "ls", "cat", "ps", "mount", "umount", "dmesg", "grep", "top", "kill", "mkdir", "rm",
         "cp", "mv", "echo", "vi", "free", "df", "uname", "sleep", "ip", "ping", "sync", "date",
         "tail", "head", "find", "chmod", "chown", "modprobe", "lsmod", "insmod", "rmmod", "stat",
-        "du", "wc", "tee", "reboot", "poweroff",
+        "du", "wc", "tee", "reboot", "poweroff", "sed", "awk", "cut", "sort", "uniq", "tr", "diff",
+        "strings", "dd", "time", "less", "xargs", "md5sum", "sha256sum", "ln", "hexdump",
     ] {
         symlink("busybox", root.join("usr/bin").join(applet))?;
     }
     symlink("/opt/oxmux/oxmux", root.join("usr/sbin/resolvconf"))?;
-    symlink("../bin/busybox", root.join("usr/sbin/modprobe"))?;
+    // The kernel mounts the root filesystem and runs this; oxmux dispatches on argv[0].
+    symlink("/opt/oxmux/oxmux", root.join("usr/sbin/init"))?;
     copy_tree(
         &repo.join("config/rg40xxv-rocknix"),
         &root.join("etc/oxmux"),
-    )?;
-    copy_tree(
-        &upstream.join("usr/lib/kernel-overlays/base/lib/modules"),
-        &root.join("usr/lib/modules"),
     )?;
     copy_tree(
         &upstream.join("usr/lib/kernel-overlays/base/lib/firmware"),
@@ -498,20 +488,6 @@ fn main() -> Result<()> {
         &repo.join("hardware.lock"),
         &root.join("etc/oxmux/hardware.lock"),
     )?;
-    let initrd = work.join("initrd");
-    for dir in ["bin", "dev", "proc", "sys", "sysroot"] {
-        fs::create_dir_all(initrd.join(dir))?;
-    }
-    copy(&binary, &initrd.join("oxmux-bootstrap"))?;
-    copy(&busybox, &initrd.join("bin/busybox"))?;
-    symlink("busybox", initrd.join("bin/sh"))?;
-    let archive = work.join("initramfs.cpio");
-    // Fixed shell program, paths passed as positional arguments, no interpolation.
-    run(Command::new("sh").args(["-c", "cd \"$1\"; find . -print0 | LC_ALL=C sort -z | cpio --null -o -H newc --owner=0:0 > \"$2\"", "image-builder"]).arg(&initrd).arg(&archive))?;
-    run(Command::new("gzip")
-        .args(["-n", "-c"])
-        .arg(&archive)
-        .stdout(File::create(work.join("initramfs.gz"))?))?;
     let root_image = work.join("root.ext4");
     File::create(&root_image)?.set_len(1024 * 1024 * 1024)?;
     run(Command::new("fakeroot")
@@ -525,18 +501,19 @@ fn main() -> Result<()> {
         .arg(&root_image))?;
     let boot = work.join("boot");
     fs::create_dir_all(boot.join("extlinux"))?;
-    for name in ["KERNEL", "dtb.img", "initramfs.gz"] {
-        copy(&work.join(name), &boot.join(name))?;
+    for name in ["KERNEL", "dtb.img"] {
+        copy(&kernel.join("boot").join(name), &boot.join(name))?;
     }
     // `quiet`: printing the boot log over the 115200-baud serial console alone
     // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
-    write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  INITRD /initramfs.gz\n  FDT /dtb.img\n  APPEND rdinit=/oxmux-bootstrap oxmux.root=/dev/mmcblk0p2 console=ttyS0,115200 console=tty0 rootwait panic=0 quiet\n")?;
+    // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
+    write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
     let boot_image = work.join("boot.fat");
     File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
     run(Command::new("mkfs.vfat")
         .args(["-F", "32", "-n", "OXMUXBOOT"])
         .arg(&boot_image))?;
-    for name in ["KERNEL", "dtb.img", "initramfs.gz", "extlinux"] {
+    for name in ["KERNEL", "dtb.img", "extlinux"] {
         run(Command::new("mcopy")
             .args(["-s", "-i"])
             .arg(&boot_image)
@@ -544,14 +521,14 @@ fn main() -> Result<()> {
             .arg("::/"))?;
     }
     fs::create_dir_all(image.parent().ok_or("missing output directory")?)?;
-    let mut out = fs::OpenOptions::new()
+    let out = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&image)?;
     fs::set_permissions(&image, fs::Permissions::from_mode(0o600))?;
     out.set_len((16 + 128 + 1024) * 1024 * 1024)?;
-    let mut vendor = File::open(&raw)?.take(16 * 1024 * 1024);
-    std::io::copy(&mut vendor, &mut out)?;
+    // The Allwinner boot ROM loads the SPL from 8 KiB; the first partition starts at 16 MiB.
+    splice(&uboot, &image, 8 * 1024)?;
     let mut disk = Command::new("sfdisk")
         .args(["--wipe", "never"])
         .arg(&image)

@@ -20,13 +20,6 @@ mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,
 [[init.step]]
 hostname = "oxmux"
 [[init.step]]
-# Bluetooth is unused, and hci_uart blocks module loading for ~0.6 s while it
-# uploads controller firmware.
-coldplug = { exclude = ["hci_uart"] }
-[[init.step]]
-# The pinned rtw88 firmware fails to acknowledge SDIO deep power-save transitions.
-write = { path = "/sys/module/rtw88_core/parameters/disable_lps_deep", value = "Y" }
-[[init.step]]
 mount = { source = "/dev/mmcblk1p1", target = "/mnt/games", fstype = "exfat,vfat,ext4", options = "rw,noatime", wait = 3, optional = true }
 [[init.step]]
 mkdir = "/run/dbus"

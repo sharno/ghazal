@@ -54,12 +54,9 @@ fn main() {
     // Invoked as /init (stage 4 image): be PID 1.
     let argv0 = std::env::args().next().unwrap_or_default();
     let as_init = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "init");
-    let as_bootstrap = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "oxmux-bootstrap");
     let as_resolvconf = std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "resolvconf");
     let result = if as_resolvconf {
         debug::resolvconf()
-    } else if as_bootstrap {
-        init::bootstrap::run()
     } else if as_init { run_init(&Profile::locate(None)) } else { run() };
     if let Err(e) = result {
         eprintln!("oxmux: {e:#}");
