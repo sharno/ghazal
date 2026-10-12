@@ -13,8 +13,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: h700-images-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: h700-images-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   checks:
     uses: ./.github/workflows/check.yml

@@ -25,11 +25,18 @@ jobs:
           export PATH="$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin:$PATH"
           cargo build --release --locked --target aarch64-unknown-linux-musl
       - name: Exercise first-boot growth and restart recovery on a disposable disk
+        # The runner's exfatprogs is too old for the device's no-discard formatter.
+        # Resolve the tool from our locked nixpkgs, matching the shipped version.
+        uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify storage transactions with the pinned formatter
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y exfatprogs exfat-fuse
+          sudo apt-get install -y exfat-fuse
+          exfat=$(nix build --no-link --print-out-paths --inputs-from . 'nixpkgs#exfatprogs^out')
           cargo test --locked --no-run --message-format=json > /tmp/oxmux-tests.json
           binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "oxmux") | .executable' /tmp/oxmux-tests.json)
           rustc_path=$(rustup which rustc)
           mounter=$(command -v mount.exfat-fuse)
-          sudo env OXMUX_TEST_RUSTC="$rustc_path" OXMUX_TEST_MOUNT_EXFAT="$mounter" "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture
+          sudo env OXMUX_TEST_RUSTC="$rustc_path" OXMUX_TEST_MOUNT_EXFAT="$mounter" OXMUX_TEST_MKFS_EXFAT="$exfat/bin/mkfs.exfat" OXMUX_TEST_FSCK_EXFAT="$exfat/bin/fsck.exfat" "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture
