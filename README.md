@@ -26,6 +26,17 @@ labels and bars for three seconds after a change, and remain visible while
 the menu is open. These indicators do not overlay a running emulator.
 The standalone profile reads the kernel's backlight range automatically.
 
+### Main menu
+
+The home screen follows the muOS navigation structure: Explore Content,
+Collection, History, Applications, Information, Configuration, Reboot and
+Shutdown. Explore Content lists systems; Collection contains favorites and
+History contains recent games. Applications contains library rescan and
+thumbnail download tools. Configuration offers box art, brightness and volume;
+Information shows the software, kernel, LAN address and library totals.
+Power actions appear when the daemon is available. B returns from a category;
+on the home screen it selects Explore Content.
+
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
 one static binary and three declarative TOML files. The standalone image builds its

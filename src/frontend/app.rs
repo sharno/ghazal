@@ -32,8 +32,35 @@ pub enum Effect {
 
 #[derive(Clone, Copy, PartialEq)]
 enum View {
+    Home,
     Systems,
     Games(GameList),
+    Applications,
+    Configuration,
+    Information,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum HomeItem { Explore, Collection, History, Applications, Information, Configuration, Reboot, Shutdown }
+impl HomeItem {
+    fn entries(power_available: bool) -> Vec<Self> {
+        let mut items = vec![Self::Explore, Self::Collection, Self::History, Self::Applications, Self::Information, Self::Configuration];
+        if power_available { items.extend([Self::Reboot, Self::Shutdown]); }
+        items
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Explore => "Explore Content", Self::Collection => "Collection", Self::History => "History",
+            Self::Applications => "Applications", Self::Information => "Information", Self::Configuration => "Configuration",
+            Self::Reboot => "Reboot", Self::Shutdown => "Shutdown",
+        }
+    }
+    fn glyph(self) -> &'static str {
+        match self {
+            Self::Explore => "▤", Self::Collection => "★", Self::History => "↶", Self::Applications => "▦",
+            Self::Information => "i", Self::Configuration => "⚙", Self::Reboot => "↻", Self::Shutdown => "○",
+        }
+    }
 }
 
 /// A list of games. Also each entry of the systems list.
@@ -45,23 +72,7 @@ enum GameList {
 }
 
 impl GameList {
-    /// Collections come first in the systems list.
-    const COLLECTIONS: [GameList; 2] = [GameList::Favorites, GameList::Recent];
-
-    fn at(index: usize) -> Self {
-        match Self::COLLECTIONS.get(index) {
-            Some(collection) => *collection,
-            None => Self::System(index - Self::COLLECTIONS.len()),
-        }
-    }
-
-    fn index(self) -> usize {
-        match self {
-            Self::Favorites => 0,
-            Self::Recent => 1,
-            Self::System(system) => system + Self::COLLECTIONS.len(),
-        }
-    }
+    fn parent(self) -> View { match self { Self::System(_) => View::Systems, _ => View::Home } }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -75,6 +86,8 @@ enum MenuItem {
     Thumbnails,
     DownloadThumbnails,
     Back,
+    Brightness,
+    Volume,
 }
 
 impl MenuItem {
@@ -90,6 +103,8 @@ impl MenuItem {
             Self::Thumbnails => "Thumbnails: Off",
             Self::DownloadThumbnails => "Download thumbnails",
             Self::Back => "Back",
+            Self::Brightness => "Brightness",
+            Self::Volume => "Volume",
         }
     }
 }
@@ -107,13 +122,17 @@ struct MenuState {
 }
 
 const OPTION_ITEMS: [MenuItem; 3] = [MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
+const APPLICATION_ITEMS: [MenuItem; 2] = [MenuItem::Rescan, MenuItem::DownloadThumbnails];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
 
 type Hints = &'static [(&'static str, &'static str)];
 const MENU_HINTS: Hints = &[("A", "Select"), ("B", "Close")];
 const OPTIONS_HINTS: Hints = &[("A", "Select"), ("B", "Back")];
-const SYSTEM_HINTS: Hints = &[("A", "Open"), ("≡", "Menu")];
+const HOME_HINTS: Hints = &[("A", "Open"), ("B", "Explore"), ("≡", "Menu")];
+const SYSTEM_HINTS: Hints = &[("A", "Open"), ("B", "Back"), ("≡", "Menu")];
+const CONFIGURATION_HINTS: Hints = &[("A", "Change"), ("◀▶", "Adjust"), ("B", "Back")];
+const INFORMATION_HINTS: Hints = &[("B", "Back")];
 const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("◀▶", "System"), ("≡", "Menu")];
 const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")];
 
@@ -135,6 +154,12 @@ pub struct App {
     ui: AppWindow,
     /// Main menu entries; the power ones depend on the daemon.
     main_items: Vec<MenuItem>,
+    home_items: Vec<HomeItem>,
+    home_cursor: usize,
+    application_cursor: usize,
+    configuration_cursor: usize,
+    information_cursor: usize,
+    information_rows: Vec<Row>,
     settings: Settings,
     catalog: Catalog,
     scan: Option<Scan>,
@@ -174,9 +199,12 @@ impl App {
             }
         };
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
+        let daemon_status = if config.daemon_socket.exists() {
+            ctl::request(&config.daemon_socket, "status").inspect_err(|error| eprintln!("oxmux: daemon unavailable: {error:#}")).ok()
+        } else { None };
         let mut main_items = vec![MenuItem::Rescan, MenuItem::Options];
-        if config.daemon_socket.exists() {
-            if ctl::request(&config.daemon_socket, "status").is_ok_and(|reply| reply.split_whitespace().any(|field| field == "suspend=1")) {
+        if let Some(reply) = &daemon_status {
+            if reply.split_whitespace().any(|field| field == "suspend=1") {
                 main_items.push(MenuItem::Sleep);
             }
             main_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
@@ -185,17 +213,24 @@ impl App {
             main_items.push(MenuItem::Quit);
         }
         let settings = Settings::load(&config.settings_file);
+        let home_items = HomeItem::entries(daemon_status.is_some());
         let art = Loader::new().inspect_err(|error| eprintln!("oxmux: art loader: {error:#}")).ok();
 
         let mut app = Self {
             config,
             ui,
             main_items,
+            home_items,
+            home_cursor: 0,
+            application_cursor: 0,
+            configuration_cursor: 0,
+            information_cursor: 0,
+            information_rows: Vec::new(),
             settings,
             // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
             catalog: Catalog::new(Library::from_systems(Vec::new()), activity),
             scan: None,
-            view: View::Systems,
+            view: View::Home,
             system_cursor: 0,
             game_cursors: BTreeMap::new(),
             menu: None,
@@ -258,23 +293,58 @@ impl App {
             return None;
         }
         match self.view {
+            View::Home => match button {
+                Button::A => match self.home_items[self.home_cursor] {
+                    HomeItem::Explore => self.view = View::Systems,
+                    HomeItem::Collection => self.view = View::Games(GameList::Favorites),
+                    HomeItem::History => self.view = View::Games(GameList::Recent),
+                    HomeItem::Applications => self.view = View::Applications,
+                    HomeItem::Configuration => self.view = View::Configuration,
+                    HomeItem::Information => { self.refresh_information(); self.view = View::Information; }
+                    HomeItem::Reboot => return self.power("reboot"),
+                    HomeItem::Shutdown => return self.power("poweroff"),
+                },
+                Button::B => self.home_cursor = 0,
+                button => self.home_cursor = navigate(self.home_cursor, self.home_items.len(), button),
+            },
             View::Systems => match button {
-                Button::A => self.view = View::Games(GameList::at(self.system_cursor)),
+                Button::A if self.system_entries() > 0 => self.view = View::Games(GameList::System(self.system_cursor)),
+                Button::B => self.view = View::Home,
                 button => self.system_cursor = navigate(self.system_cursor, self.system_entries(), button),
+            },
+            View::Applications => match button {
+                Button::B => self.view = View::Home,
+                Button::A => return self.activate(APPLICATION_ITEMS[self.application_cursor]),
+                button => self.application_cursor = navigate(self.application_cursor, APPLICATION_ITEMS.len(), button),
+            },
+            View::Configuration => match button {
+                Button::B => self.view = View::Home,
+                Button::A | Button::Left | Button::Right => {
+                    let item = self.configuration_items()[self.configuration_cursor];
+                    match item {
+                        MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
+                        MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
+                        _ => {},
+                    }
+                }
+                button => self.configuration_cursor = navigate(self.configuration_cursor, self.configuration_items().len(), button),
+            },
+            View::Information => match button {
+                Button::B => self.view = View::Home,
+                button => self.information_cursor = navigate(self.information_cursor, self.information_rows.len(), button),
             },
             View::Games(list) => {
                 let len = self.game_count(list);
                 let cursor = self.cursor(list);
                 match button {
-                    Button::B => self.view = View::Systems,
+                    Button::B => self.view = list.parent(),
                     Button::A => return self.launch(list, cursor),
                     Button::Y => self.toggle_favorite(list, cursor),
                     // Left/Right in a system's games jump to the neighbouring system.
                     Button::Left | Button::Right => if let GameList::System(system) = list {
                         let next = step(system, self.catalog.library().systems().len(), if button == Button::Left { -1 } else { 1 }, true);
-                        let next = GameList::System(next);
-                        self.system_cursor = next.index();
-                        self.view = View::Games(next);
+                        self.system_cursor = next;
+                        self.view = View::Games(GameList::System(next));
                     },
                     button => { self.game_cursors.insert(list, navigate(cursor, len, button)); }
                 }
@@ -372,7 +442,8 @@ impl App {
             self.view = View::Systems;
         }
         self.catalog.replace_library(library);
-        self.system_cursor = self.system_cursor.min(self.system_entries() - 1);
+        self.system_cursor = self.system_cursor.min(self.system_entries().saturating_sub(1));
+        if self.view == View::Information { self.refresh_information(); }
         self.rows_for = None;
     }
 
@@ -429,6 +500,10 @@ impl App {
         deadline
     }
 
+    /// Used by the snapshot renderer to wait for the initial worker result.
+    #[cfg(feature = "desktop")]
+    pub fn library_loading(&self) -> bool { self.scan.is_some() }
+
     pub fn refresh_levels(&mut self) {
         match crate::levels::read(&self.config.daemon_socket) {
             Ok(Some(levels)) => {
@@ -436,6 +511,7 @@ impl App {
                     self.levels_visible_until = Some(Instant::now() + TOAST_DURATION);
                 }
                 self.levels = Some(levels);
+                if self.view == View::Configuration { self.rows_for = None; }
                 self.ui.set_brightness_level(u8::from(levels.brightness).into());
                 self.ui.set_volume_level(u8::from(levels.volume).into());
                 self.sync();
@@ -456,6 +532,49 @@ impl App {
             }
             None => self.ui.set_battery_percent(-1),
         }
+        if self.view == View::Information { self.refresh_information(); }
+    }
+
+    fn configuration_items(&self) -> Vec<MenuItem> {
+        let mut items = vec![MenuItem::Thumbnails];
+        if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
+        items
+    }
+
+    fn adjust_level(&mut self, item: MenuItem, up: bool) {
+        let (command, amount) = match item {
+            MenuItem::Brightness => ("brightness", 10),
+            MenuItem::Volume => ("volume", 5),
+            _ => return,
+        };
+        let command = format!("{command} {}{amount}", if up { "+" } else { "-" });
+        match ctl::request(&self.config.daemon_socket, &command) {
+            Ok(_) => self.refresh_levels(),
+            Err(error) => self.error(format!("{error:#}")),
+        }
+    }
+
+    fn refresh_information(&mut self) {
+        let hostname = std::fs::read_to_string("/etc/hostname").unwrap_or_else(|_| "oxmux".into());
+        let uptime = std::fs::read_to_string("/proc/uptime").ok()
+            .and_then(|text| text.split_whitespace().next()?.parse::<f64>().ok())
+            .map(|seconds| format!("{} min", (seconds / 60.0) as u64)).unwrap_or_else(|| "Unavailable".into());
+        // UDP connect selects a local route without transmitting a packet.
+        let address = (|| -> std::io::Result<String> {
+            let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+            socket.connect("192.0.2.1:9")?;
+            Ok(socket.local_addr()?.ip().to_string())
+        })().unwrap_or_else(|_| "Disconnected".into());
+        self.information_rows = [
+            ("Software", format!("oxmux {}", env!("CARGO_PKG_VERSION"))),
+            ("Device name", hostname.trim().to_owned()),
+            ("Kernel", crate::sys::kernel_release()),
+            ("LAN address", address),
+            ("Uptime", uptime),
+            ("Systems", self.catalog.library().systems().len().to_string()),
+            ("Games", self.catalog.library().game_count().to_string()),
+        ].into_iter().map(|(label, detail)| Row { label: label.into(), detail: detail.into(), glyph: "".into() }).collect();
+        self.rows_for = None;
     }
 
     /// Scans in a worker so input and drawing continue. Only user-requested
@@ -523,6 +642,7 @@ impl App {
             MenuItem::Restart => self.power("reboot"),
             MenuItem::PowerOff => self.power("poweroff"),
             MenuItem::Quit => Some(Effect::Quit),
+            MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
         }
     }
 
@@ -543,7 +663,7 @@ impl App {
     }
 
     fn system_entries(&self) -> usize {
-        GameList::COLLECTIONS.len() + self.catalog.library().systems().len()
+        self.catalog.library().systems().len()
     }
 
     fn game_count(&self, list: GameList) -> usize {
@@ -573,17 +693,38 @@ impl App {
     fn list_title(&self, list: GameList) -> &str {
         match list {
             GameList::System(index) => self.catalog.library().systems().get(index).map_or("", |system| system.name.as_str()),
-            GameList::Favorites => "Favorites",
-            GameList::Recent => "Recent Games",
+            GameList::Favorites => "Collection",
+            GameList::Recent => "History",
         }
     }
 
     fn row(&self, view: View, index: usize) -> Option<Row> {
         Some(match view {
-            View::Systems => {
-                let list = GameList::at(index);
-                Row { label: self.list_title(list).into(), detail: self.game_count(list).to_string().into() }
+            View::Home => {
+                let item = *self.home_items.get(index)?;
+                let detail = match item {
+                    HomeItem::Explore => self.catalog.library().game_count().to_string(),
+                    HomeItem::Collection => self.game_count(GameList::Favorites).to_string(),
+                    HomeItem::History => self.game_count(GameList::Recent).to_string(),
+                    _ => String::new(),
+                };
+                Row { label: item.label().into(), detail: detail.into(), glyph: item.glyph().into() }
             }
+            View::Systems => {
+                let list = GameList::System(index);
+                Row { label: self.list_title(list).into(), detail: self.game_count(list).to_string().into(), glyph: "".into() }
+            }
+            View::Applications => Row { label: APPLICATION_ITEMS.get(index)?.label(&self.settings).into(), detail: "".into(), glyph: "".into() },
+            View::Configuration => {
+                let item = *self.configuration_items().get(index)?;
+                let detail = match (item, self.levels) {
+                    (MenuItem::Brightness, Some(levels)) => format!("{}%", u8::from(levels.brightness)),
+                    (MenuItem::Volume, Some(levels)) => format!("{}%", u8::from(levels.volume)),
+                    _ => String::new(),
+                };
+                Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
+            }
+            View::Information => self.information_rows.get(index)?.clone(),
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
                 let favorite = if self.catalog.is_favorite(&GameId::new(system, game)) { "★" } else { "" };
@@ -592,7 +733,7 @@ impl App {
                     GameList::System(_) => favorite.to_owned(),
                     _ => format!("{favorite} {}", system.name).trim_start().to_owned(),
                 };
-                Row { label: game.title.as_str().into(), detail: detail.into() }
+                Row { label: game.title.as_str().into(), detail: detail.into(), glyph: "".into() }
             }
         })
     }
@@ -602,6 +743,10 @@ impl App {
             (Some(MenuPage::Options), _) => OPTIONS_HINTS,
             (Some(MenuPage::Main), _) => MENU_HINTS,
             (None, View::Systems) => SYSTEM_HINTS,
+            (None, View::Home) => HOME_HINTS,
+            (None, View::Applications) => SYSTEM_HINTS,
+            (None, View::Configuration) => CONFIGURATION_HINTS,
+            (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
         }
@@ -610,8 +755,12 @@ impl App {
     /// Pushes state into the UI. Slint only repaints what actually changed.
     fn sync(&mut self) {
         let (cursor, total) = match self.view {
+            View::Home => (self.home_cursor, self.home_items.len()),
             View::Systems => (self.system_cursor, self.system_entries()),
             View::Games(list) => (self.cursor(list), self.game_count(list)),
+            View::Applications => (self.application_cursor, APPLICATION_ITEMS.len()),
+            View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
+            View::Information => (self.information_cursor, self.information_rows.len()),
         };
 
         // The UI only gets a window of ROW_WINDOW rows around the cursor. It's moved
@@ -634,8 +783,12 @@ impl App {
 
         let ui = &self.ui;
         ui.set_heading(match self.view {
-            View::Systems => "Systems",
+            View::Home => "Main Menu",
+            View::Systems => "Explore Content",
             View::Games(list) => self.list_title(list),
+            View::Applications => "Applications",
+            View::Configuration => "Configuration",
+            View::Information => "Information",
         }.into());
         ui.set_position(if total > 0 { format!("{} / {total}", cursor + 1) } else { String::new() }.into());
         ui.set_empty_message(match self.view {
@@ -702,11 +855,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn systems_list_entries_round_trip() {
-        for index in 0..6 {
-            assert_eq!(GameList::at(index).index(), index);
-        }
-        assert!(GameList::at(0) == GameList::Favorites && GameList::at(1) == GameList::Recent && GameList::at(2) == GameList::System(0));
+    fn home_categories_and_power_capabilities() {
+        let entries = HomeItem::entries(true);
+        assert_eq!(entries.iter().map(|item| item.label()).collect::<Vec<_>>(), ["Explore Content", "Collection", "History", "Applications", "Information", "Configuration", "Reboot", "Shutdown"]);
+        assert_eq!(HomeItem::entries(false).len(), 6);
+        assert!(!HomeItem::entries(false).iter().any(|item| matches!(item, HomeItem::Reboot | HomeItem::Shutdown)));
+    }
+
+    #[test]
+    fn collections_return_home_and_system_games_return_to_explore() {
+        assert!(GameList::Favorites.parent() == View::Home);
+        assert!(GameList::Recent.parent() == View::Home);
+        assert!(GameList::System(0).parent() == View::Systems);
     }
 
     #[test]

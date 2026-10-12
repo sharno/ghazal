@@ -48,6 +48,12 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     std::fs::create_dir_all(dir)?;
     let mut screen = Screen::install(WIDTH, HEIGHT)?;
     let mut app = build_app(config)?;
+    let scan_deadline = Instant::now() + Duration::from_secs(5);
+    while app.library_loading() {
+        if Instant::now() >= scan_deadline { bail!("snapshot library scan timed out"); }
+        std::thread::sleep(Duration::from_millis(5));
+        app.tick(Instant::now());
+    }
     let mut frame = 0;
     let mut save = |screen: &mut Screen| -> Result<()> {
         screen.fast_forward(Duration::from_secs(1));
@@ -66,6 +72,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         if let Some(Effect::Launch { spec, .. }) = app.update(button) {
             eprintln!("oxmux: would launch {} {:?}", spec.program.display(), spec.args);
         }
+        app.tick(Instant::now());
         save(&mut screen)?;
     }
     Ok(())

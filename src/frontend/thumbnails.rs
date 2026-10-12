@@ -47,9 +47,9 @@ pub fn load(path: &Path) -> Result<SharedPixelBuffer<Rgba8Pixel>> {
     let mut data = vec![0; reader.output_buffer_size()];
     let frame = reader.next_frame(&mut data)?;
     let rgba: Vec<[u8; 4]> = match frame.color_type {
-        png::ColorType::Rgba => data.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(),
-        png::ColorType::Rgb => data.chunks_exact(3).map(|p| [p[0], p[1], p[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => data.chunks_exact(2).map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Rgba => data.as_chunks::<4>().0.to_vec(),
+        png::ColorType::Rgb => data.as_chunks::<3>().0.iter().map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => data.as_chunks::<2>().0.iter().map(|p| [p[0], p[0], p[0], p[1]]).collect(),
         png::ColorType::Grayscale => data.iter().map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => bail!("unexpanded palette in {}", path.display()),
     };
