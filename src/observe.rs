@@ -23,8 +23,12 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
             crate::hw::alsa::verify(audio)
         }
         Some("frame") if args.len() == 2 => capture(&device.display.card, Path::new(&args[1])),
+        Some("boot") if args.len() == 1 => {
+            print!("{}", fs::read_to_string("/run/oxmux/first-frame-ready")?);
+            Ok(())
+        }
         Some("press") if args.len() == 2 => press(device, &args[1]),
-        _ => bail!("usage: oxmux observe audio | frame OUTPUT.ppm | press BUTTON[+BUTTON...]"),
+        _ => bail!("usage: oxmux observe audio | boot | frame OUTPUT.ppm | press BUTTON[+BUTTON...]"),
     }
 }
 

@@ -118,7 +118,7 @@ pub struct InputDevices {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Backlight {
     /// /sys/class/backlight/*/brightness style file.
-    Sysfs { path: PathBuf, max: u32, #[serde(default)] min: u32 },
+    Sysfs { path: PathBuf, #[serde(default)] max: BrightnessLimit, #[serde(default)] min: u32 },
     /// Allwinner display debug interface (debugfs): name/command/param then start.
     Dispdbg {
         #[serde(default = "default_dispdbg")]
@@ -129,6 +129,21 @@ pub enum Backlight {
         #[serde(default)]
         min: u32,
     },
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum BrightnessLimit {
+    Fixed(std::num::NonZeroU32),
+    Source(KernelBrightness),
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum KernelBrightness { Kernel }
+
+impl Default for BrightnessLimit {
+    fn default() -> Self { Self::Source(KernelBrightness::Kernel) }
 }
 
 fn default_dispdbg() -> PathBuf {

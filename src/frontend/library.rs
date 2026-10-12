@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 
 use super::config::{FrontendConfig, SystemEntry};
 
@@ -6,8 +7,11 @@ const MAX_DEPTH: usize = 3;
 
 pub struct Library {
     /// Only systems that have at least one game, in config order.
-    pub systems: Vec<System>,
+    systems: Vec<System>,
+    paths: BTreeMap<PathBuf, PathMatch>,
 }
+
+enum PathMatch { Unique { system: usize, game: usize }, Ambiguous }
 
 pub struct System {
     pub name: String,
@@ -41,7 +45,27 @@ impl Library {
                 })
             })
             .collect();
-        Self { systems }
+        Self::from_systems(systems)
+    }
+
+    pub fn from_systems(systems: Vec<System>) -> Self {
+        let mut paths = BTreeMap::new();
+        for (system_index, system) in systems.iter().enumerate() {
+            for (game_index, game) in system.games.iter().enumerate() {
+                paths.entry(game.path.clone()).and_modify(|entry| *entry = PathMatch::Ambiguous)
+                    .or_insert(PathMatch::Unique { system: system_index, game: game_index });
+            }
+        }
+        Self { systems, paths }
+    }
+
+    pub fn systems(&self) -> &[System] { &self.systems }
+
+    pub fn resolve_path(&self, path: &Path) -> Option<(&System, &Game)> {
+        match self.paths.get(path)? {
+            PathMatch::Unique { system, game } => Some((&self.systems[*system], &self.systems[*system].games[*game])),
+            PathMatch::Ambiguous => None,
+        }
     }
 
     pub fn game_count(&self) -> usize {
@@ -114,7 +138,16 @@ fn clean_title(stem: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::clean_title;
+    use super::*;
+
+    #[test]
+    fn path_index_resolves_unique_paths_and_rejects_ambiguous_assignments() {
+        let system = |name: &str, paths: &[&str]| System { name: name.into(), core: "test.so".into(), games: paths.iter().map(|path| Game { title: (*path).into(), path: (*path).into() }).collect() };
+        let library = Library::from_systems(vec![system("A", &["/unique", "/shared"]), system("B", &["/shared"])]);
+        assert_eq!(library.resolve_path(Path::new("/unique")).unwrap().0.name, "A");
+        assert!(library.resolve_path(Path::new("/shared")).is_none());
+        assert!(library.resolve_path(Path::new("/missing")).is_none());
+    }
 
     #[test]
     fn strips_tags() {

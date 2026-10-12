@@ -111,12 +111,13 @@ impl Input {
     }
 
     /// Waits up to `timeout` for input and reports (button, pressed) edges.
-    pub fn poll(&mut self, timeout: Duration, mut emit: impl FnMut(Button, bool)) -> Result<()> {
+    pub fn poll(&mut self, timeout: Duration, wake_fd: Option<std::os::fd::RawFd>, mut emit: impl FnMut(Button, bool)) -> Result<()> {
         let mut fds: Vec<libc::pollfd> = self
             .pads
             .iter()
             .map(|p| libc::pollfd { fd: p.device.as_raw_fd(), events: libc::POLLIN, revents: 0 })
             .collect();
+        if let Some(fd) = wake_fd { fds.push(libc::pollfd { fd, events: libc::POLLIN, revents: 0 }); }
         let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
         // SAFETY: fds is a valid, correctly sized pollfd array.
         let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, ms) };
@@ -126,6 +127,9 @@ impl Input {
                 return Ok(());
             }
             return Err(err.into());
+        }
+        if wake_fd.is_some() && fds.last().is_some_and(|fd| fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0) {
+            bail!("levels notification descriptor failed");
         }
 
         for (pad, fd) in self.pads.iter_mut().zip(&fds) {

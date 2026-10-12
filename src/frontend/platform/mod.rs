@@ -178,6 +178,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
     let mut input = evdev_input::Input::open(device)?;
     let (w, h) = display.size();
     let mut screen = Screen::install(w, h)?;
+    let levels_watch = crate::levels::Watch::open(&config.daemon_socket)?;
     let mut app = build_app(config)?;
     let mut repeater = Repeater::default();
     let mut first_frame = true;
@@ -197,13 +198,16 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
         if let Some(wake) = screen.next_wake() {
             deadline = deadline.min(now + wake);
         }
-        input.poll(deadline.saturating_duration_since(now), |button, pressed| {
+        input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |button, pressed| {
             if pressed {
                 repeater.press(button, Instant::now());
             } else {
                 repeater.release(button);
             }
         })?;
+        if levels_watch.as_ref().map(crate::levels::Watch::drain).transpose()?.unwrap_or(false) {
+            app.refresh_levels();
+        }
         repeater.tick(Instant::now());
 
         let buttons: Vec<_> = repeater.drain().collect();

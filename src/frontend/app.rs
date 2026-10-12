@@ -10,7 +10,7 @@ use super::library::{Game, Library, System};
 use crate::daemon::ctl;
 use crate::hw::battery;
 use crate::ui::{AppWindow, Hint, Row};
-use super::activity::{Activity, GameId};
+use super::activity::{Activity, Catalog, Collection, GameId};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
 const STATUS_REFRESH: Duration = Duration::from_secs(20);
@@ -71,9 +71,8 @@ pub struct App {
     config: FrontendConfig,
     ui: AppWindow,
     menu_items: Vec<MenuItem>,
-    library: Library,
+    catalog: Catalog,
     scan: Option<std::sync::mpsc::Receiver<Library>>,
-    activity: Activity,
     collection_sel: [usize; 2],
     view: View,
     system_sel: usize,
@@ -81,6 +80,8 @@ pub struct App {
     game_sel: Vec<usize>,
     menu: Option<usize>,
     toast: Option<(String, Instant, bool)>,
+    levels: Option<crate::levels::Levels>,
+    levels_visible_until: Option<Instant>,
     status_checked: Instant,
     /// Which view the row model currently shows, so it's only rebuilt on change.
     rows_for: Option<View>,
@@ -92,7 +93,7 @@ impl App {
     pub fn new(config: FrontendConfig, ui: AppWindow) -> anyhow::Result<Self> {
         let activity = Activity::load(&config.activity_file)?;
         let library = Library::scan(&config);
-        eprintln!("oxmux: {} systems, {} games", library.systems.len(), library.game_count());
+        eprintln!("oxmux: {} systems, {} games", library.systems().len(), library.game_count());
         let roots: Vec<_> = config.rom_roots.iter().map(|p| p.display().to_string()).collect();
         ui.set_empty_message(format!("No games found in {}", roots.join(", ")).into());
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
@@ -111,24 +112,26 @@ impl App {
         )));
 
         let mut app = Self {
-            game_sel: vec![0; library.systems.len()],
+            game_sel: vec![0; library.systems().len()],
             config,
             ui,
             menu_items,
-            library,
+            catalog: Catalog::new(library, activity),
             scan: None,
-            activity,
             collection_sel: [0; 2],
             view: View::Systems,
             system_sel: 0,
             menu: None,
             toast: None,
+            levels: None,
+            levels_visible_until: None,
             status_checked: Instant::now(),
             rows_for: None,
             row_start: 0,
             hints_for: None,
         };
         app.refresh_status(Instant::now());
+        app.refresh_levels();
         app.sync();
         Ok(app)
     }
@@ -166,7 +169,7 @@ impl App {
 
         match self.view {
             View::Systems => {
-                let len = self.library.systems.len() + 2;
+                let len = self.catalog.library().systems().len() + 2;
                 match button {
                     Button::A => self.view = View::Games(match self.system_sel {
                         0 => GameList::Favorites,
@@ -184,7 +187,7 @@ impl App {
                     Button::A if len > 0 => {
                         let (system, game) = self.game_at(list, selected)?;
                         let id = GameId::new(system, game);
-                        let (system, game) = id.resolve(&self.library)?;
+                        let (system, game) = id.resolve(self.catalog.library())?;
                         match LaunchSpec::retroarch(&self.config, system, game) {
                             Ok(spec) => return Some(Effect::Launch { spec, game: id }),
                             Err(e) => self.error(format!("{e:#}")),
@@ -194,7 +197,7 @@ impl App {
                     Button::Y if len > 0 => {
                         let (system, game) = self.game_at(list, selected)?;
                         let id = GameId::new(system, game);
-                        match self.activity.toggle_favorite(id) {
+                        match self.catalog.toggle_favorite(id) {
                             Ok(added) => self.toast = Some((if added { "Added to Favorites" } else { "Removed from Favorites" }.into(), Instant::now(), false)),
                             Err(error) => self.error(format!("Saving favorite: {error:#}")),
                         }
@@ -203,7 +206,7 @@ impl App {
                     Button::Left | Button::Right if matches!(list, GameList::System(_)) => {
                         let GameList::System(sys) = list else { unreachable!() };
                         let dir = if button == Button::Left { -1 } else { 1 };
-                        let next = step(sys, self.library.systems.len(), dir, true);
+                        let next = step(sys, self.catalog.library().systems().len(), dir, true);
                         self.system_sel = next + 2;
                         self.view = View::Games(GameList::System(next));
                     }
@@ -217,7 +220,7 @@ impl App {
     pub fn launch_started(&mut self, game: GameId) {
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
-        if let Err(error) = self.activity.launched(game) {
+        if let Err(error) = self.catalog.launched(game) {
             eprintln!("oxmux: saving history: {error:#}");
             self.error(format!("Saving history: {error:#}"));
         }
@@ -238,17 +241,21 @@ impl App {
 
     /// Periodic housekeeping: toast expiry, clock and battery.
     pub fn tick(&mut self, now: Instant) {
+        if self.levels_visible_until.is_some_and(|until| now >= until) {
+            self.levels_visible_until = None;
+            self.ui.set_levels_visible(false);
+        }
         if let Some(receiver) = &self.scan {
             match receiver.try_recv() {
                 Ok(library) => {
                     self.scan = None;
-                    self.game_sel = vec![0; library.systems.len()];
-                    self.system_sel = self.system_sel.min(library.systems.len() + 1);
+                    self.game_sel = vec![0; library.systems().len()];
+                    self.system_sel = self.system_sel.min(library.systems().len() + 1);
                     self.collection_sel = [0; 2];
                     self.view = View::Systems;
                     self.rows_for = None;
                     self.toast = Some((format!("Found {} games", library.game_count()), now, false));
-                    self.library = library;
+                    self.catalog.replace_library(library);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {},
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -267,10 +274,27 @@ impl App {
     }
 
     pub fn next_deadline(&self) -> Instant {
-        let status = if self.scan.is_some() { Instant::now() + Duration::from_millis(50) } else { self.status_checked + STATUS_REFRESH };
+        let mut status = if self.scan.is_some() { Instant::now() + Duration::from_millis(50) } else { self.status_checked + STATUS_REFRESH };
+        if let Some(until) = self.levels_visible_until { status = status.min(until); }
         match &self.toast {
             Some((_, at, _)) => status.min(*at + TOAST_DURATION),
             None => status,
+        }
+    }
+
+    pub fn refresh_levels(&mut self) {
+        match crate::levels::read(&self.config.daemon_socket) {
+            Ok(Some(levels)) => {
+                if self.levels.is_some_and(|previous| previous != levels) {
+                    self.levels_visible_until = Some(Instant::now() + TOAST_DURATION);
+                    self.ui.set_levels_visible(true);
+                }
+                self.levels = Some(levels);
+                self.ui.set_brightness_level(u8::from(levels.brightness).into());
+                self.ui.set_volume_level(u8::from(levels.volume).into());
+            }
+            Ok(None) => {},
+            Err(error) => eprintln!("oxmux: reading live levels: {error:#}"),
         }
     }
 
@@ -326,20 +350,20 @@ impl App {
 
     fn game_count(&self, list: GameList) -> usize {
         match list {
-            GameList::System(index) => self.library.systems[index].games.len(),
-            GameList::Favorites => self.activity.favorites().filter(|id| id.resolve(&self.library).is_some()).count(),
-            GameList::Recent => self.activity.recent().filter(|id| id.resolve(&self.library).is_some()).count(),
+            GameList::System(index) => self.catalog.library().systems()[index].games.len(),
+            GameList::Favorites => self.catalog.collection_len(Collection::Favorites),
+            GameList::Recent => self.catalog.collection_len(Collection::Recent),
         }
     }
 
     fn game_at(&self, list: GameList, index: usize) -> Option<(&System, &Game)> {
         match list {
             GameList::System(system) => {
-                let system = self.library.systems.get(system)?;
+                let system = self.catalog.library().systems().get(system)?;
                 Some((system, system.games.get(index)?))
             }
-            GameList::Favorites => self.activity.favorites().filter_map(|id| id.resolve(&self.library)).nth(index),
-            GameList::Recent => self.activity.recent().filter_map(|id| id.resolve(&self.library)).nth(index),
+            GameList::Favorites => self.catalog.collection_game(Collection::Favorites, index),
+            GameList::Recent => self.catalog.collection_game(Collection::Recent, index),
         }
     }
 
@@ -363,10 +387,10 @@ impl App {
     fn sync(&mut self) {
         let ui = &self.ui;
         let (title, selected, total) = match self.view {
-            View::Systems => ("Systems", self.system_sel, self.library.systems.len() + 2),
+            View::Systems => ("Systems", self.system_sel, self.catalog.library().systems().len() + 2),
             View::Games(list) => {
                 let title = match list {
-                    GameList::System(index) => self.library.systems[index].name.as_str(),
+                    GameList::System(index) => self.catalog.library().systems()[index].name.as_str(),
                     GameList::Favorites => "Favorites",
                     GameList::Recent => "Recent Games",
                 };
@@ -391,14 +415,14 @@ impl App {
                     0 => Row { label: "Favorites".into(), detail: self.game_count(GameList::Favorites).to_string().into() },
                     1 => Row { label: "Recent Games".into(), detail: self.game_count(GameList::Recent).to_string().into() },
                     index => {
-                        let system = &self.library.systems[index - 2];
+                        let system = &self.catalog.library().systems()[index - 2];
                         Row { label: system.name.as_str().into(), detail: system.games.len().to_string().into() }
                     }
                 }).collect(),
                 View::Games(list) => range
                     .filter_map(|index| self.game_at(list, index).map(|(system, game)| Row {
                         label: game.title.as_str().into(),
-                        detail: format!("{}{}", if self.activity.is_favorite(&GameId::new(system, game)) { "★ " } else { "" }, if matches!(list, GameList::System(_)) { "" } else { system.name.as_str() }).into(),
+                        detail: format!("{}{}", if self.catalog.is_favorite(&GameId::new(system, game)) { "★ " } else { "" }, if matches!(list, GameList::System(_)) { "" } else { system.name.as_str() }).into(),
                     }))
                     .collect(),
             };
@@ -421,6 +445,7 @@ impl App {
         let (toast, is_error) = self.toast.as_ref().map_or(("", false), |(t, _, e)| (t.as_str(), *e));
         ui.set_toast(toast.into());
         ui.set_toast_error(is_error);
+        ui.set_levels_visible(self.levels.is_some() && (self.menu.is_some() || self.levels_visible_until.is_some()));
 
         let hint_set = match (self.menu.is_some(), self.view) {
             (true, _) => 0,

@@ -10,6 +10,7 @@ mod init;
 mod input_bridge;
 mod install;
 mod logging;
+mod levels;
 mod observe;
 mod profile;
 mod supervisor;
@@ -44,7 +45,7 @@ COMMANDS:
   check                  validate configs and service binaries
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
-  observe audio|frame|press  inspect audio, capture display, or inject named buttons
+  observe audio|boot|frame|press|recent-benchmark  inspect and exercise the real device
 
 Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $OXMUX_CONFIG_DIR,
 etc/ next to the binary, the binary's directory, or /etc/oxmux; built-in defaults otherwise.";
@@ -89,6 +90,7 @@ fn run() -> Result<()> {
         "ssh-key" => debug::ssh_key(),
         "kernel-log" => debug::kernel_log(),
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
+        "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
         "observe" => observe::run(&profile.device()?, rest),
         "rescue" => init::rescue(),
         "frontend" => run_frontend(&profile, rest),

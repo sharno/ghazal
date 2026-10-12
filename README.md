@@ -17,6 +17,14 @@ Display, controls, networking, sample emulator launches and persistent save stat
 have been checked on that device. Native suspend is disabled pending reliable wake.
 The older muOS stages below are retained as legacy development tools.
 
+### Brightness and volume
+
+Volume Up/Down adjusts sound. Hold Menu while pressing Volume Up/Down to
+adjust brightness. In the oxmux frontend, both levels appear as percentage
+labels and bars for three seconds after a change, and remain visible while
+the menu is open. These indicators do not overlay a running emulator.
+The standalone profile reads the kernel's backlight range automatically.
+
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
 one static binary and three declarative TOML files. The standalone image reuses the

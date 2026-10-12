@@ -250,6 +250,24 @@ fn check_rescue(rescue: &Rescue) -> Result<()> {
 
 /// Called by the frontend once it is on screen: this boot counts as good.
 pub fn mark_boot_ok() {
+    // Record the first displayed frame once per kernel boot, rather than timing
+    // SSH availability or resetting the result on a frontend restart.
+    let observation = (|| -> Result<()> {
+        use std::io::Write;
+        let uptime = std::fs::read_to_string("/proc/uptime")?;
+        let seconds: f64 = uptime.split_whitespace().next().context("missing kernel uptime")?.parse()?;
+        let elapsed = Duration::try_from_secs_f64(seconds)?;
+        std::fs::create_dir_all("/run/oxmux")?;
+        let mut output = match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/oxmux/first-frame-ready") {
+            Ok(output) => output,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        writeln!(output, "first_frame_kernel_uptime_seconds = {}", elapsed.as_secs_f64())?;
+        log(format_args!("first displayed frame at kernel uptime {elapsed:?}"));
+        Ok(())
+    })();
+    if let Err(error) = observation { log(format_args!("boot observation failed: {error:#}")); }
     if let Some(counter) = std::env::var_os("OXMUX_BOOT_COUNTER") {
         if let Err(error) = crate::sys::write_atomic(Path::new(&counter), b"0") {
             log(format_args!("could not mark boot successful: {error:#}"));

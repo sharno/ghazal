@@ -425,6 +425,7 @@ impl Daemon<'_> {
                 eprintln!("oxmux-daemon: brightness: {e:#}");
             }
         }
+        self.publish_levels();
     }
 
     fn apply_volume(&self, percent: u8) {
@@ -433,6 +434,14 @@ impl Daemon<'_> {
                 eprintln!("oxmux-daemon: volume: {e:#}");
             }
         }
+        self.publish_levels();
+    }
+
+    fn publish_levels(&self) {
+        let volume = if self.muted_from.is_some() { 0 } else { self.settings.volume };
+        let result = crate::levels::Levels::new(self.settings.brightness, volume)
+            .and_then(|levels| levels.publish(&self.sys.daemon.socket));
+        if let Err(error) = result { eprintln!("oxmux-daemon: publishing levels: {error:#}"); }
     }
 
     fn save(&mut self) {

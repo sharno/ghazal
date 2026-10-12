@@ -33,8 +33,8 @@ card = "/dev/dri"
 [backlight]
 kind = "sysfs"
 path = "/sys/class/backlight/backlight/brightness"
-# PWM backlight has no DT brightness table: Linux default range is 0..255.
-max = 255
+# Resolve the PWM range from this kernel's max_brightness (2499 on the v2 panel).
+max = "kernel"
 min = 1
 
 [audio]

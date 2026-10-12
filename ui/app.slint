@@ -140,6 +140,9 @@ export component AppWindow inherits Window {
     in property <int> menu-selected: -1;
     in property <string> toast;
     in property <bool> toast-error;
+    in property <bool> levels-visible;
+    in property <int> brightness-level;
+    in property <int> volume-level;
 
     background: Theme.bg;
     default-font-family: "DejaVu Sans";
@@ -303,6 +306,29 @@ export component AppWindow inherits Window {
                     font-size: 18px;
                     color: i == root.menu-selected ? Theme.on-accent : Theme.text;
                 }
+            }
+        }
+    }
+
+    if root.levels-visible: Rectangle {
+        x: root.width - self.width - Theme.pad;
+        y: 58px;
+        width: 240px;
+        height: 104px;
+        border-radius: 12px;
+        background: Theme.panel;
+        VerticalLayout {
+            padding: 12px;
+            spacing: 6px;
+            Text { text: "Volume  " + root.volume-level + "%"; color: Theme.text; font-size: 17px; }
+            Rectangle {
+                height: 5px; background: Theme.bar;
+                Rectangle { width: parent.width * root.volume-level / 100; background: Theme.accent; }
+            }
+            Text { text: "Brightness  " + root.brightness-level + "%"; color: Theme.text; font-size: 17px; }
+            Rectangle {
+                height: 5px; background: Theme.bar;
+                Rectangle { width: parent.width * root.brightness-level / 100; background: Theme.accent; }
             }
         }
     }

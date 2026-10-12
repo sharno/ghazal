@@ -14,31 +14,77 @@ use crate::sys;
 
 pub struct Backlight {
     cfg: device::Backlight,
+    range: BrightnessRange,
     /// Last value set, in percent (dispdbg can't be read back).
     current: u8,
 }
 
+struct BrightnessRange { min: u32, max: u32 }
+
+#[cfg(test)]
+mod brightness_tests {
+    use super::*;
+    #[test]
+    fn hardware_range_and_overflow() {
+        let range = BrightnessRange::new(0, 2499).unwrap();
+        assert_eq!(range.raw(100), 2499);
+        assert_eq!(range.raw(50), 1249);
+        assert_eq!(range.raw(0), 0);
+        assert_eq!(BrightnessRange::new(0, u32::MAX).unwrap().raw(100), u32::MAX);
+        assert!(BrightnessRange::new(0, 0).is_err());
+        assert!(BrightnessRange::new(100, 100).is_err());
+        assert!(BrightnessRange::new(101, 100).is_err());
+    }
+    #[test]
+    fn kernel_limit_is_default_and_fixed_profiles_still_work() {
+        let default: device::Backlight = toml::from_str("kind='sysfs'\npath='/sys/example/brightness'").unwrap();
+        assert!(matches!(default, device::Backlight::Sysfs { max: device::BrightnessLimit::Source(_), .. }));
+        let fixed: device::Backlight = toml::from_str("kind='sysfs'\npath='/sys/example/brightness'\nmax=255").unwrap();
+        assert!(matches!(fixed, device::Backlight::Sysfs { max: device::BrightnessLimit::Fixed(_), .. }));
+    }
+}
+
+impl BrightnessRange {
+    fn new(min: u32, max: u32) -> Result<Self> {
+        if max == 0 || min >= max { anyhow::bail!("invalid backlight range {min}..{max}"); }
+        Ok(Self { min, max })
+    }
+    fn raw(&self, percent: u8) -> u32 {
+        if percent == 0 { return 0; }
+        self.min + (u64::from(self.max - self.min) * u64::from(percent.min(100)) / 100) as u32
+    }
+    fn percent(&self, raw: u32) -> u8 {
+        (u64::from(raw.saturating_sub(self.min).min(self.max - self.min)) * 100 / u64::from(self.max - self.min)) as u8
+    }
+}
+
 impl Backlight {
-    pub fn new(cfg: device::Backlight) -> Self {
-        let mut b = Self { cfg, current: 70 };
-        if let device::Backlight::Sysfs { path, max, min } = &b.cfg {
-            if let Some(raw) = std::fs::read_to_string(path).ok().and_then(|s| s.trim().parse::<u32>().ok()) {
-                b.current = (raw.saturating_sub(*min) * 100 / (max - min).max(1)) as u8;
-            }
-        }
-        b
+    pub fn new(cfg: device::Backlight) -> Result<Self> {
+        let (min, max) = match &cfg {
+            device::Backlight::Sysfs { path, max, min } => (*min, match max {
+                device::BrightnessLimit::Fixed(max) => max.get(),
+                device::BrightnessLimit::Source(device::KernelBrightness::Kernel) => std::fs::read_to_string(path.with_file_name("max_brightness"))?.trim().parse()?,
+            }),
+            device::Backlight::Dispdbg { min, max, .. } => (*min, *max),
+        };
+        let range = BrightnessRange::new(min, max)?;
+        let current = match &cfg {
+            device::Backlight::Sysfs { path, .. } => range.percent(std::fs::read_to_string(path)?.trim().parse()?),
+            device::Backlight::Dispdbg { .. } => 70,
+        };
+        Ok(Self { cfg, range, current })
     }
 
     /// 0 turns the backlight off; 1..=100 maps onto min..=max.
     pub fn set_percent(&mut self, percent: u8) -> Result<()> {
         let percent = percent.min(100);
-        let raw = |min: u32, max: u32| if percent == 0 { 0 } else { min + (max - min) * percent as u32 / 100 };
+        let raw = self.range.raw(percent).to_string();
         match &self.cfg {
-            device::Backlight::Sysfs { path, max, min } => sys::write_file(path, &raw(*min, *max).to_string())?,
-            device::Backlight::Dispdbg { dir, name, command, max, min } => {
+            device::Backlight::Sysfs { path, .. } => sys::write_file(path, &raw)?,
+            device::Backlight::Dispdbg { dir, name, command, .. } => {
                 sys::write_file(&dir.join("name"), name)?;
                 sys::write_file(&dir.join("command"), command)?;
-                sys::write_file(&dir.join("param"), &raw(*min, *max).to_string())?;
+                sys::write_file(&dir.join("param"), &raw)?;
                 sys::write_file(&dir.join("start"), "1")?;
             }
         }
@@ -135,7 +181,7 @@ impl Hardware {
             Volume::open(a).map_err(|e| eprintln!("oxmux: volume unavailable: {e:#}")).ok()
         });
         Self {
-            backlight: dev.backlight.clone().map(Backlight::new),
+            backlight: dev.backlight.clone().and_then(|cfg| Backlight::new(cfg).map_err(|error| eprintln!("oxmux: backlight unavailable: {error:#}")).ok()),
             volume,
             battery: dev.battery.clone(),
             leds: dev.leds.clone(),
