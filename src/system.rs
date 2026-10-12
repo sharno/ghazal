@@ -80,11 +80,14 @@ pub struct IdleConfig {
     pub sleep_after: u64,
     /// Don't auto-sleep while on the charger.
     pub stay_awake_charging: bool,
+    /// Seconds without any button press before a clean poweroff (0 = never).
+    /// A running emulator doesn't postpone it; an SSH session does.
+    pub poweroff_after: u64,
 }
 
 impl Default for IdleConfig {
     fn default() -> Self {
-        Self { dim_after: 60, dim_to: 10, sleep_after: 600, stay_awake_charging: true }
+        Self { dim_after: 60, dim_to: 10, sleep_after: 600, stay_awake_charging: true, poweroff_after: 0 }
     }
 }
 

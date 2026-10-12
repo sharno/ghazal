@@ -1,4 +1,4 @@
-// oxmux UI. Rust owns all state (src/app.rs) and pushes it in through the
+// oxmux UI. Rust owns all state (src/frontend/app.rs) and pushes it in through the
 // properties of AppWindow; this file only describes how that state looks.
 
 import "../assets/DejaVuSans.ttf";
@@ -26,7 +26,6 @@ global Theme {
     out property <color> ok: #46a758;
     out property <length> pad: 16px;
     out property <length> row-height: 40px;
-    out property <duration> quick: 110ms;
 }
 
 component ListRow {
@@ -39,7 +38,6 @@ component ListRow {
         height: parent.height - 4px;
         border-radius: 10px;
         background: selected ? Theme.accent : transparent;
-        animate background { duration: Theme.quick; }
     }
 
     HorizontalLayout {
@@ -121,8 +119,33 @@ component HintPill {
     }
 }
 
+component LevelBar {
+    in property <string> label;
+    in property <int> percent;
+    VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            Text { text: label; horizontal-stretch: 1; font-size: 16px; color: Theme.text; }
+            Text { text: percent + "%"; font-size: 16px; color: Theme.dim; }
+        }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Theme.bar;
+            Rectangle {
+                x: 0;
+                width: parent.width * clamp(percent, 0, 100) / 100;
+                border-radius: 3px;
+                background: Theme.accent;
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <string> heading;
+    /// Cursor position, e.g. "12 / 340".
+    in property <string> position;
     in property <string> clock;
     /// -1 hides the battery indicator (no battery found).
     in property <int> battery-percent: -1;
@@ -165,15 +188,23 @@ export component AppWindow inherits Window {
                     color: Theme.text;
                 }
                 Text {
+                    text: root.position;
+                    horizontal-stretch: 0;
+                    vertical-alignment: center;
+                    font-size: 16px;
+                    color: Theme.dim;
+                }
+                Text {
                     text: root.clock;
+                    horizontal-stretch: 0;
                     vertical-alignment: center;
                     font-size: 18px;
                     font-weight: 700;
                     color: Theme.text;
                 }
                 if root.battery-percent >= 0: HorizontalLayout {
-                    spacing: 8px;
-                    padding-left: 4px;
+                    horizontal-stretch: 0;
+                    spacing: 6px;
                     Text {
                         text: root.battery-percent + "%";
                         vertical-alignment: center;
@@ -196,8 +227,9 @@ export component AppWindow inherits Window {
             // Keep the cursor roughly centred once the list scrolls.
             property <int> first-row: max(0, min(root.selected - floor(self.visible-rows / 2), root.row-count - self.visible-rows));
             property <bool> scrolls: root.row-count > self.visible-rows;
+            // Not animated: opening another list would visibly scroll through
+            // every row between the old and new positions.
             property <length> scroll: self.first-row * Theme.row-height;
-            animate scroll { duration: Theme.quick; easing: ease-out; }
 
             // `rows` is only a window of the full list (see App::sync), placed at its
             // absolute position, so thousands of games cost no more than a screenful.
@@ -277,8 +309,9 @@ export component AppWindow inherits Window {
     if root.menu-selected >= 0: Rectangle {
         background: #00000096;
         Rectangle {
+            property <length> levels-height: root.levels-visible ? 112px : 0;
             width: 320px;
-            height: 56px + root.menu-items.length * Theme.row-height;
+            height: 56px + root.menu-items.length * Theme.row-height + self.levels-height;
             border-radius: 14px;
             background: Theme.panel;
             Text {
@@ -298,7 +331,6 @@ export component AppWindow inherits Window {
                 height: Theme.row-height - 4px;
                 border-radius: 8px;
                 background: i == root.menu-selected ? Theme.accent : transparent;
-                animate background { duration: Theme.quick; }
                 Text {
                     x: Theme.pad - 4px;
                     text: item;
@@ -307,29 +339,33 @@ export component AppWindow inherits Window {
                     color: i == root.menu-selected ? Theme.on-accent : Theme.text;
                 }
             }
+            if root.levels-visible: VerticalLayout {
+                y: 52px + root.menu-items.length * Theme.row-height;
+                height: parent.levels-height - 4px;
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                padding-top: 8px;
+                padding-bottom: 12px;
+                spacing: 12px;
+                LevelBar { label: "Volume"; percent: root.volume-level; }
+                LevelBar { label: "Brightness"; percent: root.brightness-level; }
+            }
         }
     }
 
-    if root.levels-visible: Rectangle {
+    // Volume/brightness hotkeys outside the menu.
+    if root.levels-visible && root.menu-selected < 0: Rectangle {
         x: root.width - self.width - Theme.pad;
         y: 58px;
         width: 240px;
-        height: 104px;
+        height: 108px;
         border-radius: 12px;
         background: Theme.panel;
         VerticalLayout {
-            padding: 12px;
-            spacing: 6px;
-            Text { text: "Volume  " + root.volume-level + "%"; color: Theme.text; font-size: 17px; }
-            Rectangle {
-                height: 5px; background: Theme.bar;
-                Rectangle { width: parent.width * root.volume-level / 100; background: Theme.accent; }
-            }
-            Text { text: "Brightness  " + root.brightness-level + "%"; color: Theme.text; font-size: 17px; }
-            Rectangle {
-                height: 5px; background: Theme.bar;
-                Rectangle { width: parent.width * root.brightness-level / 100; background: Theme.accent; }
-            }
+            padding: 14px;
+            spacing: 12px;
+            LevelBar { label: "Volume"; percent: root.volume-level; }
+            LevelBar { label: "Brightness"; percent: root.brightness-level; }
         }
     }
 }

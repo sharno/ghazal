@@ -42,7 +42,11 @@ pub struct Daemon<'a> {
     /// Buttons whose release shouldn't trigger anything (used in a combo).
     consumed: HashSet<String>,
     power_down_at: Option<Instant>,
+    /// Last button press (or open SSH session): idle poweroff counts from here.
     last_input: Instant,
+    /// Like `last_input`, but a running emulator also counts: dimming and
+    /// sleep wait for this, so a game isn't dimmed during a cutscene.
+    last_presence: Instant,
     dimmed: bool,
     battery: Option<battery::Status>,
     battery_checked: Instant,
@@ -77,6 +81,7 @@ pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
         consumed: HashSet::new(),
         power_down_at: None,
         last_input: Instant::now(),
+        last_presence: Instant::now(),
         dimmed: false,
         battery: None,
         battery_checked: Instant::now() - Duration::from_secs(3600),
@@ -178,10 +183,13 @@ impl Daemon<'_> {
         t = t.min(self.inputs_scanned + INPUT_RESCAN);
         if let Some(at) = self.settings_dirty { t = t.min(at + Duration::from_millis(500)); }
         if idle.dim_after > 0 && !self.dimmed {
-            t = t.min(self.last_input + Duration::from_secs(idle.dim_after));
+            t = t.min(self.last_presence + Duration::from_secs(idle.dim_after));
         }
         if idle.sleep_after > 0 {
-            t = t.min(self.last_input + Duration::from_secs(idle.sleep_after));
+            t = t.min(self.last_presence + Duration::from_secs(idle.sleep_after));
+        }
+        if idle.poweroff_after > 0 {
+            t = t.min(self.last_input + Duration::from_secs(idle.poweroff_after));
         }
         if let Some(down) = self.power_down_at {
             t = t.min(down + Duration::from_millis(self.sys.daemon.power_hold_ms));
@@ -192,6 +200,7 @@ impl Daemon<'_> {
     fn on_key(&mut self, code: u16, value: i32) {
         let now = Instant::now();
         self.last_input = now;
+        self.last_presence = now;
         if self.dimmed {
             self.dimmed = false;
             self.apply_brightness(self.settings.brightness);
@@ -270,12 +279,24 @@ impl Daemon<'_> {
             entry.file_name().to_string_lossy().bytes().all(|byte| byte.is_ascii_digit())
                 && std::fs::read_to_string(entry.path().join("comm")).is_ok_and(|name| name.trim() == "sshd-session")
         }));
-        if emulator || ssh {
+        if ssh {
             self.activity();
             return;
         }
         let idle = &self.sys.daemon.idle;
-        let quiet = now.duration_since(self.last_input);
+        // Without input, even a running game is abandoned; shutdown stops the
+        // emulator cleanly, which writes its save RAM.
+        let untouched = now.duration_since(self.last_input);
+        if idle.poweroff_after > 0 && untouched >= Duration::from_secs(idle.poweroff_after) {
+            eprintln!("oxmux-daemon: no input for {untouched:?}, powering off");
+            self.act(&Action::Poweroff);
+            return;
+        }
+        if emulator {
+            self.last_presence = now;
+            return;
+        }
+        let quiet = now.duration_since(self.last_presence);
         if idle.sleep_after > 0 && quiet >= Duration::from_secs(idle.sleep_after) {
             let charging = self.battery.is_some_and(|b| b.charging);
             if !(charging && idle.stay_awake_charging) {
@@ -283,6 +304,7 @@ impl Daemon<'_> {
                 self.act(&Action::Suspend);
             }
             self.last_input = Instant::now();
+            self.last_presence = self.last_input;
             return;
         }
         if idle.dim_after > 0 && !self.dimmed && quiet >= Duration::from_secs(idle.dim_after) {
@@ -293,6 +315,7 @@ impl Daemon<'_> {
 
     fn activity(&mut self) {
         self.last_input = Instant::now();
+        self.last_presence = self.last_input;
         if self.dimmed {
             self.dimmed = false;
             self.apply_brightness(self.settings.brightness);
@@ -396,6 +419,7 @@ impl Daemon<'_> {
         self.held.clear();
         self.consumed.clear();
         self.last_input = Instant::now();
+        self.last_presence = self.last_input;
         self.dimmed = false;
         self.apply_brightness(self.settings.brightness);
         hw::set_led(&self.hw.leds.power, true);

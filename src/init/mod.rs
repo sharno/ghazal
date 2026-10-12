@@ -166,7 +166,7 @@ pub fn run(system: SystemConfig, device: &DeviceConfig) -> Result<()> {
 
 fn run_pid1(system: &SystemConfig, device: &DeviceConfig) -> Result<()> {
     let stop = Supervisor::new(&system.supervisor, true)?.run()?;
-    shutdown();
+    shutdown(stop, &system.supervisor.log_dir);
     let cmd = match stop {
         Stop::Poweroff => libc::RB_POWER_OFF,
         Stop::Halt => libc::RB_HALT_SYSTEM,
@@ -186,17 +186,22 @@ fn run_pid1(system: &SystemConfig, device: &DeviceConfig) -> Result<()> {
 }
 
 /// Unmounts everything we can (reverse mount order) after services have stopped.
-fn shutdown() {
+fn shutdown(stop: Stop, log_dir: &Path) {
+    // The kernel log service is gone by now: keep a durable record of the last
+    // shutdown, closed just before the root filesystem becomes read-only.
+    let mut trace = ShutdownTrace::open(&log_dir.join("shutdown.log"));
+    trace.note(format_args!("services stopped ({stop:?})"));
     match crate::emulator::active() {
-        Ok(true) => { if let Err(error) = crate::emulator::stop() { log(format_args!("stopping emulator: {error:#}")); } },
+        Ok(true) => { if let Err(error) = crate::emulator::stop() { trace.note(format_args!("stopping emulator: {error:#}")); } },
         Ok(false) => {},
-        Err(error) => log(format_args!("checking emulator at shutdown: {error:#}")),
+        Err(error) => trace.note(format_args!("checking emulator at shutdown: {error:#}")),
     }
     // Anything still alive (SSH sessions, detached helpers) can hold files open
     // for writing and make the read-only remount fail, leaving ext4 dirty.
     for (signal, grace) in [(libc::SIGTERM, Duration::from_secs(2)), (libc::SIGKILL, Duration::from_secs(1))] {
         sys::kill(-1, signal);
         if sys::wait_no_children(grace) { break; }
+        trace.note(format_args!("processes survived signal {signal}"));
     }
     sys::sync();
     sys::swapoff_all();
@@ -205,16 +210,37 @@ fn shutdown() {
     for target in mounts.lines().rev().filter_map(|l| l.split(' ').nth(1)) {
         if !keep.contains(&target) {
             if let Err(error) = sys::umount(Path::new(target)) {
-                log(format_args!("{error:#}; remounting {target} read-only"));
+                trace.note(format_args!("{error:#}; remounting {target} read-only"));
                 if let Err(error) = sys::mount("none", Path::new(target), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
-                    log(format_args!("could not make {target} read-only: {error:#}"));
+                    trace.note(format_args!("could not make {target} read-only: {error:#}"));
                 }
             }
         }
     }
+    trace.note(format_args!("remounting / read-only"));
+    drop(trace);
     sys::sync();
     if let Err(error) = sys::mount("none", Path::new("/"), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
         log(format_args!("could not remount root read-only: {error:#}"));
+    }
+}
+
+/// Shutdown steps, logged and written durably to a file replaced on each shutdown.
+struct ShutdownTrace(Option<std::fs::File>);
+
+impl ShutdownTrace {
+    fn open(path: &Path) -> Self {
+        Self(std::fs::File::create(path).inspect_err(|error| log(format_args!("opening {}: {error}", path.display()))).ok())
+    }
+
+    fn note(&mut self, args: std::fmt::Arguments) {
+        use std::io::Write;
+        log(args);
+        let uptime = std::fs::read_to_string("/proc/uptime").unwrap_or_default();
+        let uptime = uptime.split_whitespace().next().unwrap_or("?");
+        if let Some(file) = &mut self.0 {
+            let _ = writeln!(file, "[{uptime}] {args}").and_then(|()| file.sync_data());
+        }
     }
 }
 

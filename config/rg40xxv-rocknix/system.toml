@@ -50,6 +50,8 @@ socket = "/run/oxmux/daemon.sock"
 [daemon.idle]
 # Native wake is under investigation; keep the device usable until validated.
 sleep_after = 0
+# Until sleep works, an untouched device shuts down instead of draining.
+poweroff_after = 1800
 [[daemon.hotkey]]
 keys = ["vol_up"]
 action = "volume-up"
