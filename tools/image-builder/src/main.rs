@@ -10,6 +10,57 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct Device { id: String, name: String, dtb: String, rotation: String, wifi: bool }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog { devices: Vec<Device> }
+fn catalog() -> Result<Catalog> {
+    let catalog: Catalog = toml::from_str(include_str!("../../../config/h700/devices.toml"))?;
+    let mut ids = BTreeSet::new();
+    for device in &catalog.devices {
+        if !ids.insert(&device.id) || device.id.is_empty()
+            || !device.id.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || !device.dtb.starts_with("sun50i-h700-anbernic-")
+            || !device.dtb.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || !matches!(device.rotation.as_str(), "normal" | "left" | "right" | "inverted") {
+            return Err("invalid or duplicate device catalog entry".into());
+        }
+    }
+    Ok(catalog)
+}
+
+struct Options { args: Vec<String>, device: String, memory: String, public: bool, all: bool, version: String }
+impl Options {
+    fn parse() -> Result<Self> {
+        let mut options = Self { args: Vec::new(), device: "rg40xx-v-v2".into(), memory: "ddr4".into(), public: false, all: false, version: "v0.1.0-beta.1".into() };
+        let mut args = std::env::args().skip(1);
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--device" => options.device = args.next().ok_or("missing device")?,
+                "--memory" => options.memory = args.next().ok_or("missing memory")?,
+                "--version" => options.version = args.next().ok_or("missing version")?,
+                "--public" => options.public = true,
+                "--all" => { options.all = true; options.public = true; },
+                "--matrix" => {
+                    let matrix: Vec<_> = catalog()?.devices.into_iter().flat_map(|device| ["ddr3", "ddr4"].map(move |memory| serde_json::json!({"device": device.id, "memory": memory}))).collect();
+                    println!("{}", serde_json::json!({"include":matrix}));
+                    std::process::exit(0);
+                }
+                flag if flag.starts_with('-') => return Err(format!("unknown option {flag}").into()),
+                _ => options.args.push(arg),
+            }
+        }
+        if !matches!(options.memory.as_str(), "ddr3" | "ddr4") { return Err("memory must be ddr3 or ddr4".into()); }
+        if options.version.is_empty() || !options.version.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte)) { return Err("invalid release version".into()); }
+        if options.args.len() != if options.public { 2 } else { 3 } {
+            return Err("usage: oxmux-image-builder [--device ID] [--memory ddr3|ddr4] SOURCE_DIRECTORY SECRETS_DIRECTORY OUTPUT.img; public builds: --public SOURCE_DIRECTORY OUTPUT.img; release batch: --all --memory ddr3|ddr4 --version TAG SOURCE_DIRECTORY OUTPUT_DIRECTORY".into());
+        }
+        Ok(options)
+    }
+}
+
 fn run(cmd: &mut Command) -> Result<()> {
     let status = cmd.status()?;
     if !status.success() {
@@ -194,16 +245,15 @@ fn splice(src: &Path, dst: &Path, offset: u64) -> Result<()> {
     Ok(())
 }
 fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 3 {
-        return Err(
-            "usage: oxmux-image-builder SOURCE_DIRECTORY SECRETS_DIRECTORY OUTPUT.img".into(),
-        );
-    }
+    let options = Options::parse()?;
+    let mut args = options.args.clone();
+    if options.public { args.insert(1, String::new()); }
+    let devices = catalog()?.devices;
+    let devices: Vec<_> = if options.all { devices } else { vec![devices.into_iter().find(|device| device.id == options.device).ok_or("unknown H700 device")?] };
     let repo = fs::canonicalize(&args[0])?;
-    let secrets = fs::canonicalize(&args[1])?;
+    let secrets = if options.public { None } else { Some(fs::canonicalize(&args[1])?) };
     let image = std::env::current_dir()?.join(&args[2]);
-    if image.exists() {
+    if image.exists() && !options.all {
         return Err("output exists; choose a new filename".into());
     }
     let binary = PathBuf::from(std::env::var("OXMUX_BINARY")?);
@@ -211,7 +261,7 @@ fn main() -> Result<()> {
     // Repository-built kernel and device tree (nix/h700-kernel.nix): all drivers
     // built in, so the bundle's kernel, modules and an initramfs are not used.
     let kernel = PathBuf::from(std::env::var("OXMUX_KERNEL")?);
-    let uboot = PathBuf::from(std::env::var("OXMUX_UBOOT")?);
+    let uboot = PathBuf::from(std::env::var(if options.memory == "ddr3" { "OXMUX_UBOOT_DDR3" } else { "OXMUX_UBOOT" })?);
     let lock: BTreeMap<_, _> = fs::read_to_string(repo.join("hardware.lock"))?
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -409,6 +459,10 @@ fn main() -> Result<()> {
         "/usr/bin/dbus-daemon",
         "/usr/lib/iwd",
         "/usr/bin/iwctl",
+        "/usr/sbin/iw",
+        "/usr/sbin/blkid",
+        "/usr/sbin/mkfs.exfat",
+        "/usr/sbin/fsck.exfat",
         "/usr/sbin/sshd",
         "/usr/bin/ssh-keygen",
         "/usr/lib/openssh/sshd-session",
@@ -465,12 +519,14 @@ fn main() -> Result<()> {
         "etc/os-release",
         "NAME=Oxmux\nID=oxmux\nVERSION_ID=0.1.0\n",
     )?;
-    write(&root, "etc/machine-id", format!("{stamp:032x}\n"))?;
+    write(&root, "etc/machine-id", "")?;
+    write(&root, "var/lib/oxmux/factory-data", "oxmux-factory-v1\n")?;
     write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
-    copy(
-        &secrets.join("authorized_keys"),
-        &root.join("root/.ssh/authorized_keys"),
-    )?;
+    if let Some(secrets) = &secrets {
+        copy(&secrets.join("authorized_keys"), &root.join("root/.ssh/authorized_keys"))?;
+    } else {
+        write(&root, "root/.ssh/authorized_keys", "")?;
+    }
     fs::set_permissions(root.join("root/.ssh"), fs::Permissions::from_mode(0o700))?;
     fs::set_permissions(
         root.join("root/.ssh/authorized_keys"),
@@ -487,6 +543,7 @@ fn main() -> Result<()> {
         "etc/iwd/main.conf",
         "[General]\nEnableNetworkConfiguration=true\n[Network]\nNameResolvingService=resolvconf\n",
     )?;
+    if let Some(secrets) = &secrets {
     let ssid = fs::read_to_string(secrets.join("ssid"))?
         .trim_end_matches('\n')
         .to_string();
@@ -521,6 +578,7 @@ fn main() -> Result<()> {
         root.join(format!("var/lib/iwd/{filename}.psk")),
         fs::Permissions::from_mode(0o600),
     )?;
+    }
     write(
         &root,
         "etc/resolv.conf",
@@ -549,6 +607,40 @@ fn main() -> Result<()> {
         &repo.join("hardware.lock"),
         &root.join("etc/oxmux/hardware.lock"),
     )?;
+    if devices.iter().any(|device| device.rotation == "left") {
+        closure.add("/usr/lib/libretro/ppsspp_libretro.so")?;
+    }
+    if options.public && (!fs::read(root.join("root/.ssh/authorized_keys"))?.is_empty()
+        || fs::read_dir(root.join("var/lib/iwd"))?.next().is_some()
+        || !fs::read(root.join("etc/machine-id"))?.is_empty()) {
+        return Err("public image contains credentials or a shared machine identity".into());
+    }
+    let device_template = fs::read_to_string(root.join("etc/oxmux/device.toml"))?;
+    let frontend_template = fs::read_to_string(root.join("etc/oxmux/frontend.toml"))?;
+    for device in devices {
+    let image = if options.all {
+        image.join(format!("oxmux-{}-{}-{}.img", options.version, device.id, options.memory))
+    } else { image.clone() };
+    let mut profile: toml::Value = toml::from_str(&device_template)?;
+    profile["name"] = toml::Value::String(format!("Anbernic {}", device.name));
+    profile["display"].as_table_mut().ok_or("missing display profile")?.insert("rotation".into(), toml::Value::String(device.rotation.clone()));
+    write(&root, "etc/oxmux/device.toml", toml::to_string(&profile)?)?;
+    let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
+    if device.rotation == "left" {
+        for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
+            if system["name"].as_str() == Some("PSP") {
+                let system = system.as_table_mut().ok_or("invalid PSP profile")?;
+                for key in ["command", "env", "log"] { system.remove(key); }
+                system.insert("core".into(), toml::Value::String("ppsspp_libretro.so".into()));
+            }
+        }
+    }
+    write(&root, "etc/oxmux/frontend.toml", toml::to_string(&frontend)?)?;
+    write(&root, "etc/oxmux/retroarch.cfg", format!("{}\nvideo_rotation = \"{}\"\n", include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"), if device.rotation == "left" { 3 } else { 0 }))?;
+    write(&root, "etc/oxmux/image.json", serde_json::to_vec_pretty(&serde_json::json!({
+        "device":device, "memory":options.memory, "version":options.version, "public":options.public,
+        "data_policy":"TF2 if present, otherwise TF1 data partition", "hardware_revision":value("source_revision")?
+    }))?)?;
     let root_image = work.join("root.ext4");
     File::create(&root_image)?.set_len(1024 * 1024 * 1024)?;
     run(Command::new("fakeroot")
@@ -562,9 +654,10 @@ fn main() -> Result<()> {
         .arg(&root_image))?;
     let boot = work.join("boot");
     fs::create_dir_all(boot.join("extlinux"))?;
-    for name in ["KERNEL", "dtb.img"] {
-        copy(&kernel.join("boot").join(name), &boot.join(name))?;
-    }
+    copy(&kernel.join("boot/KERNEL"), &boot.join("KERNEL"))?;
+    copy(&kernel.join("boot/device_trees").join(format!("{}.dtb", device.dtb)), &boot.join("dtb.img"))?;
+    copy_tree(&kernel.join("boot/device_trees"), &boot.join("device_trees"))?;
+    write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
     // `quiet`: printing the boot log over the 115200-baud serial console alone
     // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
     // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
@@ -574,7 +667,7 @@ fn main() -> Result<()> {
     run(Command::new("mkfs.vfat")
         .args(["-F", "32", "-n", "OXMUXBOOT"])
         .arg(&boot_image))?;
-    for name in ["KERNEL", "dtb.img", "extlinux"] {
+    for name in ["KERNEL", "dtb.img", "extlinux", "device_trees", "provision.toml.example"] {
         run(Command::new("mcopy")
             .args(["-s", "-i"])
             .arg(&boot_image)
@@ -587,7 +680,7 @@ fn main() -> Result<()> {
         .create_new(true)
         .open(&image)?;
     fs::set_permissions(&image, fs::Permissions::from_mode(0o600))?;
-    out.set_len((16 + 128 + 1024) * 1024 * 1024)?;
+    out.set_len((16 + 128 + 1024 + 128) * 1024 * 1024)?;
     // The Allwinner boot ROM loads the SPL from 8 KiB; the first partition starts at 16 MiB.
     splice(&uboot, &image, 8 * 1024)?;
     let mut disk = Command::new("sfdisk")
@@ -595,20 +688,29 @@ fn main() -> Result<()> {
         .arg(&image)
         .stdin(Stdio::piped())
         .spawn()?;
-    disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\n")?;
+    disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\nstart=2392064,size=262144,type=7\n")?;
     if !disk.wait()?.success() {
         return Err("partition creation failed".into());
     }
     splice(&boot_image, &image, 16 * 1024 * 1024)?;
     splice(&root_image, &image, 144 * 1024 * 1024)?;
     out.sync_all()?;
-    let hash = output(Command::new("sha256sum").arg(&image))?;
-    fs::write(image.with_extension("img.sha256"), hash)?;
+    run(Command::new("e2fsck").args(["-fn"]).arg(&root_image))?;
+    run(Command::new("fsck.vfat").args(["-n"]).arg(&boot_image))?;
+    let artifact = if options.all {
+        run(Command::new("gzip").args(["-n", "-1"]).arg(&image))?;
+        image.with_extension("img.gz")
+    } else { image.clone() };
+    let digest = output(Command::new("sha256sum").arg(&artifact))?;
+    let hash = format!("{}  {}\n", digest.split_whitespace().next().ok_or("missing checksum")?, artifact.file_name().ok_or("missing filename")?.to_string_lossy());
+    fs::write(artifact.with_extension(if options.all { "gz.sha256" } else { "img.sha256" }), hash)?;
     println!(
-        "Built {}. Private image contains Wi-Fi provisioning. Work tree: {}",
-        image.display(),
+        "Built {} ({}). Work tree: {}",
+        artifact.display(),
+        if options.public { "public: no credentials" } else { "private: contains credentials" },
         work.display()
     );
+    }
     Ok(())
 }
 

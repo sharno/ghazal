@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::activity::{Activity, Catalog, Collection, GameId};
 use super::config::FrontendConfig;
@@ -135,6 +135,7 @@ const CONFIGURATION_HINTS: Hints = &[("A", "Change"), ("◀▶", "Adjust"), ("B"
 const INFORMATION_HINTS: Hints = &[("B", "Back")];
 const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("◀▶", "System"), ("≡", "Menu")];
 const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")];
+const COMPACT_GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite")];
 
 struct Toast {
     text: String,
@@ -739,6 +740,9 @@ impl App {
     }
 
     fn hints(&self) -> Hints {
+        if self.menu.is_none() && self.ui.window().size().width < 400 && matches!(self.view, View::Games(_)) {
+            return COMPACT_GAME_HINTS;
+        }
         match (self.menu.map(|m| m.page), self.view) {
             (Some(MenuPage::Options), _) => OPTIONS_HINTS,
             (Some(MenuPage::Main), _) => MENU_HINTS,

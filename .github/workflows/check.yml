@@ -1,5 +1,7 @@
 name: Rust checks
-on: [push, pull_request]
+on: [push, pull_request, workflow_call]
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest

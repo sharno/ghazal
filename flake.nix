@@ -24,10 +24,11 @@
           # Cross toolchain for the bootloader and kernel; native on aarch64 hosts.
           cross = if system == "aarch64-linux" then pkgs else pkgs.pkgsCross.aarch64-multiplatform;
           uboot = cross.callPackage ./nix/uboot.nix { };
+          uboot-ddr3 = cross.callPackage ./nix/uboot.nix { memory = "DDR3"; };
           h700-kernel = cross.callPackage ./nix/h700-kernel.nix { };
           h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { debug = true; };
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
-            inherit oxmux uboot;
+            inherit oxmux uboot uboot-ddr3;
             kernel = h700-kernel;
             src = ./.;
             busybox = target.pkgsStatic.busybox;
@@ -48,7 +49,7 @@
         in
         {
           packages = {
-            inherit oxmux uboot image-builder h700-kernel h700-debug-kernel;
+            inherit oxmux uboot uboot-ddr3 image-builder h700-kernel h700-debug-kernel;
             vm-initrd = vm.initrd;
             vm = vm.runner;
             default = vm.runner;

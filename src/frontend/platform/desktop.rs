@@ -45,8 +45,18 @@ pub fn run(config: FrontendConfig, _device: &DeviceConfig) -> Result<()> {
 /// (comma-separated, e.g. "down,a,menu"), as `DIR/NN.png`. Animations are fast-forwarded
 /// to their end state and launches are only printed.
 pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, buttons: &str) -> Result<()> {
+    let (width, height) = match std::env::var("OXMUX_SNAPSHOT_SIZE") {
+        Ok(size) => {
+            let (width, height) = size.split_once('x').ok_or_else(|| anyhow::anyhow!("snapshot size must be WIDTHxHEIGHT"))?;
+            let width: u32 = width.parse()?; let height: u32 = height.parse()?;
+            if !(1..=4096).contains(&width) || !(1..=4096).contains(&height) { bail!("invalid snapshot dimensions"); }
+            (width, height)
+        }
+        Err(std::env::VarError::NotPresent) => (WIDTH, HEIGHT),
+        Err(error) => return Err(error.into()),
+    };
     std::fs::create_dir_all(dir)?;
-    let mut screen = Screen::install(WIDTH, HEIGHT)?;
+    let mut screen = Screen::install(width, height)?;
     let mut app = build_app(config)?;
     let scan_deadline = Instant::now() + Duration::from_secs(5);
     while app.library_loading() {
@@ -59,7 +69,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         screen.fast_forward(Duration::from_secs(1));
         screen.render();
         let path = dir.join(format!("{frame:02}.png"));
-        let mut encoder = png::Encoder::new(std::fs::File::create(&path)?, WIDTH, HEIGHT);
+        let mut encoder = png::Encoder::new(std::fs::File::create(&path)?, width, height);
         encoder.set_color(png::ColorType::Rgb);
         let bytes: Vec<u8> = screen.pixels().iter().flat_map(|p| [p.r, p.g, p.b]).collect();
         encoder.write_header()?.write_image_data(&bytes)?;

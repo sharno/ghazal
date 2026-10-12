@@ -1,5 +1,18 @@
 # oxmux
 
+## H700 beta images
+
+[Downloads](https://github.com/sharno/oxmux/releases) ·
+[Install on one or two SD cards](docs/installation.md) ·
+[File structure](docs/storage-layout.md) ·
+[Supported device and panel variants](config/h700/devices.toml)
+
+The release workflow builds every catalog entry with DDR3 and DDR4 bootloaders.
+Images select their device tree automatically and use TF2 for data when present,
+otherwise the TF1 data partition. Public images contain no personal credentials.
+Only the RG40XX-V v2 / DDR4 target has physical acceptance so far;
+[beta limitations](docs/beta-release.md) distinguish build coverage from hardware tests.
+
 ## Standalone RG40XX-V image
 
 The standalone target now assembles its own ext4 root filesystem and boots

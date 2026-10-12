@@ -1,0 +1,23 @@
+# Single source for image names, DT selection, CI and installation documentation.
+# Each board is offered with DDR3 and DDR4 SPLs; choose the RAM revision actually fitted.
+devices = [
+  { id = "rg28xx", name = "RG28XX", dtb = "sun50i-h700-anbernic-rg28xx", rotation = "left", wifi = false },
+  { id = "rg34xx", name = "RG34XX", dtb = "sun50i-h700-anbernic-rg34xx", rotation = "normal", wifi = true },
+  { id = "rg34xx-sp", name = "RG34XX SP", dtb = "sun50i-h700-anbernic-rg34xx-sp", rotation = "normal", wifi = true },
+  { id = "rg34xx-sp-v2", name = "RG34XX SP v2 panel", dtb = "sun50i-h700-anbernic-rg34xx-sp-v2-panel", rotation = "normal", wifi = true },
+  { id = "rg35xx-2024", name = "RG35XX 2024", dtb = "sun50i-h700-anbernic-rg35xx-2024", rotation = "normal", wifi = false },
+  { id = "rg35xx-2024-rev6", name = "RG35XX 2024 rev6 panel", dtb = "sun50i-h700-anbernic-rg35xx-2024-rev6-panel", rotation = "normal", wifi = false },
+  { id = "rg35xx-plus", name = "RG35XX Plus", dtb = "sun50i-h700-anbernic-rg35xx-plus", rotation = "normal", wifi = true },
+  { id = "rg35xx-plus-rev6", name = "RG35XX Plus rev6 panel", dtb = "sun50i-h700-anbernic-rg35xx-plus-rev6-panel", rotation = "normal", wifi = true },
+  { id = "rg35xx-h", name = "RG35XX H", dtb = "sun50i-h700-anbernic-rg35xx-h", rotation = "normal", wifi = true },
+  { id = "rg35xx-h-rev6", name = "RG35XX H rev6 panel", dtb = "sun50i-h700-anbernic-rg35xx-h-rev6-panel", rotation = "normal", wifi = true },
+  { id = "rg35xx-sp", name = "RG35XX SP", dtb = "sun50i-h700-anbernic-rg35xx-sp", rotation = "normal", wifi = true },
+  { id = "rg35xx-sp-v2", name = "RG35XX SP v2 panel", dtb = "sun50i-h700-anbernic-rg35xx-sp-v2-panel", rotation = "normal", wifi = true },
+  { id = "rg35xx-pro", name = "RG35XX Pro", dtb = "sun50i-h700-anbernic-rg35xx-pro", rotation = "normal", wifi = true },
+  { id = "rg40xx-h", name = "RG40XX H", dtb = "sun50i-h700-anbernic-rg40xx-h", rotation = "normal", wifi = true },
+  { id = "rg40xx-h-v2", name = "RG40XX H v2 panel", dtb = "sun50i-h700-anbernic-rg40xx-h-v2-panel", rotation = "normal", wifi = true },
+  { id = "rg40xx-v", name = "RG40XX V", dtb = "sun50i-h700-anbernic-rg40xx-v", rotation = "normal", wifi = true },
+  { id = "rg40xx-v-v2", name = "RG40XX V v2 panel", dtb = "sun50i-h700-anbernic-rg40xx-v-v2-panel", rotation = "normal", wifi = true },
+  { id = "rgcubexx", name = "RG CubeXX", dtb = "sun50i-h700-anbernic-rgcubexx", rotation = "normal", wifi = true },
+  { id = "rg-sp", name = "RG SP", dtb = "sun50i-h700-anbernic-rg-sp", rotation = "normal", wifi = true },
+]

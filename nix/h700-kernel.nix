@@ -18,7 +18,11 @@ let
   bundle = fetchurl { inherit (hardware) url sha256; };
   # Wi-Fi and the panel driver are built in and request firmware before the
   # root filesystem exists, so their firmware is embedded in the kernel.
-  firmware = [ "rtw88/rtw8821c_fw.bin" "panels/anbernic,rg40xx-v2-panel.panel" ];
+  devices = (lib.importTOML ../config/h700/devices.toml).devices;
+  firmware = [ "rtw88/rtw8821c_fw.bin" ] ++ map (name: "panels/anbernic,${name}-panel.panel") [
+    "rg28xx" "rg34xx" "rg34xx-sp" "rg34xx-sp-v2" "rg35xx-plus"
+    "rg35xx-plus-rev6" "rg35xx-sp-v2" "rg40xx" "rg40xx-v2" "rgcubexx"
+  ];
   earlyFirmware = buildPackages.runCommand "oxmux-h700-early-firmware" {
     nativeBuildInputs = with buildPackages; [ gzip mtools squashfsTools ];
   } ''
@@ -51,7 +55,7 @@ let
     "BT"
     "VIRTUALIZATION" "KVM" "PCI" "SCSI" "ATA" "MEDIA_SUPPORT" "NFS_FS" "NFSD"
     "BTRFS_FS" "F2FS_FS" "NTFS3_FS" "SQUASHFS" "OVERLAY_FS" "NETFILTER" "BRIDGE"
-    "NET_DSA" "WIREGUARD" "TUN" "VETH" "NLMON" "USB_NET_DRIVERS" "USB_ACM" "USB_WDM"
+    "NET_DSA" "WIREGUARD" "TUN" "VETH" "NLMON" "USB_ACM" "USB_WDM"
     "ZRAM" "ZSMALLOC" "CRYPTO_DEV_SUN8I_CE" "CRYPTO_DEV_SUN8I_SS"
     "WLAN_VENDOR_ATH" "WLAN_VENDOR_ATMEL" "WLAN_VENDOR_BROADCOM" "WLAN_VENDOR_INTEL"
     "WLAN_VENDOR_INTERSIL" "WLAN_VENDOR_MARVELL" "WLAN_VENDOR_MEDIATEK"
@@ -100,9 +104,10 @@ stdenv.mkDerivation {
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/
     chmod -R u+w arch/arm64/boot/dts/allwinner
-    cat >> arch/arm64/boot/dts/allwinner/Makefile <<'EOF'
-    dtb-$(CONFIG_ARCH_SUNXI) += sun50i-h700-anbernic-rg40xx-v-v2-panel.dtb
-    EOF
+    for tree in ${lib.concatMapStringsSep " " (device: device.dtb) devices}; do
+      grep -q "$tree\\.dtb" arch/arm64/boot/dts/allwinner/Makefile || \
+        echo "dtb-\$(CONFIG_ARCH_SUNXI) += $tree.dtb" >> arch/arm64/boot/dts/allwinner/Makefile
+    done
   '' + lib.optionalString debug ''
     # Reserve persistent console RAM in this diagnostic DT only. Linux owns
     # neither this region nor its contents; the normal firmware stays untouched.
@@ -150,9 +155,12 @@ stdenv.mkDerivation {
     runHook postBuild
   '';
   installPhase = ''
-    mkdir -p $out/boot $out/build
+    mkdir -p $out/boot/device_trees $out/build
     cp arch/arm64/boot/Image $out/boot/KERNEL
     cp arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-v-v2-panel.dtb $out/boot/dtb.img
+    for tree in ${lib.concatMapStringsSep " " (device: device.dtb) devices}; do
+      cp "arch/arm64/boot/dts/allwinner/$tree.dtb" $out/boot/device_trees/
+    done
     cp .config $out/build/
     make -s ARCH=arm64 CROSS_COMPILE=${stdenv.cc.targetPrefix} kernelrelease > $out/build/kernelrelease
   '';

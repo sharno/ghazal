@@ -39,6 +39,8 @@ pub struct DeviceConfig {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Display {
+    #[serde(default)]
+    pub rotation: Rotation,
     /// fbdev blank file: "4" powers the panel down, "0" wakes it.
     pub blank: Option<PathBuf>,
     /// How the frontend reaches the screen: vendor kernels expose fbdev, mainline KMS.
@@ -47,6 +49,21 @@ pub struct Display {
     /// DRM device for `output = "kms"`.
     #[serde(default = "default_card")]
     pub card: PathBuf,
+}
+
+#[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Rotation { #[default] Normal, Left, Right, Inverted }
+impl Rotation {
+    pub fn size(self, width: u32, height: u32) -> (u32, u32) {
+        match self { Self::Left | Self::Right => (height, width), _ => (width, height) }
+    }
+    pub fn point(self, x: usize, y: usize, width: usize, height: usize) -> (usize, usize) {
+        match self {
+            Self::Normal => (x, y), Self::Left => (y, width - 1 - x),
+            Self::Right => (height - 1 - y, x), Self::Inverted => (width - 1 - x, height - 1 - y),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq)]
@@ -218,6 +235,6 @@ impl DeviceConfig {
 
 impl Default for Display {
     fn default() -> Self {
-        Self { blank: None, output: Output::Fbdev, card: default_card() }
+        Self { rotation: Rotation::Normal, blank: None, output: Output::Fbdev, card: default_card() }
     }
 }

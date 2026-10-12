@@ -58,6 +58,7 @@ impl Card {
 }
 
 pub struct Kms {
+    rotation: crate::device::Rotation,
     card: Card,
     crtc: crtc::Handle,
     connector: connector::Handle,
@@ -123,7 +124,7 @@ impl SelectedDisplay {
             map.as_mut().fill(0);
         }
         let fb = card.add_framebuffer(&buffer, 24, 32)?;
-        let kms = Kms { card, crtc, connector: conn.handle(), mode, buffer, fb };
+        let kms = Kms { rotation: crate::device::Rotation::Normal, card, crtc, connector: conn.handle(), mode, buffer, fb };
         kms.modeset()?;
         eprintln!("oxmux: kms {} {}x{} on {:?}", path.display(), w, h, conn.interface());
         Ok(kms)
@@ -131,6 +132,7 @@ impl SelectedDisplay {
 }
 
 impl Kms {
+    pub fn with_rotation(mut self, rotation: crate::device::Rotation) -> Self { self.rotation = rotation; self }
     fn modeset(&self) -> Result<()> {
         self.card
             .set_crtc(self.crtc, Some(self.fb), (0, 0), &[self.connector], Some(self.mode))
@@ -139,7 +141,7 @@ impl Kms {
 
     pub fn size(&self) -> (u32, u32) {
         let (w, h) = self.mode.size();
-        (w as u32, h as u32)
+        self.rotation.size(w as u32, h as u32)
     }
 
     pub fn present(&mut self, frame: &[Rgb8Pixel], stride: usize, (x, y, w, h): Damage) -> Result<()> {
@@ -150,6 +152,15 @@ impl Kms {
         {
             let mut map = self.card.map_dumb_buffer(&mut self.buffer)?;
             let bytes = map.as_mut();
+            if self.rotation != crate::device::Rotation::Normal {
+                for row in y..y + h {
+                    for column in x..x + w {
+                        let pixel = frame[row * stride + column];
+                        let (dx, dy) = self.rotation.point(column, row, bw as usize, bh as usize);
+                        bytes[dy * pitch + dx * 4..][..4].copy_from_slice(&[pixel.b, pixel.g, pixel.r, 0xff]);
+                    }
+                }
+            } else {
             for row in y..y + h {
                 let src = &frame[row * stride + x..][..w];
                 let dst = &mut bytes[row * pitch + x * 4..][..w * 4];
@@ -158,8 +169,14 @@ impl Kms {
                     *out = [p.b, p.g, p.r, 0xff];
                 }
             }
+            }
         }
-        let clip = ClipRect::new(x as u16, y as u16, (x + w) as u16, (y + h) as u16);
+        let clip = if self.rotation == crate::device::Rotation::Normal {
+            ClipRect::new(x as u16, y as u16, (x + w) as u16, (y + h) as u16)
+        } else {
+            let (width, height) = self.mode.size();
+            ClipRect::new(0, 0, width, height)
+        };
         // Not every driver implements DIRTYFB; scanout-from-memory ones don't need it.
         let _ = self.card.dirty_framebuffer(self.fb, &[clip]);
         Ok(())

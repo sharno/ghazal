@@ -7,6 +7,8 @@
 //!   supervisor into the background and returns so busybox init carries on.
 
 mod modules;
+mod storage;
+mod provision;
 mod zram;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +62,9 @@ pub enum Step {
     Hostname(String),
     /// Wait for a path (e.g. a device node) to appear.
     Wait(WaitStep),
+    Storage(storage::Prepare),
+    DataDirectories(storage::Prepare),
+    Provision(PathBuf),
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,6 +253,8 @@ pub fn rescue() -> Result<()> {
     let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
     let device: DeviceConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/device.toml"))?;
     system.init.rescue = None;
+    system.init.steps.retain(|step| !matches!(step, Step::Storage(_) | Step::DataDirectories(_) | Step::Provision(_))
+        && !matches!(step, Step::Mount(mount) if mount.target == Path::new("/mnt/games")));
     system.supervisor.services.retain(|service| matches!(service.name.as_str(),
         "kernel-log" | "udev" | "udev-trigger" | "udev-settle" | "dbus" | "wifi" | "ssh-host-key" | "sshd"));
     log(format_args!("starting standalone recovery: Wi-Fi and SSH, without frontend or suspend"));
@@ -341,6 +348,9 @@ fn run_step(step: &Step) -> Result<()> {
             Ok(())
         }
         Step::Hostname(h) => sys::sethostname(h),
+        Step::Storage(_) => storage::prepare(),
+        Step::DataDirectories(_) => storage::directories(),
+        Step::Provision(path) => provision::apply(path),
         Step::Wait(w) => {
             if wait_for(&w.path, Duration::from_secs(w.timeout)) {
                 Ok(())

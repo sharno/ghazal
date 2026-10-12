@@ -125,6 +125,7 @@ pub fn run(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
 
 fn build_app(config: FrontendConfig) -> Result<App> {
     let ui = AppWindow::new().map_err(|e| anyhow!("creating UI: {e}"))?;
+    ui.global::<crate::ui::Theme>().set_compact(ui.window().size().width < 400);
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     App::new(config, ui)
 }
@@ -138,7 +139,7 @@ impl Display {
     fn open(device: &DeviceConfig) -> Result<Self> {
         Ok(match device.display.output {
             Output::Fbdev => Self::Fbdev(fbdev::Framebuffer::open(&device.framebuffer)?),
-            Output::Kms => Self::Kms(kms::Kms::open(&device.display.card)?),
+            Output::Kms => Self::Kms(kms::Kms::open(&device.display.card)?.with_rotation(device.display.rotation)),
         })
     }
 

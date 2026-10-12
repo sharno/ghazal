@@ -12,14 +12,14 @@
 # This exact configuration has booted the handheld. A broken bootloader only
 # recovers by rewriting the card from another computer (an earlier build with
 # CONFIG_BOOTSTAGE_FDT never started): test changes on a spare card first.
-{ lib, buildUBoot, fetchFromGitHub, fetchzip, armTrustedFirmwareAllwinnerH616 }:
+{ lib, buildUBoot, fetchFromGitHub, fetchzip, armTrustedFirmwareAllwinnerH616, memory ? "DDR4" }:
 let
   rocknix = fetchzip {
     url = "https://github.com/ROCKNIX/distribution/archive/7cffc96617df2a051af091182e8a3d270fd794a4.tar.gz";
     sha256 = "1irc0blrc42d7x9asshsdm7g2vrjn76lf07xwjx8yqxgv74xfnag";
   };
-  package = "${rocknix}/projects/ROCKNIX/devices/H700/packages/u-boot-DDR4";
-  defconfig = "anbernic_rg35xx_h700_lpddr4_defconfig";
+  package = "${rocknix}/projects/ROCKNIX/devices/H700/packages/u-boot-${memory}";
+  defconfig = "anbernic_rg35xx_h700_${if memory == "DDR3" then "lpddr3" else "lpddr4"}_defconfig";
   # Compressed-kernel buffer: above the kernel (0x40080000), below the FDT (0x4fa00000).
   bootcommand = lib.concatStringsSep "; " [
     "env set kernel_comp_addr_r 0x46000000"
@@ -28,6 +28,7 @@ let
     "run distro_bootcmd"
   ];
 in
+assert builtins.elem memory [ "DDR3" "DDR4" ];
 buildUBoot {
   version = "2026.01";
   src = fetchFromGitHub {

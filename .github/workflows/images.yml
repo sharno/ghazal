@@ -1,0 +1,105 @@
+name: H700 images
+on:
+  push:
+    branches: [main]
+    tags: ['v*-beta.*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Beta release tag, e.g. v0.1.0-beta.1'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: h700-images-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+jobs:
+  checks:
+    uses: ./.github/workflows/check.yml
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            max-jobs = 2
+            cores = 2
+      - name: Build shared runtime, all device trees and both bootloaders
+        run: |
+          nix flake check --no-build
+          mkdir -p build/release-tools
+          builder=$(nix build .#image-builder --no-link --print-out-paths)
+          printf '%s\n' "$builder" > build/release-tools/store-path.txt
+          "$builder/bin/oxmux-image-builder" --matrix > build/release-tools/devices.json
+          nix-store --export $(nix-store --query --requisites "$builder") | gzip -1 > build/release-tools/runtime.nar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-tools
+          path: build/release-tools/
+          retention-days: 3
+          compression-level: 0
+  images:
+    needs: runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        memory: [ddr3, ddr4]
+    env:
+      VERSION: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tools
+          path: build/release-tools
+      - name: Import the identical checked runtime
+        run: gzip -dc build/release-tools/runtime.nar.gz | nix-store --import
+      - name: Build and verify every H700 device image
+        run: |
+          builder=$(cat build/release-tools/store-path.txt)
+          "$builder/bin/oxmux-image-builder" --all --memory '${{ matrix.memory }}' --version "$VERSION" "$PWD" "$PWD/dist"
+          cd dist
+          sha256sum -c *.sha256
+          expected=$(jq '.include | map(select(.memory == "${{ matrix.memory }}")) | length' ../build/release-tools/devices.json)
+          actual=$(find . -maxdepth 1 -name '*.img.gz' | wc -l)
+          test "$actual" -eq "$expected"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.memory }}
+          path: dist/
+          retention-days: 7
+          compression-level: 0
+  publish:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [checks, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: images-*
+          path: dist
+          merge-multiple: true
+      - name: Verify and publish the complete beta
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          cd dist
+          sha256sum -c *.sha256
+          cat *.sha256 > SHA256SUMS
+          cd ..
+          gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "oxmux $TAG — H700 beta" --notes-file docs/beta-release.md
+          gh release upload "$TAG" dist/*.img.gz dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
+          gh release edit "$TAG" --draft=false
