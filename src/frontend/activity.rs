@@ -44,6 +44,9 @@ impl Catalog {
         catalog
     }
     pub fn library(&self) -> &Library { &self.library }
+    /// The actual latest launch, including games no longer present on this card.
+    /// Boot must not silently substitute an older game from the filtered history.
+    pub fn last_played(&self) -> Option<&GameId> { self.activity.recent().next() }
     pub fn replace_library(&mut self, library: Library) { self.library = library; self.refresh(); }
     pub fn is_favorite(&self, game: &GameId) -> bool { self.activity.is_favorite(game) }
     pub fn toggle_favorite(&mut self, game: GameId) -> Result<bool> {

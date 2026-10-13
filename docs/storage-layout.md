@@ -95,3 +95,8 @@ changed before the formatter writes, allowing an interrupted initial format
 to resume. It is removed before the volume is ever mounted for user data.
 Wi-Fi credentials, SSH keys and frontend settings are on the OS card; saves
 and history are on the selected data card. A TF1 reflash resets the former.
+
+`frontend-settings.toml` stores `startup = "menu"` (default) or `"last-game"`,
+selected through Configuration → Startup. The last game comes from the active
+card's `.oxmux/activity.toml`. `/run/oxmux/startup-claimed` prevents a supervisor
+restart from relaunching the game during the same boot; `/run` clears on reboot.

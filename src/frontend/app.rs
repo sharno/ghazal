@@ -9,7 +9,7 @@ use super::config::FrontendConfig;
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
-use super::settings::Settings;
+use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Loader, Progress};
 use crate::daemon::ctl;
 use crate::hw::battery;
@@ -71,6 +71,11 @@ enum GameList {
     System(usize),
 }
 
+enum StartupState {
+    WaitingForLibrary(StartupMode),
+    Complete,
+}
+
 impl GameList {
     fn parent(self) -> View { match self { Self::System(_) => View::Systems, _ => View::Home } }
 }
@@ -88,6 +93,7 @@ enum MenuItem {
     Back,
     Brightness,
     Volume,
+    Startup,
 }
 
 impl MenuItem {
@@ -105,6 +111,10 @@ impl MenuItem {
             Self::Back => "Back",
             Self::Brightness => "Brightness",
             Self::Volume => "Volume",
+            Self::Startup => match settings.startup {
+                StartupMode::Menu => "Startup: Main Menu",
+                StartupMode::LastGame => "Startup: Last Game",
+            },
         }
     }
 }
@@ -121,7 +131,7 @@ struct MenuState {
     cursor: usize,
 }
 
-const OPTION_ITEMS: [MenuItem; 3] = [MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
+const OPTION_ITEMS: [MenuItem; 4] = [MenuItem::Startup, MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
 const APPLICATION_ITEMS: [MenuItem; 2] = [MenuItem::Rescan, MenuItem::DownloadThumbnails];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
@@ -162,6 +172,7 @@ pub struct App {
     information_cursor: usize,
     information_rows: Vec<Row>,
     settings: Settings,
+    startup: StartupState,
     catalog: Catalog,
     scan: Option<Scan>,
     view: View,
@@ -214,6 +225,7 @@ impl App {
             main_items.push(MenuItem::Quit);
         }
         let settings = Settings::load(&config.settings_file);
+        let startup = StartupState::WaitingForLibrary(settings.startup);
         let home_items = HomeItem::entries(daemon_status.is_some());
         let art = Loader::new().inspect_err(|error| eprintln!("oxmux: art loader: {error:#}")).ok();
 
@@ -228,6 +240,7 @@ impl App {
             information_cursor: 0,
             information_rows: Vec::new(),
             settings,
+            startup,
             // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
             catalog: Catalog::new(Library::from_systems(Vec::new()), activity),
             scan: None,
@@ -259,10 +272,40 @@ impl App {
     }
 
     pub fn update(&mut self, button: Button) -> Option<Effect> {
+        // An intentional menu interaction cancels the pending automatic launch.
+        self.startup = StartupState::Complete;
         self.report_activity();
         let effect = self.handle(button);
         self.sync();
         effect
+    }
+
+    pub fn disable_startup(&mut self) { self.startup = StartupState::Complete; }
+
+    /// Consume the startup decision once, after the current card has been scanned.
+    /// Both platforms execute this through their normal display/input handoff.
+    pub fn take_startup_effect(&mut self) -> Option<Effect> {
+        if self.scan.is_some() { return None; }
+        let StartupState::WaitingForLibrary(mode) = std::mem::replace(&mut self.startup, StartupState::Complete) else { return None; };
+        if mode == StartupMode::Menu { return None; }
+        let effect = self.startup_launch();
+        self.sync();
+        effect
+    }
+
+    fn startup_launch(&mut self) -> Option<Effect> {
+        let Some(id) = self.catalog.last_played().cloned() else {
+            self.notice("No last game yet; choose a game from Explore Content");
+            return None;
+        };
+        let Some((system, game)) = id.resolve(self.catalog.library()) else {
+            self.error("Last game is unavailable on this card; staying in Main Menu".into());
+            return None;
+        };
+        match LaunchSpec::new(&self.config, system, game) {
+            Ok(spec) => Some(Effect::Launch { spec, game: id }),
+            Err(error) => { self.error(format!("Starting last game: {error:#}")); None }
+        }
     }
 
     /// The frontend may grab the gamepad, hiding input from the daemon's idle timer.
@@ -325,6 +368,7 @@ impl App {
                     let item = self.configuration_items()[self.configuration_cursor];
                     match item {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
+                        MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
                         _ => {},
                     }
@@ -538,7 +582,7 @@ impl App {
     }
 
     fn configuration_items(&self) -> Vec<MenuItem> {
-        let mut items = vec![MenuItem::Thumbnails];
+        let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails];
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items
     }
@@ -612,10 +656,19 @@ impl App {
 
     fn activate(&mut self, item: MenuItem) -> Option<Effect> {
         // Option entries keep the Options page open; others close the menu.
-        if !matches!(item, MenuItem::Options | MenuItem::Thumbnails | MenuItem::Back) {
+        if !matches!(item, MenuItem::Options | MenuItem::Startup | MenuItem::Thumbnails | MenuItem::Back) {
             self.menu = None;
         }
         match item {
+            MenuItem::Startup => {
+                let mut settings = self.settings.clone();
+                settings.startup = settings.startup.next();
+                match settings.save(&self.config.settings_file) {
+                    Ok(()) => { self.settings = settings; self.notice("Startup setting saved for next boot"); }
+                    Err(error) => self.error(format!("Saving startup setting: {error:#}")),
+                }
+                None
+            }
             MenuItem::Rescan => {
                 if self.scan.is_none() && self.start_scan(true) {
                     self.notice("Scanning library…");

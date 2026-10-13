@@ -50,6 +50,18 @@ Information shows the software, kernel, LAN address and library totals.
 Power actions appear when the daemon is available. B returns from a category;
 on the home screen it selects Explore Content.
 
+### Startup
+
+In **Configuration → Startup**, choose **Main Menu** (default) or **Last Game**.
+The choice is saved on the OS card and applies on the next boot. Last Game
+starts the most recently launched game from the active data card's history;
+it does not automatically load a save state. Exiting the emulator returns to
+Main Menu. Missing games, missing BIOS/cores and launch failures leave the menu
+available, and frontend restarts do not repeat the automatic launch that boot.
+Interacting with the menu while its initial library scan runs cancels autostart.
+To disable it from a computer, set `startup = "menu"` in
+`/var/lib/oxmux/frontend-settings.toml` on the OS partition (`OXMUXROOT`).
+
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
 one static binary and three declarative TOML files. The standalone image builds its

@@ -64,6 +64,9 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         std::thread::sleep(Duration::from_millis(5));
         app.tick(Instant::now());
     }
+    if let Some(Effect::Launch { spec, .. }) = app.take_startup_effect() {
+        eprintln!("oxmux: would start last game {} {:?}", spec.program.display(), spec.args);
+    }
     let mut frame = 0;
     let mut save = |screen: &mut Screen| -> Result<()> {
         screen.fast_forward(Duration::from_secs(1));
@@ -207,17 +210,15 @@ impl ApplicationHandler for Sim {
         self.app.tick(now);
 
         let buttons: Vec<_> = self.repeater.drain().collect();
-        for button in buttons {
-            match self.app.update(button) {
-                None => {}
-                Some(Effect::Quit) => return event_loop.exit(),
-                Some(Effect::Launch { spec, game }) => {
-                    // Blocks the window while the emulator runs, same as on the device.
-                    let result = spec.run(|| self.app.launch_started(game));
-                    self.repeater.clear();
-                    self.app.launch_finished(result);
-                    break;
-                }
+        let effect = buttons.into_iter().find_map(|button| self.app.update(button)).or_else(|| self.app.take_startup_effect());
+        match effect {
+            None => {}
+            Some(Effect::Quit) => return event_loop.exit(),
+            Some(Effect::Launch { spec, game }) => {
+                // Blocks the window while the emulator runs, same as on the device.
+                let result = spec.run(|| self.app.launch_started(game));
+                self.repeater.clear();
+                self.app.launch_finished(result);
             }
         }
 

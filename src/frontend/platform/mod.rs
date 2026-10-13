@@ -129,6 +129,19 @@ fn build_app(config: FrontendConfig) -> Result<App> {
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     App::new(config, ui)
 }
+
+/// `/run` is cleared on boot. A supervisor restart must not relaunch a broken
+/// emulator repeatedly, or apply a newly changed startup setting mid-session.
+#[cfg_attr(feature = "desktop", allow(dead_code))]
+fn claim_boot_startup() -> Result<bool> {
+    let directory = std::path::Path::new("/run/oxmux");
+    std::fs::create_dir_all(directory)?;
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(directory.join("startup-claimed")) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
 /// Where frames go on the device: fbdev (vendor kernels) or DRM/KMS (mainline).
 enum Display {
     Fbdev(fbdev::Framebuffer),
@@ -181,6 +194,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
     let mut screen = Screen::install(w, h)?;
     let levels_watch = crate::levels::Watch::open(&config.daemon_socket)?;
     let mut app = build_app(config)?;
+    if !claim_boot_startup()? { app.disable_startup(); }
     let mut repeater = Repeater::default();
     let mut first_frame = true;
 
@@ -195,36 +209,37 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
             }
         }
 
-        let mut deadline = repeater.next_deadline().map_or(app.next_deadline(), |t| t.min(app.next_deadline()));
-        if let Some(wake) = screen.next_wake() {
-            deadline = deadline.min(now + wake);
-        }
-        input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |key, pressed| {
-            if pressed {
-                repeater.press(key, Instant::now());
-            } else {
-                repeater.release(key);
+        let mut effect = app.take_startup_effect();
+        if effect.is_none() {
+            let mut deadline = repeater.next_deadline().map_or(app.next_deadline(), |t| t.min(app.next_deadline()));
+            if let Some(wake) = screen.next_wake() {
+                deadline = deadline.min(now + wake);
             }
-        })?;
-        if levels_watch.as_ref().map(crate::levels::Watch::drain).transpose()?.unwrap_or(false) {
-            app.refresh_levels();
-        }
-        repeater.tick(Instant::now());
-
-        let buttons: Vec<_> = repeater.drain().collect();
-        for button in buttons {
-            match app.update(button) {
-                None => {}
-                Some(Effect::Quit) => return Ok(()),
-                Some(Effect::Launch { spec, game }) => {
-                    input.release();
-                    let result = display.with_released(|| spec.run(|| app.launch_started(game)))?;
-                    screen.invalidate();
-                    input.acquire();
-                    repeater.clear();
-                    app.launch_finished(result);
-                    break;
+            input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |key, pressed| {
+                if pressed {
+                    repeater.press(key, Instant::now());
+                } else {
+                    repeater.release(key);
                 }
+            })?;
+            if levels_watch.as_ref().map(crate::levels::Watch::drain).transpose()?.unwrap_or(false) {
+                app.refresh_levels();
+            }
+            repeater.tick(Instant::now());
+
+            let buttons: Vec<_> = repeater.drain().collect();
+            effect = buttons.into_iter().find_map(|button| app.update(button));
+        }
+        match effect {
+            None => {}
+            Some(Effect::Quit) => return Ok(()),
+            Some(Effect::Launch { spec, game }) => {
+                input.release();
+                let result = display.with_released(|| spec.run(|| app.launch_started(game)))?;
+                screen.invalidate();
+                input.acquire();
+                repeater.clear();
+                app.launch_finished(result);
             }
         }
     }

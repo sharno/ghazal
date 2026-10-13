@@ -10,11 +10,26 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     /// Show the selected game's box art beside game lists.
     pub show_thumbnails: bool,
+    pub startup: StartupMode,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupMode {
+    #[default]
+    Menu,
+    LastGame,
+}
+
+impl StartupMode {
+    pub fn next(self) -> Self {
+        match self { Self::Menu => Self::LastGame, Self::LastGame => Self::Menu }
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { show_thumbnails: true }
+        Self { show_thumbnails: true, startup: StartupMode::Menu }
     }
 }
 
