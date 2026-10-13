@@ -130,6 +130,9 @@ binary's own directory, or `/etc/ghazal`, with built-in RG40XXV defaults otherwi
 
 ## Develop
 
+Keep personal provisioning, game inventories and device-session logs outside
+this repository. Documentation and release attachments describe shared behavior.
+
 ```bash
 nix develop -c cargo sim                      # simulator window (keyboard = gamepad)
 cargo test                                    # includes "every shipped config parses"
@@ -201,7 +204,8 @@ handshake, plus hooks. So the same userland sleeps on whichever kernel can.
 ## Known gaps
 
 - The standalone image runs on an RG40XX-V with the v2 panel: menu, controls,
-  Wi-Fi, SSH, SD2 discovery and Syncthing are confirmed. Native suspend remains unresolved and is disabled
+  Wi-Fi, SSH, SD2 discovery and Syncthing are confirmed. Native suspend remains
+  unresolved and is disabled
   in the standalone profile, including automatic sleep and the Power-button tap.
 - Stage 2 skips muOS's charge-only boot mode and factory-reset hook, both of which live in S99muos.sh.
 - RetroArch save-state-on-sleep (muOS sends `SAVE_STATE` before suspending) isn't done yet.
