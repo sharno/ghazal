@@ -7,8 +7,7 @@ panel revision and RAM variant; storage layout does not require another image.
 ## Choose the image
 
 New images are named `ghazal-<version>-<device>-<ddr3|ddr4>.img.gz`.
-The original `v0.1.0-beta.1` release predates the rename and retains its
-`oxmux-` filenames and original on-card paths.
+Use the latest beta release for the paths and filenames in this guide.
 The catalog in [devices.toml](../config/h700/devices.toml) is authoritative.
 
 | Model / panel | Device name in the filename |

@@ -1,4 +1,8 @@
-# H700 beta
+# Ghazal H700 beta
+
+This release adds the gazelle branding and Configuration → Startup, with
+Main Menu or Last Game choices. Automatic game launch is attempted once per
+boot; exiting or failing to launch returns to the menu.
 
 This beta provides 38 flashable images: 19 device/panel variants, each with
 DDR3 and DDR4 bootloaders. Every image supports one-card and two-card setups.

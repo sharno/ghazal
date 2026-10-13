@@ -2,7 +2,7 @@
 
 <img src="assets/ghazal.svg" width="96" alt="Ghazal gazelle logo">
 
-Ghazal (formerly oxmux) is a standalone Linux gaming system for Anbernic H700 handhelds.
+Ghazal is a standalone Linux gaming system for Anbernic H700 handhelds.
 
 ## H700 beta images
 
