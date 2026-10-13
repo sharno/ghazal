@@ -80,7 +80,7 @@ pub fn benchmark(config: &super::config::FrontendConfig) -> Result<()> {
     println!("library_games={} scan_ms={:.3}", library.game_count(), started.elapsed().as_secs_f64() * 1000.0);
     let ids: Vec<_> = library.systems().iter().flat_map(|system| system.games.iter().map(move |game| GameId::new(system, game))).rev().take(100).collect();
     if ids.is_empty() { anyhow::bail!("benchmark requires games"); }
-    let fixture = Fixture(std::env::temp_dir().join(format!("oxmux-recent-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos())));
+    let fixture = Fixture(std::env::temp_dir().join(format!("ghazal-recent-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos())));
     fs::create_dir(&fixture.0)?;
     let mut activity = Activity::load(&fixture.0.join("activity.toml"))?;
     for id in &ids { activity.launched(id.clone())?; }
@@ -205,7 +205,7 @@ mod tests {
     impl Temp {
         fn new() -> Self {
             static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let directory = std::env::temp_dir().join(format!("oxmux-activity-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            let directory = std::env::temp_dir().join(format!("ghazal-activity-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
             fs::create_dir(&directory).unwrap();
             Self(directory)
         }

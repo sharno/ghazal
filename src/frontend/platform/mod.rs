@@ -125,6 +125,9 @@ pub fn run(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
 
 fn build_app(config: FrontendConfig) -> Result<App> {
     let ui = AppWindow::new().map_err(|e| anyhow!("creating UI: {e}"))?;
+    let mut logo = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(64, 64);
+    logo.make_mut_bytes().copy_from_slice(include_bytes!(concat!(env!("OUT_DIR"), "/ghazal-logo.rgba")));
+    ui.set_brand_logo(slint::Image::from_rgba8_premultiplied(logo));
     ui.global::<crate::ui::Theme>().set_compact(ui.window().size().width < 400);
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     App::new(config, ui)
@@ -134,7 +137,7 @@ fn build_app(config: FrontendConfig) -> Result<App> {
 /// emulator repeatedly, or apply a newly changed startup setting mid-session.
 #[cfg_attr(feature = "desktop", allow(dead_code))]
 fn claim_boot_startup() -> Result<bool> {
-    let directory = std::path::Path::new("/run/oxmux");
+    let directory = std::path::Path::new("/run/ghazal");
     std::fs::create_dir_all(directory)?;
     match std::fs::OpenOptions::new().write(true).create_new(true).open(directory.join("startup-claimed")) {
         Ok(_) => Ok(true),
@@ -204,7 +207,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
         if let Some(damage) = screen.render() {
             display.present(screen.pixels(), w as usize, damage)?;
             if std::mem::take(&mut first_frame) {
-                // On screen: tell `oxmux init` this boot worked.
+                // On screen: tell `ghazal init` this boot worked.
                 crate::init::mark_boot_ok();
             }
         }

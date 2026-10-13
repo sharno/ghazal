@@ -23,7 +23,7 @@ pub struct FrontendConfig {
     /// Menu options chosen on the device.
     #[serde(default = "default_settings_file")]
     pub settings_file: PathBuf,
-    /// Socket of `oxmux daemon`; enables the Sleep/Restart/Power off menu entries.
+    /// Socket of `ghazal daemon`; enables the Sleep/Restart/Power off menu entries.
     #[serde(default = "default_socket")]
     pub daemon_socket: PathBuf,
     #[serde(rename = "system", default)]
@@ -31,11 +31,11 @@ pub struct FrontendConfig {
 }
 
 fn default_socket() -> PathBuf {
-    "/run/oxmux/daemon.sock".into()
+    "/run/ghazal/daemon.sock".into()
 }
 
 fn default_settings_file() -> PathBuf {
-    "/var/lib/oxmux/frontend-settings.toml".into()
+    "/var/lib/ghazal/frontend-settings.toml".into()
 }
 
 fn default_bios_dir() -> PathBuf {
@@ -43,7 +43,7 @@ fn default_bios_dir() -> PathBuf {
 }
 
 fn default_activity_file() -> PathBuf {
-    "/var/lib/oxmux/activity.toml".into()
+    "/var/lib/ghazal/activity.toml".into()
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -11,7 +11,7 @@ use std::{
 };
 
 const DATA_START: u32 = 2_392_064;
-const FACTORY: &str = "/var/lib/oxmux/factory-data";
+const FACTORY: &str = "/var/lib/ghazal/factory-data";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prepare {}
@@ -28,8 +28,8 @@ struct FactoryTransaction {
 impl FactoryTransaction {
     fn read(marker: &Path) -> Result<Self> {
         let phase = match fs::read_to_string(marker)?.trim() {
-            "oxmux-factory-v1" => FactoryPhase::Fresh,
-            "oxmux-formatting-v1" => FactoryPhase::Formatting,
+            "ghazal-factory-v1" => FactoryPhase::Fresh,
+            "ghazal-formatting-v1" => FactoryPhase::Formatting,
             _ => bail!("unknown factory storage marker"),
         };
         Ok(Self {
@@ -38,7 +38,7 @@ impl FactoryTransaction {
         })
     }
     fn begin_format(&mut self) -> Result<()> {
-        crate::sys::write_atomic(&self.marker, b"oxmux-formatting-v1\n")?;
+        crate::sys::write_atomic(&self.marker, b"ghazal-formatting-v1\n")?;
         self.phase = FactoryPhase::Formatting;
         Ok(())
     }
@@ -71,7 +71,7 @@ impl FactoryLayout {
                 || actual_size == 0
                 || size.is_some_and(|size| size != actual_size)
             {
-                bail!("TF1 is not an oxmux factory partition layout");
+                bail!("TF1 is not an ghazal factory partition layout");
             }
         }
         if mbr[494..510].iter().any(|&byte| byte != 0) {
@@ -118,7 +118,7 @@ pub fn prepare() -> Result<()> {
         &mut transaction,
     )?;
     fs::remove_file(FACTORY)?;
-    std::fs::File::open("/var/lib/oxmux")?.sync_all()?;
+    std::fs::File::open("/var/lib/ghazal")?.sync_all()?;
     Ok(())
 }
 
@@ -144,7 +144,7 @@ fn prepare_partition(
             .args(["-s", "LABEL", "-o", "value"])
             .arg(data_path)
             .output()?;
-        let ours = label.status.success() && String::from_utf8(label.stdout)?.trim() == "OXMUXDATA";
+        let ours = label.status.success() && String::from_utf8(label.stdout)?.trim() == "GHAZALDATA";
         let valid = ours
             && Command::new(tools.checker)
                 .arg("-n")
@@ -211,7 +211,7 @@ fn prepare_partition(
         // Data is never mounted or handed to the user until this transaction ends.
         transaction.begin_format()?;
         let status = Command::new(tools.formatter)
-            .args(["-K", "-L", "OXMUXDATA"])
+            .args(["-K", "-L", "GHAZALDATA"])
             .arg(data_path)
             .status()?;
         if !status.success() {
@@ -232,7 +232,7 @@ pub fn directories() -> Result<()> {
         "SAVES/file",
         "SAVES/state",
         "SAVES/screenshots",
-        ".oxmux",
+        ".ghazal",
     ] {
         fs::create_dir_all(Path::new("/mnt/games").join(name))?;
     }
@@ -254,7 +254,7 @@ pub fn directories() -> Result<()> {
 
 pub fn mount_data() -> Result<()> {
     use std::time::{Duration, Instant};
-    let mode = match fs::read_to_string("/var/lib/oxmux/data-card") {
+    let mode = match fs::read_to_string("/var/lib/ghazal/data-card") {
         Ok(mode) => mode,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "auto".into(),
         Err(error) => return Err(error.into()),
@@ -312,10 +312,10 @@ pub fn mount_data() -> Result<()> {
         optional: false,
     })?;
     crate::sys::write_atomic(
-        Path::new("/run/oxmux/data-source"),
+        Path::new("/run/ghazal/data-source"),
         if use_external { b"TF2" } else { b"TF1" },
     )?;
-    eprintln!("oxmux: data mounted from {source}");
+    eprintln!("ghazal: data mounted from {source}");
     Ok(())
 }
 
@@ -384,7 +384,7 @@ mod tests {
             }
         }
         let directory =
-            std::env::temp_dir().join(format!("oxmux-factory-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("ghazal-factory-test-{}", std::process::id()));
         fs::create_dir(&directory)?;
         let image = directory.join("disk.img");
         let mut file = OpenOptions::new()
@@ -420,13 +420,13 @@ mod tests {
             system_mounts: Vec::new(),
         };
         let data = std::path::PathBuf::from(format!("{}p3", fixture.disk.display()));
-        let formatter = std::env::var("OXMUX_TEST_MKFS_EXFAT")
+        let formatter = std::env::var("GHAZAL_TEST_MKFS_EXFAT")
             .unwrap_or_else(|_| "/usr/sbin/mkfs.exfat".into());
-        let checker = std::env::var("OXMUX_TEST_FSCK_EXFAT")
+        let checker = std::env::var("GHAZAL_TEST_FSCK_EXFAT")
             .unwrap_or_else(|_| "/usr/sbin/fsck.exfat".into());
         let labeler =
-            std::env::var("OXMUX_TEST_BLKID").unwrap_or_else(|_| "/usr/sbin/blkid".into());
-        let mounter = std::env::var("OXMUX_TEST_MOUNT_EXFAT").ok();
+            std::env::var("GHAZAL_TEST_BLKID").unwrap_or_else(|_| "/usr/sbin/blkid".into());
+        let mounter = std::env::var("GHAZAL_TEST_MOUNT_EXFAT").ok();
         let mount_data = |data: &Path, target: &Path| -> Result<()> {
             let mut command = if let Some(mounter) = &mounter {
                 Command::new(mounter)
@@ -441,7 +441,7 @@ mod tests {
             Ok(())
         };
         let system_formatter =
-            std::env::var("OXMUX_TEST_MKFS_EXT4").unwrap_or_else(|_| "/usr/sbin/mkfs.ext4".into());
+            std::env::var("GHAZAL_TEST_MKFS_EXT4").unwrap_or_else(|_| "/usr/sbin/mkfs.ext4".into());
         for number in [1, 2] {
             let partition = format!("{}p{number}", fixture.disk.display());
             assert!(Command::new(&system_formatter)
@@ -463,9 +463,9 @@ mod tests {
             fixture.system_mounts.push(mount);
         }
         let marker = fixture.system_mounts[1].join("factory-data");
-        fs::write(&marker, "oxmux-factory-v1\n")?;
+        fs::write(&marker, "ghazal-factory-v1\n")?;
         let mut transaction = FactoryTransaction::read(&marker)?;
-        let rustc = std::env::var("OXMUX_TEST_RUSTC").unwrap_or_else(|_| "rustc".into());
+        let rustc = std::env::var("GHAZAL_TEST_RUSTC").unwrap_or_else(|_| "rustc".into());
         let helper_source = fixture.directory.join("interrupted-formatter.rs");
         fs::write(
             &helper_source,
@@ -551,7 +551,7 @@ fn main() {
         partition.sync_all()?;
         drop(partition);
         // Once factory ownership is fresh, it cannot claim arbitrary existing data.
-        fs::write(&marker, "oxmux-factory-v1\n")?;
+        fs::write(&marker, "ghazal-factory-v1\n")?;
         let mut transaction = FactoryTransaction::read(&marker)?;
         assert!(prepare_partition(
             &fixture.disk,

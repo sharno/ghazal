@@ -90,12 +90,12 @@ impl Loader {
     pub fn new() -> Result<Self> {
         let (requests, jobs) = channel::<(u64, Vec<PathBuf>)>();
         let (done, results) = channel();
-        std::thread::Builder::new().name("oxmux-art".into()).spawn(move || {
+        std::thread::Builder::new().name("ghazal-art".into()).spawn(move || {
             while let Ok(mut job) = jobs.recv() {
                 // Only the latest request matters while the cursor is moving.
                 while let Ok(newer) = jobs.try_recv() { job = newer; }
                 let (id, paths) = job;
-                let image = paths.iter().filter(|p| p.is_file()).find_map(|p| load(p).inspect_err(|e| eprintln!("oxmux: art {}: {e:#}", p.display())).ok());
+                let image = paths.iter().filter(|p| p.is_file()).find_map(|p| load(p).inspect_err(|e| eprintln!("ghazal: art {}: {e:#}", p.display())).ok());
                 if done.send((id, image)).is_err() { break; }
             }
         })?;
@@ -147,7 +147,7 @@ pub enum Progress {
 /// reporting progress. Scanning there keeps thousands of file checks off the UI.
 pub fn download(config: FrontendConfig) -> Result<Receiver<Progress>> {
     let (progress, receiver) = channel();
-    std::thread::Builder::new().name("oxmux-art-download".into()).spawn(move || {
+    std::thread::Builder::new().name("ghazal-art-download".into()).spawn(move || {
         let library = super::library::Library::scan(&config);
         let jobs = missing(&config, library.systems());
         let total = jobs.len();
@@ -202,7 +202,7 @@ fn http_get(host: &str, path: &str) -> Result<Option<Vec<u8>>> {
     let address = (host, 80).to_socket_addrs()?.next().with_context(|| format!("resolving {host}"))?;
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(10))?;
     stream.set_read_timeout(Some(Duration::from_secs(20)))?;
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: oxmux\r\nConnection: close\r\n\r\n")?;
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: ghazal\r\nConnection: close\r\n\r\n")?;
     let mut response = Vec::new();
     stream.read_to_end(&mut response)?;
     let split = response.windows(4).position(|w| w == b"\r\n\r\n").context("malformed HTTP response")?;

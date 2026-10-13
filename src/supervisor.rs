@@ -76,7 +76,7 @@ pub struct SupervisorConfig {
     #[serde(default = "default_log_dir")]
     pub log_dir: PathBuf,
     /// Processes (by name, as in /proc/<pid>/comm) to kill before starting, e.g. muOS
-    /// daemons that oxmux replaces.
+    /// daemons that ghazal replaces.
     #[serde(default)]
     pub replaces: Vec<String>,
     #[serde(rename = "service", default)]
@@ -84,7 +84,7 @@ pub struct SupervisorConfig {
 }
 
 fn default_log_dir() -> PathBuf {
-    "/run/oxmux/log".into()
+    "/run/ghazal/log".into()
 }
 
 #[derive(Debug)]
@@ -430,7 +430,7 @@ impl Drop for Supervisor {
 }
 
 fn log(args: std::fmt::Arguments) {
-    eprintln!("oxmux-supervisor: {args}");
+    eprintln!("ghazal-supervisor: {args}");
 }
 
 #[cfg(test)]

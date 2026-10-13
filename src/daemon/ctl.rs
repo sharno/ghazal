@@ -5,7 +5,7 @@
 //!   volume 40|+5|-5        -> ok ...
 //!   suspend | poweroff | reboot
 //!
-//! `oxmux ctl <command...>` is the client; the frontend uses `request()` directly.
+//! `ghazal ctl <command...>` is the client; the frontend uses `request()` directly.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

@@ -39,7 +39,7 @@ impl Settings {
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(text) => toml::from_str(&text).unwrap_or_else(|error| {
-                eprintln!("oxmux: {}: {error}; using default options", path.display());
+                eprintln!("ghazal: {}: {error}; using default options", path.display());
                 Self::default()
             }),
             Err(_) => Self::default(),

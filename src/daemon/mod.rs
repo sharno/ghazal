@@ -1,4 +1,4 @@
-//! `oxmux daemon`: replaces muOS's muhotkey + mux/hotkey.sh, mubattery, lowpower.sh,
+//! `ghazal daemon`: replaces muOS's muhotkey + mux/hotkey.sh, mubattery, lowpower.sh,
 //! idle.sh and the brightness/volume scripts. Runs for the whole session, including while
 //! an emulator is in the foreground, and never grabs input.
 
@@ -93,7 +93,7 @@ pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
     d.rescan_inputs();
     d.apply_settings();
     hw::set_led(&d.hw.leds.power, true);
-    eprintln!("oxmux-daemon: {} ({} input devices)", dev.name, d.inputs.len());
+    eprintln!("ghazal-daemon: {} ({} input devices)", dev.name, d.inputs.len());
     d.run()
 }
 
@@ -166,7 +166,7 @@ impl Daemon<'_> {
             if unsafe { libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK) } < 0 {
                 continue;
             }
-            eprintln!("oxmux-daemon: input {} {:?}", path.display(), d.name().unwrap_or("?"));
+            eprintln!("ghazal-daemon: input {} {:?}", path.display(), d.name().unwrap_or("?"));
             self.inputs.push((path, d));
         }
     }
@@ -273,7 +273,7 @@ impl Daemon<'_> {
     fn check_idle(&mut self, now: Instant) {
         let emulator = match crate::emulator::active() {
             Ok(active) => active,
-            Err(error) => { eprintln!("oxmux-daemon: emulator activity: {error:#}"); return; },
+            Err(error) => { eprintln!("ghazal-daemon: emulator activity: {error:#}"); return; },
         };
         let ssh = std::fs::read_dir("/proc").is_ok_and(|entries| entries.flatten().any(|entry| {
             entry.file_name().to_string_lossy().bytes().all(|byte| byte.is_ascii_digit())
@@ -288,7 +288,7 @@ impl Daemon<'_> {
         // emulator cleanly, which writes its save RAM.
         let untouched = now.duration_since(self.last_input);
         if idle.poweroff_after > 0 && untouched >= Duration::from_secs(idle.poweroff_after) {
-            eprintln!("oxmux-daemon: no input for {untouched:?}, powering off");
+            eprintln!("ghazal-daemon: no input for {untouched:?}, powering off");
             self.act(&Action::Poweroff);
             return;
         }
@@ -300,7 +300,7 @@ impl Daemon<'_> {
         if idle.sleep_after > 0 && quiet >= Duration::from_secs(idle.sleep_after) {
             let charging = self.battery.is_some_and(|b| b.charging);
             if !(charging && idle.stay_awake_charging) {
-                eprintln!("oxmux-daemon: idle for {quiet:?}, sleeping");
+                eprintln!("ghazal-daemon: idle for {quiet:?}, sleeping");
                 self.act(&Action::Suspend);
             }
             self.last_input = Instant::now();
@@ -336,7 +336,7 @@ impl Daemon<'_> {
             hw::set_led(&self.hw.leds.low_battery, low);
         }
         if !b.charging && b.percent <= policy.critical {
-            eprintln!("oxmux-daemon: battery at {}%, powering off", b.percent);
+            eprintln!("ghazal-daemon: battery at {}%, powering off", b.percent);
             hw::rumble(&self.hw.rumble, Duration::from_millis(300));
             self.act(&Action::Poweroff);
         }
@@ -370,7 +370,7 @@ impl Daemon<'_> {
             Action::Poweroff => self.power(&self.sys.power.poweroff.clone(), libc::SIGUSR2),
             Action::Reboot => self.power(&self.sys.power.reboot.clone(), libc::SIGTERM),
             Action::StopEmulator => {
-                if let Err(error) = crate::emulator::stop() { eprintln!("oxmux-daemon: stop emulator: {error:#}"); }
+                if let Err(error) = crate::emulator::stop() { eprintln!("ghazal-daemon: stop emulator: {error:#}"); }
             }
             Action::Exec(argv) => spawn_detached(argv),
         }
@@ -380,7 +380,7 @@ impl Daemon<'_> {
     /// sleep; an RTC alarm wakes us to power off after a long sleep.
     fn suspend(&mut self) {
         if self.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
-            eprintln!("oxmux-daemon: suspend disabled until native wake is validated");
+            eprintln!("ghazal-daemon: suspend disabled until native wake is validated");
             return;
         }
         self.save();
@@ -399,14 +399,14 @@ impl Daemon<'_> {
         }
         let slept_from = std::time::SystemTime::now();
         if let Err(e) = hw::suspend(power.mem_sleep.as_deref(), power.suspend_checkpoint.as_deref()) {
-            eprintln!("oxmux-daemon: {e:#}");
+            eprintln!("ghazal-daemon: {e:#}");
         }
         // Back from sleep. Wall-clock time keeps counting while suspended.
         let slept = slept_from.elapsed().unwrap_or_default();
         if let Some(path) = alarm {
             let _ = crate::sys::write_file(path, "0");
             if slept + Duration::from_secs(2) >= Duration::from_secs(power.sleep_poweroff_after) {
-                eprintln!("oxmux-daemon: asleep for {slept:?}, powering off");
+                eprintln!("ghazal-daemon: asleep for {slept:?}, powering off");
                 self.act(&Action::Poweroff);
                 return;
             }
@@ -446,7 +446,7 @@ impl Daemon<'_> {
     fn apply_brightness(&mut self, percent: u8) {
         if let Some(b) = &mut self.hw.backlight {
             if let Err(e) = b.set_percent(percent) {
-                eprintln!("oxmux-daemon: brightness: {e:#}");
+                eprintln!("ghazal-daemon: brightness: {e:#}");
             }
         }
         self.publish_levels();
@@ -455,7 +455,7 @@ impl Daemon<'_> {
     fn apply_volume(&self, percent: u8) {
         if let Some(v) = &self.hw.volume {
             if let Err(e) = v.set_percent(percent) {
-                eprintln!("oxmux-daemon: volume: {e:#}");
+                eprintln!("ghazal-daemon: volume: {e:#}");
             }
         }
         self.publish_levels();
@@ -465,7 +465,7 @@ impl Daemon<'_> {
         let volume = if self.muted_from.is_some() { 0 } else { self.settings.volume };
         let result = crate::levels::Levels::new(self.settings.brightness, volume)
             .and_then(|levels| levels.publish(&self.sys.daemon.socket));
-        if let Err(error) = result { eprintln!("oxmux-daemon: publishing levels: {error:#}"); }
+        if let Err(error) = result { eprintln!("ghazal-daemon: publishing levels: {error:#}"); }
     }
 
     fn save(&mut self) {
@@ -479,7 +479,7 @@ impl Daemon<'_> {
         match result {
             Ok(()) => self.settings_dirty = None,
             Err(error) => {
-                eprintln!("oxmux-daemon: couldn't save {}: {error}", path.display());
+                eprintln!("ghazal-daemon: couldn't save {}: {error}", path.display());
                 self.settings_dirty = Some(Instant::now() + Duration::from_secs(5));
             }
         }
@@ -501,7 +501,7 @@ impl Daemon<'_> {
             let _ = stream.set_nonblocking(false);
             let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
             if let Err(e) = ctl::handle(self, stream) {
-                eprintln!("oxmux-daemon: ctl: {e:#}");
+                eprintln!("ghazal-daemon: ctl: {e:#}");
             }
         }
     }
@@ -530,8 +530,8 @@ fn run_hooks(hooks: &[Vec<String>]) {
     for argv in hooks {
         if let Some((prog, args)) = argv.split_first() {
             match std::process::Command::new(prog).args(args).status() {
-                Ok(s) if !s.success() => eprintln!("oxmux-daemon: hook {argv:?} exited with {s}"),
-                Err(e) => eprintln!("oxmux-daemon: hook {argv:?}: {e}"),
+                Ok(s) if !s.success() => eprintln!("ghazal-daemon: hook {argv:?} exited with {s}"),
+                Err(e) => eprintln!("ghazal-daemon: hook {argv:?}: {e}"),
                 _ => {}
             }
         }
@@ -558,6 +558,6 @@ fn spawn_detached(argv: &[String]) {
         Ok(mut child) => {
             std::thread::spawn(move || child.wait());
         }
-        Err(e) => eprintln!("oxmux-daemon: exec {prog}: {e}"),
+        Err(e) => eprintln!("ghazal-daemon: exec {prog}: {e}"),
     }
 }

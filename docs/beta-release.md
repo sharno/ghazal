@@ -4,11 +4,11 @@ This beta provides 38 flashable images: 19 device/panel variants, each with
 DDR3 and DDR4 bootloaders. Every image supports one-card and two-card setups.
 Choose the model, panel and actual RAM revision before flashing.
 
-- [Installation](https://github.com/sharno/oxmux/blob/main/docs/installation.md)
-- [Files and storage](https://github.com/sharno/oxmux/blob/main/docs/storage-layout.md)
-- [Device catalog](https://github.com/sharno/oxmux/blob/main/config/h700/devices.toml)
+- [Installation](https://github.com/sharno/ghazal/blob/main/docs/installation.md)
+- [Files and storage](https://github.com/sharno/ghazal/blob/main/docs/storage-layout.md)
+- [Device catalog](https://github.com/sharno/ghazal/blob/main/config/h700/devices.toml)
 
-Images include the oxmux menu, RetroArch cores, standalone PPSSPP on unrotated
+Images include the ghazal menu, RetroArch cores, standalone PPSSPP on unrotated
 devices, SSH/SFTP, Wi-Fi setup and Syncthing. Public images contain no personal
 credentials, ROMs or proprietary BIOS files. Each handheld creates its own
 machine ID and SSH host key. SHA256SUMS covers every compressed image.

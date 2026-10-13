@@ -104,7 +104,7 @@ impl MenuItem {
             Self::Sleep => "Sleep",
             Self::Restart => "Restart",
             Self::PowerOff => "Power off",
-            Self::Quit => "Quit oxmux",
+            Self::Quit => "Quit ghazal",
             Self::Thumbnails if settings.show_thumbnails => "Thumbnails: On",
             Self::Thumbnails => "Thumbnails: Off",
             Self::DownloadThumbnails => "Download thumbnails",
@@ -206,13 +206,13 @@ impl App {
             Ok(activity) => (activity, None),
             Err(error) => {
                 let aside = Activity::set_aside(&config.activity_file)?;
-                eprintln!("oxmux: {error:#}; moved it to {}", aside.display());
+                eprintln!("ghazal: {error:#}; moved it to {}", aside.display());
                 (Activity::load(&config.activity_file)?, Some(format!("Favorites and history were unreadable; kept them as {}", aside.display())))
             }
         };
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
         let daemon_status = if config.daemon_socket.exists() {
-            ctl::request(&config.daemon_socket, "status").inspect_err(|error| eprintln!("oxmux: daemon unavailable: {error:#}")).ok()
+            ctl::request(&config.daemon_socket, "status").inspect_err(|error| eprintln!("ghazal: daemon unavailable: {error:#}")).ok()
         } else { None };
         let mut main_items = vec![MenuItem::Rescan, MenuItem::Options];
         if let Some(reply) = &daemon_status {
@@ -221,13 +221,13 @@ impl App {
             }
             main_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
         }
-        if std::env::var_os("OXMUX_EMBEDDED").is_none() {
+        if std::env::var_os("GHAZAL_EMBEDDED").is_none() {
             main_items.push(MenuItem::Quit);
         }
         let settings = Settings::load(&config.settings_file);
         let startup = StartupState::WaitingForLibrary(settings.startup);
         let home_items = HomeItem::entries(daemon_status.is_some());
-        let art = Loader::new().inspect_err(|error| eprintln!("oxmux: art loader: {error:#}")).ok();
+        let art = Loader::new().inspect_err(|error| eprintln!("ghazal: art loader: {error:#}")).ok();
 
         let mut app = Self {
             config,
@@ -263,7 +263,7 @@ impl App {
             hints_for: None,
         };
         app.start_scan(false);
-        if let Ok(warning) = std::fs::read_to_string("/run/oxmux/provision-warning") { app.error(warning); }
+        if let Ok(warning) = std::fs::read_to_string("/run/ghazal/provision-warning") { app.error(warning); }
         if let Some(warning) = activity_warning { app.error(warning); }
         app.refresh_status(Instant::now());
         app.refresh_levels();
@@ -316,7 +316,7 @@ impl App {
         }
         self.activity_reported = Some(now);
         if let Err(error) = ctl::request(&self.config.daemon_socket, "activity") {
-            eprintln!("oxmux: reporting input activity: {error:#}");
+            eprintln!("ghazal: reporting input activity: {error:#}");
         }
     }
 
@@ -425,7 +425,7 @@ impl App {
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
         if let Err(error) = self.catalog.launched(game.clone()) {
-            eprintln!("oxmux: saving history: {error:#}");
+            eprintln!("ghazal: saving history: {error:#}");
             self.error(format!("Saving history: {error:#}"));
         }
         // Launching reorders Recent Games; keep the cursor on the game played.
@@ -442,7 +442,7 @@ impl App {
             if status.success() { Ok(()) } else { anyhow::bail!("emulator exited with {status}") }
         });
         if let Err(e) = result {
-            eprintln!("oxmux: launch failed: {e:#}");
+            eprintln!("ghazal: launch failed: {e:#}");
             self.error(format!("{e:#}"));
         }
         self.refresh_status(Instant::now());
@@ -478,7 +478,7 @@ impl App {
             }
         };
         let announce = self.scan.take().is_some_and(|scan| scan.announce);
-        eprintln!("oxmux: {} systems, {} games", library.systems().len(), library.game_count());
+        eprintln!("ghazal: {} systems, {} games", library.systems().len(), library.game_count());
         if announce {
             self.notice(&format!("Found {} games", library.game_count()));
         }
@@ -563,7 +563,7 @@ impl App {
                 self.sync();
             }
             Ok(None) => {},
-            Err(error) => eprintln!("oxmux: reading live levels: {error:#}"),
+            Err(error) => eprintln!("ghazal: reading live levels: {error:#}"),
         }
     }
 
@@ -601,7 +601,7 @@ impl App {
     }
 
     fn refresh_information(&mut self) {
-        let hostname = std::fs::read_to_string("/etc/hostname").unwrap_or_else(|_| "oxmux".into());
+        let hostname = std::fs::read_to_string("/etc/hostname").unwrap_or_else(|_| "ghazal".into());
         let uptime = std::fs::read_to_string("/proc/uptime").ok()
             .and_then(|text| text.split_whitespace().next()?.parse::<f64>().ok())
             .map(|seconds| format!("{} min", (seconds / 60.0) as u64)).unwrap_or_else(|| "Unavailable".into());
@@ -612,11 +612,11 @@ impl App {
             Ok(socket.local_addr()?.ip().to_string())
         })().unwrap_or_else(|_| "Disconnected".into());
         self.information_rows = [
-            ("Software", format!("oxmux {}", env!("CARGO_PKG_VERSION"))),
+            ("Software", format!("ghazal {}", env!("CARGO_PKG_VERSION"))),
             ("Device name", hostname.trim().to_owned()),
             ("Kernel", crate::sys::kernel_release()),
             ("LAN address", address),
-            ("Data card", std::fs::read_to_string("/run/oxmux/data-source").map(|source| source.trim().to_owned()).unwrap_or_else(|_| "Unavailable".into())),
+            ("Data card", std::fs::read_to_string("/run/ghazal/data-source").map(|source| source.trim().to_owned()).unwrap_or_else(|_| "Unavailable".into())),
             ("Uptime", uptime),
             ("Systems", self.catalog.library().systems().len().to_string()),
             ("Games", self.catalog.library().game_count().to_string()),
@@ -629,7 +629,7 @@ impl App {
     fn start_scan(&mut self, announce: bool) -> bool {
         let config = self.config.clone();
         let (sender, results) = std::sync::mpsc::channel();
-        match std::thread::Builder::new().name("oxmux-library".into()).spawn(move || {
+        match std::thread::Builder::new().name("ghazal-library".into()).spawn(move || {
             let _ = sender.send(Library::scan(&config));
         }) {
             Ok(_) => {
@@ -842,7 +842,7 @@ impl App {
 
         let ui = &self.ui;
         ui.set_heading(match self.view {
-            View::Home => "Main Menu",
+            View::Home => "Ghazal",
             View::Systems => "Explore Content",
             View::Games(list) => self.list_title(list),
             View::Applications => "Applications",

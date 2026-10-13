@@ -61,7 +61,7 @@ impl LogPump {
         reader.set_read_timeout(Some(Duration::from_millis(100)))?;
         let stopping = Arc::new(AtomicBool::new(false));
         let requested = stopping.clone();
-        let thread = std::thread::Builder::new().name("oxmux-log".into()).spawn(move || {
+        let thread = std::thread::Builder::new().name("ghazal-log".into()).spawn(move || {
             let mut bytes = [0; 16384];
             let mut diagnostic = Diagnostics::default();
             let result = (|| -> Result<()> {
@@ -85,7 +85,7 @@ impl LogPump {
                     }
                 }
             })();
-            if let Err(error) = result { eprintln!("oxmux: log writer failed: {error:#}"); }
+            if let Err(error) = result { eprintln!("ghazal: log writer failed: {error:#}"); }
             diagnostic.finish()
         })?;
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn rotation_bounds_current_previous_and_legacy_files() {
-        let directory = std::env::temp_dir().join(format!("oxmux-log-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("ghazal-log-{}", std::process::id()));
         fs::create_dir(&directory).unwrap();
         let path = directory.join("service.log");
         {

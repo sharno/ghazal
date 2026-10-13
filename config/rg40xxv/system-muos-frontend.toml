@@ -1,6 +1,6 @@
-# Stage 2: muOS boots as usual up to S99muos.sh, which `oxmux install frontend` replaces.
+# Stage 2: muOS boots as usual up to S99muos.sh, which `ghazal install frontend` replaces.
 # Instead of muOS's frontend loop (mux/frontend.sh), hotkey daemon (muhotkey), battery
-# monitor (mubattery) and low-power watcher, `oxmux supervise` runs the oxmux daemon and
+# monitor (mubattery) and low-power watcher, `ghazal supervise` runs the ghazal daemon and
 # frontend. Everything earlier in muOS's boot (udev, audio, wifi, storage) is unchanged.
 
 [power]
@@ -11,8 +11,8 @@ reboot = { exec = ["/opt/muos/script/system/halt.sh", "reboot"] }
 sleep_poweroff_after = 3600
 
 [daemon]
-state = "/opt/oxmux/state/settings.toml"
-socket = "/run/oxmux/daemon.sock"
+state = "/opt/ghazal/state/settings.toml"
+socket = "/run/ghazal/daemon.sock"
 brightness_step = 6
 volume_step = 5
 
@@ -42,23 +42,23 @@ keys = ["menu", "vol_down"]
 action = "brightness-down"
 
 [supervisor]
-log_dir = "/run/oxmux/log"
-# Started by muOS before S99 (init/async/S01init.sh); oxmux's daemon does its job.
+log_dir = "/run/ghazal/log"
+# Started by muOS before S99 (init/async/S01init.sh); ghazal's daemon does its job.
 replaces = ["mubattery"]
 
 [[supervisor.service]]
 name = "daemon"
-exec = ["/opt/oxmux/oxmux", "daemon"]
+exec = ["/opt/ghazal/ghazal", "daemon"]
 restart = "always"
-env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+env = { GHAZAL_CONFIG_DIR = "/opt/ghazal/etc" }
 
 [[supervisor.service]]
 name = "frontend"
-exec = ["/opt/oxmux/oxmux", "frontend"]
+exec = ["/opt/ghazal/ghazal", "frontend"]
 after = ["daemon"]
 restart = "always"
 # muOS's bind.sh touches this once ROM/save storage is ready.
 wait_for = ["/run/muos/storage/mount_ready"]
-env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc", OXMUX_EMBEDDED = "1" }
-# If the oxmux frontend keeps crashing, run muOS's own frontend loop instead.
+env = { GHAZAL_CONFIG_DIR = "/opt/ghazal/etc", GHAZAL_EMBEDDED = "1" }
+# If the ghazal frontend keeps crashing, run muOS's own frontend loop instead.
 fallback = ["/opt/muos/script/mux/frontend.sh"]

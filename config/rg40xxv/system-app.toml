@@ -1,6 +1,6 @@
-# Stage 1: oxmux runs as a muOS application (Applications menu). muOS still owns boot,
+# Stage 1: ghazal runs as a muOS application (Applications menu). muOS still owns boot,
 # hotkeys and power, so nothing is supervised here. This file only matters if you run
-# `oxmux daemon` by hand to try the daemon out.
+# `ghazal daemon` by hand to try the daemon out.
 
 [power]
 poweroff = { exec = ["/opt/muos/script/system/halt.sh", "poweroff"] }

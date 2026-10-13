@@ -34,7 +34,7 @@ impl SystemConfig {
 
 impl Default for SupervisorConfig {
     fn default() -> Self {
-        Self { log_dir: "/run/oxmux/log".into(), replaces: Vec::new(), services: Vec::new() }
+        Self { log_dir: "/run/ghazal/log".into(), replaces: Vec::new(), services: Vec::new() }
     }
 }
 
@@ -57,8 +57,8 @@ pub struct DaemonConfig {
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
-            state: "/opt/oxmux/state/settings.toml".into(),
-            socket: "/run/oxmux/daemon.sock".into(),
+            state: "/opt/ghazal/state/settings.toml".into(),
+            socket: "/run/ghazal/daemon.sock".into(),
             brightness_step: 10,
             volume_step: 5,
             power_hold_ms: 2500,
@@ -174,7 +174,7 @@ pub enum SuspendPolicy {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub enum PowerMethod {
-    /// Signal PID 1 (busybox init or `oxmux init`): SIGUSR2 = poweroff, SIGTERM = reboot.
+    /// Signal PID 1 (busybox init or `ghazal init`): SIGUSR2 = poweroff, SIGTERM = reboot.
     SignalInit,
     Exec(Vec<String>),
 }

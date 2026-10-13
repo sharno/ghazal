@@ -126,7 +126,7 @@ impl SelectedDisplay {
         let fb = card.add_framebuffer(&buffer, 24, 32)?;
         let kms = Kms { rotation: crate::device::Rotation::Normal, card, crtc, connector: conn.handle(), mode, buffer, fb };
         kms.modeset()?;
-        eprintln!("oxmux: kms {} {}x{} on {:?}", path.display(), w, h, conn.interface());
+        eprintln!("ghazal: kms {} {}x{} on {:?}", path.display(), w, h, conn.interface());
         Ok(kms)
     }
 }

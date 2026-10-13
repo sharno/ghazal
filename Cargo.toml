@@ -1,8 +1,8 @@
 [package]
-name = "oxmux"
+name = "ghazal"
 version = "0.1.0"
 edition = "2021"
-description = "A Rust frontend for Anbernic H700 handhelds (RG40XXV)"
+description = "Ghazal: a standalone Linux gaming system for Anbernic H700 handhelds"
 license = "GPL-3.0-or-later"
 
 [features]
@@ -27,6 +27,7 @@ drm = { version = "0.14", default-features = false }
 
 [build-dependencies]
 slint-build = "1.18"
+resvg = { version = "0.48.1", default-features = false }
 
 [profile.release]
 opt-level = 3

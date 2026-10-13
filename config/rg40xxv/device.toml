@@ -4,7 +4,7 @@ name = "Anbernic RG40XXV"
 framebuffer = "/dev/fb0"
 
 [input]
-# `muinput` (muOS) or `oxmux input-bridge` re-expose the pad under this name, which
+# `muinput` (muOS) or `ghazal input-bridge` re-expose the pad under this name, which
 # RetroArch's autoconfig (device/rg40xx-v/control/muOS-Keys.cfg) matches on.
 gamepad = "muOS-Keys"
 
@@ -65,7 +65,7 @@ wakealarm = "/sys/class/rtc/rtc1/wakealarm"
 # Written if the poweroff syscall returns (muOS halt.sh does the same for rg* boards).
 fallback_write = { path = "/sys/class/axp/axp_reg", value = "0x1801" }
 
-# `oxmux input-bridge`: grabs the raw gpio pad and republishes it as muOS-Keys with the
+# `ghazal input-bridge`: grabs the raw gpio pad and republishes it as muOS-Keys with the
 # same identity and remapping as muOS's muinput (frontend/input/devices/h700/mapping.h).
 [input_bridge]
 source = "muOS-Input-Source"

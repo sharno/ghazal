@@ -68,11 +68,11 @@ impl Input {
                 (has_abs(code) && info.maximum > info.minimum).then_some((info.minimum, info.maximum))
             };
             let stick = [range(ABS_X), range(ABS_Y)];
-            eprintln!("oxmux: using input {} ({name}) stick={stick:?}", path.display());
+            eprintln!("ghazal: using input {} ({name}) stick={stick:?}", path.display());
             pads.push(Pad { device, stick, axis_state: [0; 4] });
         }
         if pads.is_empty() {
-            bail!("no gamepad {:?} in /dev/input (see `oxmux probe-input`)", dev.input.gamepad);
+            bail!("no gamepad {:?} in /dev/input (see `ghazal probe-input`)", dev.input.gamepad);
         }
 
         let names = [
@@ -104,7 +104,7 @@ impl Input {
             pad.axis_state = [0; 4];
             if self.grab {
                 if let Err(e) = pad.device.grab() {
-                    eprintln!("oxmux: grab failed: {e}");
+                    eprintln!("ghazal: grab failed: {e}");
                 }
             }
         }

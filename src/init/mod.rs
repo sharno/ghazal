@@ -1,4 +1,4 @@
-//! `oxmux init`: replaces muOS's script/init/sysinit and its S* scripts.
+//! `ghazal init`: replaces muOS's script/init/sysinit and its S* scripts.
 //!
 //! Runs the ordered boot plan from system.toml, then hands over to the supervisor.
 //! Works in two modes:
@@ -32,7 +32,7 @@ pub struct InitConfig {
     pub steps: Vec<Step>,
 }
 
-/// Falls back to the previous init if oxmux keeps failing to boot. The frontend resets
+/// Falls back to the previous init if ghazal keeps failing to boot. The frontend resets
 /// the counter once it has drawn its first frame.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,7 +40,7 @@ pub struct Rescue {
     pub counter: PathBuf,
     #[serde(default = "default_attempts")]
     pub max_attempts: u32,
-    /// Exec'd in place of oxmux after `max_attempts` boots that never reached the UI.
+    /// Exec'd in place of ghazal after `max_attempts` boots that never reached the UI.
     pub exec: Vec<String>,
 }
 
@@ -280,7 +280,7 @@ fn check_rescue(rescue: &Rescue) -> Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
         Err(error) => return Err(error.into()),
     };
-    std::env::set_var("OXMUX_BOOT_COUNTER", &rescue.counter);
+    std::env::set_var("GHAZAL_BOOT_COUNTER", &rescue.counter);
     if attempts >= rescue.max_attempts && !rescue.exec.is_empty() {
         log(format_args!("{attempts} boots never reached the UI; handing over to {:?}", rescue.exec));
         use std::os::unix::process::CommandExt;
@@ -307,8 +307,8 @@ pub fn mark_boot_ok() {
         let uptime = std::fs::read_to_string("/proc/uptime")?;
         let seconds: f64 = uptime.split_whitespace().next().context("missing kernel uptime")?.parse()?;
         let elapsed = Duration::try_from_secs_f64(seconds)?;
-        std::fs::create_dir_all("/run/oxmux")?;
-        let mut output = match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/oxmux/first-frame-ready") {
+        std::fs::create_dir_all("/run/ghazal")?;
+        let mut output = match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/ghazal/first-frame-ready") {
             Ok(output) => output,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
             Err(error) => return Err(error.into()),
@@ -318,7 +318,7 @@ pub fn mark_boot_ok() {
         Ok(())
     })();
     if let Err(error) = observation { log(format_args!("boot observation failed: {error:#}")); }
-    if let Some(counter) = std::env::var_os("OXMUX_BOOT_COUNTER") {
+    if let Some(counter) = std::env::var_os("GHAZAL_BOOT_COUNTER") {
         if let Err(error) = crate::sys::write_atomic(Path::new(&counter), b"0") {
             log(format_args!("could not mark boot successful: {error:#}"));
         }
@@ -447,12 +447,12 @@ fn parse_mount_options(options: &str) -> (libc::c_ulong, String) {
 }
 
 fn log(args: std::fmt::Arguments) {
-    eprintln!("oxmux-init: {args}");
+    eprintln!("ghazal-init: {args}");
     // Also reach the kernel log: during early boot stderr may go nowhere.
     let _ = std::fs::OpenOptions::new()
         .write(true)
         .open("/dev/kmsg")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, format!("oxmux-init: {args}\n").as_bytes()));
+        .and_then(|mut f| std::io::Write::write_all(&mut f, format!("ghazal-init: {args}\n").as_bytes()));
 }
 
 #[cfg(test)]

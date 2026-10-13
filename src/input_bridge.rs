@@ -1,4 +1,4 @@
-//! `oxmux input-bridge`: native replacement for muOS's `muinput`.
+//! `ghazal input-bridge`: native replacement for muOS's `muinput`.
 //!
 //! Grabs the raw gpio pad and republishes it through uinput with muinput's identity and
 //! code mapping (device.toml `[input_bridge]`), so RetroArch autoconfig and the frontend
@@ -29,7 +29,7 @@ pub fn run(dev: &DeviceConfig) -> Result<()> {
     let mut source = find_source(&cfg.source, Duration::from_secs(10))?;
     source.grab().context("grabbing source device")?;
     let mut out = build_output(cfg, &source, &keys, &axes)?;
-    eprintln!("oxmux-bridge: {:?} -> {:?}", cfg.source, cfg.name);
+    eprintln!("ghazal-bridge: {:?} -> {:?}", cfg.source, cfg.name);
     set_nonblocking(source.as_raw_fd())?;
     set_nonblocking(out.as_raw_fd())?;
 

@@ -9,8 +9,8 @@ use anyhow::{bail, Result};
 pub fn kernel_log() -> Result<()> {
     use std::io::Write;
     let mut source = std::fs::File::open("/dev/kmsg")?;
-    std::fs::create_dir_all("/run/oxmux")?;
-    match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/oxmux/kernel-log.started") {
+    std::fs::create_dir_all("/run/ghazal")?;
+    match std::fs::OpenOptions::new().write(true).create_new(true).open("/run/ghazal/kernel-log.started") {
         Ok(_) => {},
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             use std::io::Seek;
@@ -47,7 +47,7 @@ pub fn ssh_key() -> Result<()> {
 }
 
 /// Records iwd has set, one file per name, combined into /etc/resolv.conf.
-const RESOLVCONF_RECORDS: &str = "/run/oxmux/resolvconf";
+const RESOLVCONF_RECORDS: &str = "/run/ghazal/resolvconf";
 
 /// iwd's resolvconf backend: `-a NAME` sets a record from stdin, `-d NAME`
 /// removes it. iwd sends nameservers and search domains as separate records

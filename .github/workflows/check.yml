@@ -35,8 +35,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y exfat-fuse
           exfat=$(nix build --no-link --print-out-paths --inputs-from . 'nixpkgs#exfatprogs^out')
-          cargo test --locked --no-run --message-format=json > /tmp/oxmux-tests.json
-          binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "oxmux") | .executable' /tmp/oxmux-tests.json)
+          cargo test --locked --no-run --message-format=json > /tmp/ghazal-tests.json
+          binary=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "ghazal") | .executable' /tmp/ghazal-tests.json)
           rustc_path=$(rustup which rustc)
           mounter=$(command -v mount.exfat-fuse)
-          sudo env OXMUX_TEST_RUSTC="$rustc_path" OXMUX_TEST_MOUNT_EXFAT="$mounter" OXMUX_TEST_MKFS_EXFAT="$exfat/bin/mkfs.exfat" OXMUX_TEST_FSCK_EXFAT="$exfat/bin/fsck.exfat" "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture
+          sudo env GHAZAL_TEST_RUSTC="$rustc_path" GHAZAL_TEST_MOUNT_EXFAT="$mounter" GHAZAL_TEST_MKFS_EXFAT="$exfat/bin/mkfs.exfat" GHAZAL_TEST_FSCK_EXFAT="$exfat/bin/fsck.exfat" "$binary" --ignored --exact init::storage::tests::factory_loopback_preparation_preserves_existing_data --nocapture

@@ -23,7 +23,7 @@ let
     "rg28xx" "rg34xx" "rg34xx-sp" "rg34xx-sp-v2" "rg35xx-plus"
     "rg35xx-plus-rev6" "rg35xx-sp-v2" "rg40xx" "rg40xx-v2" "rgcubexx"
   ];
-  earlyFirmware = buildPackages.runCommand "oxmux-h700-early-firmware" {
+  earlyFirmware = buildPackages.runCommand "ghazal-h700-early-firmware" {
     nativeBuildInputs = with buildPackages; [ gzip mtools squashfsTools ];
   } ''
     gzip -dc ${bundle} > hardware.img
@@ -73,7 +73,7 @@ let
 in
 assert hardware.source_revision == revision;
 stdenv.mkDerivation {
-  pname = "oxmux-h700-kernel" + lib.optionalString debug "-debug";
+  pname = "ghazal-h700-kernel" + lib.optionalString debug "-debug";
   version = "7.2";
   src = fetchurl {
     url = "https://www.kernel.org/pub/linux/kernel/v7.x/linux-7.2.tar.xz";
@@ -83,7 +83,7 @@ stdenv.mkDerivation {
   depsBuildBuild = [ buildPackages.stdenv.cc ];
   enableParallelBuilding = true;
   # Reproducible version banner: no build time, user or host.
-  env = { KBUILD_BUILD_TIMESTAMP = "@1"; KBUILD_BUILD_USER = "oxmux"; KBUILD_BUILD_HOST = "nix"; };
+  env = { KBUILD_BUILD_TIMESTAMP = "@1"; KBUILD_BUILD_USER = "ghazal"; KBUILD_BUILD_HOST = "nix"; };
   hardeningDisable = [ "all" ];
   dontStrip = true;
   dontFixup = true;
@@ -138,7 +138,7 @@ stdenv.mkDerivation {
       --set-str INITRAMFS_SOURCE "" \
       --set-str EXTRA_FIRMWARE "${lib.concatStringsSep " " firmware}" \
       --set-str EXTRA_FIRMWARE_DIR "${earlyFirmware}" \
-      --set-str LOCALVERSION "-oxmux${lib.optionalString debug "-debug"}" --disable LOCALVERSION_AUTO
+      --set-str LOCALVERSION "-ghazal${lib.optionalString debug "-debug"}" --disable LOCALVERSION_AUTO
   '';
   configurePhase = ''
     runHook preConfigure

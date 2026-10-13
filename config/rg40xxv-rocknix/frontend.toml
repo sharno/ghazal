@@ -5,17 +5,17 @@ rom_roots = ["/mnt/games/ROMS"]
 # Systems with `requires_any` stay hidden until one of those BIOS files is here.
 bios_dir = "/mnt/games/BIOS"
 # Box art: next to ROMs (Imgs/), muOS's catalogue, then downloads (Options menu).
-thumbnail_cache = "/mnt/games/.oxmux/thumbnails"
+thumbnail_cache = "/mnt/games/.ghazal/thumbnails"
 muos_catalogue = "/mnt/games/MUOS/info/catalogue"
-activity_file = "/mnt/games/.oxmux/activity.toml"
+activity_file = "/mnt/games/.ghazal/activity.toml"
 
 [retroarch]
 bin = "/usr/bin/retroarch"
 # Our own RetroArch configuration.
-configs = ["/etc/oxmux/retroarch.cfg"]
+configs = ["/etc/ghazal/retroarch.cfg"]
 core_dirs = ["/usr/lib/libretro"]
 extra_args = ["-f"]
-log = "/var/log/oxmux/retroarch.log"
+log = "/var/log/ghazal/retroarch.log"
 env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
 
 [[system]]
@@ -146,7 +146,7 @@ extensions = ["iso", "cso", "pbp", "chd"]
 # (see the image builder); the pause menu's Exit or Menu + Start quits.
 command = ["/usr/bin/ppsspp", "--pause-menu-exit", "{rom}"]
 env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
-log = "/var/log/oxmux/ppsspp.log"
+log = "/var/log/ghazal/ppsspp.log"
 art = { libretro = "Sony - PlayStation Portable", muos = "Sony PlayStation Portable" }
 
 [[system]]

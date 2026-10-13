@@ -1,4 +1,4 @@
-# Static aarch64 (musl) oxmux, the same binary `cargo device` builds: prebuilt Rust
+# Static aarch64 (musl) ghazal, the same binary `cargo device` builds: prebuilt Rust
 # toolchain + musl std from rust-overlay, dependencies vendored from Cargo.lock, linked
 # with the bundled rust-lld (see .cargo/config.toml). No C cross toolchain involved.
 { lib, stdenv, rust-bin, rustPlatform, src }:
@@ -10,7 +10,7 @@ let
   target = "aarch64-unknown-linux-musl";
 in
 stdenv.mkDerivation {
-  pname = "oxmux";
+  pname = "ghazal";
   version = (lib.importTOML (src + "/Cargo.toml")).package.version;
 
   src = lib.cleanSourceWith {
@@ -34,7 +34,7 @@ stdenv.mkDerivation {
   '';
 
   installPhase = ''
-    install -Dm755 target/${target}/release/oxmux $out/bin/oxmux
+    install -Dm755 target/${target}/release/ghazal $out/bin/ghazal
   '';
 
   # Cross-compiled; nothing to run on the build machine.

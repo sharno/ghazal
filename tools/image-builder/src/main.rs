@@ -102,7 +102,7 @@ impl Options {
             return Err("invalid release version".into());
         }
         if options.args.len() != if options.public { 2 } else { 3 } {
-            return Err("usage: oxmux-image-builder [--device ID] [--memory ddr3|ddr4] SOURCE_DIRECTORY SECRETS_DIRECTORY OUTPUT.img; public builds: --public SOURCE_DIRECTORY OUTPUT.img; release batch: --all --memory ddr3|ddr4 --version TAG SOURCE_DIRECTORY OUTPUT_DIRECTORY".into());
+            return Err("usage: ghazal-image-builder [--device ID] [--memory ddr3|ddr4] SOURCE_DIRECTORY SECRETS_DIRECTORY OUTPUT.img; public builds: --public SOURCE_DIRECTORY OUTPUT.img; release batch: --all --memory ddr3|ddr4 --version TAG SOURCE_DIRECTORY OUTPUT_DIRECTORY".into());
         }
         Ok(options)
     }
@@ -330,17 +330,17 @@ fn main() -> Result<()> {
     if image.exists() && !options.all {
         return Err("output exists; choose a new filename".into());
     }
-    let binary = PathBuf::from(std::env::var("OXMUX_BINARY")?);
-    let busybox = PathBuf::from(std::env::var("OXMUX_BUSYBOX")?);
+    let binary = PathBuf::from(std::env::var("GHAZAL_BINARY")?);
+    let busybox = PathBuf::from(std::env::var("GHAZAL_BUSYBOX")?);
     // Repository-built kernel and device tree (nix/h700-kernel.nix): all drivers
     // built in, so the bundle's kernel, modules and an initramfs are not used.
-    let kernel = PathBuf::from(std::env::var("OXMUX_KERNEL")?);
+    let kernel = PathBuf::from(std::env::var("GHAZAL_KERNEL")?);
     let uboot = PathBuf::from(std::env::var(if options.memory == "ddr3" {
-        "OXMUX_UBOOT_DDR3"
+        "GHAZAL_UBOOT_DDR3"
     } else {
-        "OXMUX_UBOOT"
+        "GHAZAL_UBOOT"
     })?);
-    let builder_shell = std::env::var("OXMUX_BUILDER_SHELL")?;
+    let builder_shell = std::env::var("GHAZAL_BUILDER_SHELL")?;
     let lock: BTreeMap<_, _> = fs::read_to_string(repo.join("hardware.lock"))?
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -424,11 +424,11 @@ fn main() -> Result<()> {
         "mnt/games",
         "root/.ssh",
         "etc/ssh",
-        "var/lib/oxmux",
+        "var/lib/ghazal",
         "var/lib/iwd",
-        "var/log/oxmux",
+        "var/log/ghazal",
         "var/empty",
-        "etc/oxmux",
+        "etc/ghazal",
         "etc/dbus-1/system.d",
     ] {
         fs::create_dir_all(root.join(dir))?;
@@ -442,7 +442,7 @@ fn main() -> Result<()> {
         symlink(target, root.join(link))?;
     }
     fs::set_permissions(root.join("tmp"), fs::Permissions::from_mode(0o1777))?;
-    copy(&binary, &root.join("opt/oxmux/oxmux"))?;
+    copy(&binary, &root.join("opt/ghazal/ghazal"))?;
     copy(&busybox, &root.join("usr/bin/busybox"))?;
     for applet in [
         "sh",
@@ -503,12 +503,12 @@ fn main() -> Result<()> {
     ] {
         symlink("busybox", root.join("usr/bin").join(applet))?;
     }
-    symlink("/opt/oxmux/oxmux", root.join("usr/sbin/resolvconf"))?;
-    // The kernel mounts the root filesystem and runs this; oxmux dispatches on argv[0].
-    symlink("/opt/oxmux/oxmux", root.join("usr/sbin/init"))?;
+    symlink("/opt/ghazal/ghazal", root.join("usr/sbin/resolvconf"))?;
+    // The kernel mounts the root filesystem and runs this; ghazal dispatches on argv[0].
+    symlink("/opt/ghazal/ghazal", root.join("usr/sbin/init"))?;
     copy_tree(
         &repo.join("config/rg40xxv-rocknix"),
-        &root.join("etc/oxmux"),
+        &root.join("etc/ghazal"),
     )?;
     copy_tree(
         &upstream.join("usr/lib/kernel-overlays/base/lib/firmware"),
@@ -540,10 +540,10 @@ fn main() -> Result<()> {
     )?;
     copy_tree(
         &upstream.join("usr/config/ppsspp/PSP"),
-        &root.join("var/lib/oxmux/ppsspp/PSP"),
+        &root.join("var/lib/ghazal/ppsspp/PSP"),
     )?;
     let ppsspp = repo.join("config/rg40xxv-rocknix/ppsspp");
-    let system = root.join("var/lib/oxmux/ppsspp/PSP/SYSTEM");
+    let system = root.join("var/lib/ghazal/ppsspp/PSP/SYSTEM");
     copy(&ppsspp.join("controls.ini"), &system.join("controls.ini"))?;
     let defaults = fs::read_to_string(system.join("ppsspp.ini"))?;
     let settings = merge_ini(
@@ -553,7 +553,7 @@ fn main() -> Result<()> {
     fs::write(system.join("ppsspp.ini"), &settings)?;
     copy_tree(
         &ppsspp.join("Cheats"),
-        &root.join("var/lib/oxmux/ppsspp/PSP/Cheats"),
+        &root.join("var/lib/ghazal/ppsspp/PSP/Cheats"),
     )?;
     // PPSSPP reads every per-game setting from a game's own ini, so each one
     // starts from the full settings and changes only that game's overrides.
@@ -576,8 +576,8 @@ fn main() -> Result<()> {
     // layout: settings on SD1, game saves shared with the libretro core on SD2.
     for (link, target) in [
         ("usr/bin/assets", "/usr/share/ppsspp/assets"),
-        ("var/lib/oxmux/ppsspp/assets", "/usr/share/ppsspp/assets"),
-        ("storage/.config/ppsspp", "/var/lib/oxmux/ppsspp"),
+        ("var/lib/ghazal/ppsspp/assets", "/usr/share/ppsspp/assets"),
+        ("storage/.config/ppsspp", "/var/lib/ghazal/ppsspp"),
         (
             "storage/.config/SDL-GameControllerDB",
             "/usr/share/SDL-GameControllerDB",
@@ -640,7 +640,7 @@ fn main() -> Result<()> {
     ] {
         closure.add(name)?;
     }
-    let frontend = fs::read_to_string(root.join("etc/oxmux/frontend.toml"))?;
+    let frontend = fs::read_to_string(root.join("etc/ghazal/frontend.toml"))?;
     for line in frontend.lines().filter(|l| l.starts_with("core = ")) {
         let core = line.split('"').nth(1).ok_or("invalid core profile")?;
         closure.add(&format!("/usr/lib/libretro/{core}"))?;
@@ -679,15 +679,15 @@ fn main() -> Result<()> {
     write(
         &root,
         "etc/hosts",
-        "127.0.0.1 localhost oxmux\n::1 localhost\n",
+        "127.0.0.1 localhost ghazal\n::1 localhost\n",
     )?;
     write(
         &root,
         "etc/os-release",
-        "NAME=Oxmux\nID=oxmux\nVERSION_ID=0.1.0\n",
+        "NAME=Ghazal\nID=ghazal\nVERSION_ID=0.1.0\n",
     )?;
     write(&root, "etc/machine-id", "")?;
-    write(&root, "var/lib/oxmux/factory-data", "oxmux-factory-v1\n")?;
+    write(&root, "var/lib/ghazal/factory-data", "ghazal-factory-v1\n")?;
     write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
     if let Some(secrets) = &secrets {
         copy(
@@ -752,7 +752,7 @@ fn main() -> Result<()> {
     write(
         &root,
         "etc/resolv.conf",
-        "# populated by iwd via oxmux resolvconf\n",
+        "# populated by iwd via ghazal resolvconf\n",
     )?;
     write(
         &root,
@@ -761,7 +761,7 @@ fn main() -> Result<()> {
     )?;
     write(
         &root,
-        "etc/oxmux/retroarch.cfg",
+        "etc/ghazal/retroarch.cfg",
         include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"),
     )?;
     if devices.iter().any(|device| device.rotation == "left") {
@@ -778,7 +778,7 @@ fn main() -> Result<()> {
     )?;
     copy(
         &repo.join("hardware.lock"),
-        &root.join("etc/oxmux/hardware.lock"),
+        &root.join("etc/ghazal/hardware.lock"),
     )?;
     if options.public
         && (!fs::read(root.join("root/.ssh/authorized_keys"))?.is_empty()
@@ -787,12 +787,12 @@ fn main() -> Result<()> {
     {
         return Err("public image contains credentials or a shared machine identity".into());
     }
-    let device_template = fs::read_to_string(root.join("etc/oxmux/device.toml"))?;
-    let frontend_template = fs::read_to_string(root.join("etc/oxmux/frontend.toml"))?;
+    let device_template = fs::read_to_string(root.join("etc/ghazal/device.toml"))?;
+    let frontend_template = fs::read_to_string(root.join("etc/ghazal/frontend.toml"))?;
     for device in devices {
         let image = if options.all {
             image.join(format!(
-                "oxmux-{}-{}-{}.img",
+                "ghazal-{}-{}-{}.img",
                 options.version, device.id, options.memory
             ))
         } else {
@@ -807,7 +807,7 @@ fn main() -> Result<()> {
                 "rotation".into(),
                 toml::Value::String(device.rotation.clone()),
             );
-        write(&root, "etc/oxmux/device.toml", toml::to_string(&profile)?)?;
+        write(&root, "etc/ghazal/device.toml", toml::to_string(&profile)?)?;
         let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
         if device.rotation == "left" {
             for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
@@ -825,12 +825,12 @@ fn main() -> Result<()> {
         }
         write(
             &root,
-            "etc/oxmux/frontend.toml",
+            "etc/ghazal/frontend.toml",
             toml::to_string(&frontend)?,
         )?;
         write(
             &root,
-            "etc/oxmux/retroarch.cfg",
+            "etc/ghazal/retroarch.cfg",
             format!(
                 "{}\nvideo_rotation = \"{}\"\n",
                 include_str!("../../../config/rg40xxv-rocknix/retroarch.cfg"),
@@ -839,7 +839,7 @@ fn main() -> Result<()> {
         )?;
         write(
             &root,
-            "etc/oxmux/image.json",
+            "etc/ghazal/image.json",
             serde_json::to_vec_pretty(&serde_json::json!({
                 "device":device, "memory":options.memory, "version":options.version, "public":options.public,
                 "data_policy":"TF2 if present, otherwise TF1 data partition", "hardware_revision":value("source_revision")?
@@ -851,7 +851,7 @@ fn main() -> Result<()> {
             .args([
                 builder_shell.as_str(),
                 "-ec",
-                "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L OXMUXROOT -d \"$1\" \"$2\"",
+                "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L GHAZALROOT -d \"$1\" \"$2\"",
                 "image-builder",
             ])
             .arg(&root)
@@ -875,11 +875,11 @@ fn main() -> Result<()> {
         // `quiet`: printing the boot log over the 115200-baud serial console alone
         // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
         // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
-        write(&boot, "extlinux/extlinux.conf", "DEFAULT oxmux\nTIMEOUT 0\nLABEL oxmux\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
+        write(&boot, "extlinux/extlinux.conf", "DEFAULT ghazal\nTIMEOUT 0\nLABEL ghazal\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
         let boot_image = work.join("boot.fat");
         File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
         run(Command::new("mkfs.vfat")
-            .args(["-F", "32", "-n", "OXMUXBOOT"])
+            .args(["-F", "32", "-n", "GHAZALBOOT"])
             .arg(&boot_image))?;
         for name in [
             "KERNEL",

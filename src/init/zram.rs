@@ -44,7 +44,7 @@ pub fn setup(z: &ZramStep) -> Result<()> {
     }
     // Not every kernel offers every algorithm; fall back to the default one.
     if let Err(e) = sys::write_file(&sysfs.join("comp_algorithm"), &z.algorithm) {
-        eprintln!("oxmux-init: zram {}: {e:#}", z.algorithm);
+        eprintln!("ghazal-init: zram {}: {e:#}", z.algorithm);
     }
     let bytes = z.size_mb * 1024 * 1024;
     sys::write_file(&sysfs.join("disksize"), &bytes.to_string())?;

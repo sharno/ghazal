@@ -1,6 +1,6 @@
 # QEMU aarch64 "virt" machine used to boot-test the Nix image: virtio-gpu (KMS) at the
 # handheld's 640x480, and the virtio keyboard standing in for the gamepad.
-name = "QEMU virt (oxmux test machine)"
+name = "QEMU virt (ghazal test machine)"
 
 [input]
 gamepad = "QEMU Virtio Keyboard"

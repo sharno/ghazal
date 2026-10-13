@@ -1285,6 +1285,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghazal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "drm",
+ "evdev",
+ "fontique",
+ "libc",
+ "png 0.17.16",
+ "resvg",
+ "serde",
+ "slint",
+ "slint-build",
+ "softbuffer",
+ "toml 0.8.23",
+ "winit",
+]
+
+[[package]]
 name = "gif"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2910,24 +2929,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36820e9051aca1014ddc75770aab4d68bc1e9e632f0f5627c4086bc216fb583b"
 dependencies = [
  "ttf-parser",
-]
-
-[[package]]
-name = "oxmux"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "drm",
- "evdev",
- "fontique",
- "libc",
- "png 0.17.16",
- "serde",
- "slint",
- "slint-build",
- "softbuffer",
- "toml 0.8.23",
- "winit",
 ]
 
 [[package]]

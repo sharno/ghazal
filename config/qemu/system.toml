@@ -19,39 +19,39 @@ mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid
 [[init.step]]
 mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid,nodev" }
 [[init.step]]
-hostname = "oxmux-vm"
-# No udev: oxmux loads drivers for detected hardware itself (modules.alias).
+hostname = "ghazal-vm"
+# No udev: ghazal loads drivers for detected hardware itself (modules.alias).
 [[init.step]]
 coldplug = {}
 [[init.step]]
 wait = { path = "/dev/dri/card0", timeout = 5 }
 
 [daemon]
-state = "/run/oxmux/settings.toml"
-socket = "/run/oxmux/daemon.sock"
+state = "/run/ghazal/settings.toml"
+socket = "/run/ghazal/daemon.sock"
 
 [[daemon.hotkey]]
 keys = ["menu", "vol_up"]
 action = "brightness-up"
 
 [supervisor]
-log_dir = "/run/oxmux/log"
+log_dir = "/run/ghazal/log"
 
 [[supervisor.service]]
 name = "daemon"
-exec = ["/opt/oxmux/oxmux", "daemon"]
+exec = ["/opt/ghazal/ghazal", "daemon"]
 restart = "always"
 
 [[supervisor.service]]
 name = "frontend"
-exec = ["/opt/oxmux/oxmux", "frontend"]
+exec = ["/opt/ghazal/ghazal", "frontend"]
 after = ["daemon"]
 restart = "always"
-env = { OXMUX_EMBEDDED = "1", OXMUX_BOOT_COUNTER = "/run/boot-attempts" }
+env = { GHAZAL_EMBEDDED = "1", GHAZAL_BOOT_COUNTER = "/run/boot-attempts" }
 
 # Root shell on the serial console, for debugging.
 [[supervisor.service]]
 name = "console"
 exec = ["/bin/sh", "-c", "exec /bin/sh -i </dev/ttyAMA0 >/dev/ttyAMA0 2>&1"]
 restart = "always"
-env = { PS1 = "oxmux# ", HOME = "/" }
+env = { PS1 = "ghazal# ", HOME = "/" }

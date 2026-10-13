@@ -1,5 +1,5 @@
 {
-  description = "oxmux: Rust userland for Anbernic H700 handhelds";
+  description = "ghazal: Rust userland for Anbernic H700 handhelds";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -20,7 +20,7 @@
           # Target-architecture packages come straight from cache.nixos.org's aarch64 builds.
           target = nixpkgs.legacyPackages.aarch64-linux;
 
-          oxmux = pkgs.callPackage ./nix/oxmux.nix { src = ./.; };
+          ghazal = pkgs.callPackage ./nix/ghazal.nix { src = ./.; };
           # Cross toolchain for the bootloader and kernel; native on aarch64 hosts.
           cross = if system == "aarch64-linux" then pkgs else pkgs.pkgsCross.aarch64-multiplatform;
           uboot = cross.callPackage ./nix/uboot.nix { };
@@ -28,7 +28,7 @@
           h700-kernel = cross.callPackage ./nix/h700-kernel.nix { };
           h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { debug = true; };
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
-            inherit oxmux uboot uboot-ddr3;
+            inherit ghazal uboot uboot-ddr3;
             kernel = h700-kernel;
             src = ./.;
             busybox = target.pkgsStatic.busybox;
@@ -36,9 +36,9 @@
               squashfsTools binutils cpio gzip curl coreutils findutils fakeroot ];
           };
 
-          # QEMU "virt" test machine: stock kernel, oxmux as PID 1 from an initramfs.
+          # QEMU "virt" test machine: stock kernel, ghazal as PID 1 from an initramfs.
           vm = pkgs.callPackage ./nix/vm.nix {
-            inherit oxmux;
+            inherit ghazal;
             kernel = target.linux_6_12;
             busybox = target.pkgsStatic.busybox;
             profile = ./config/qemu;
@@ -49,15 +49,15 @@
         in
         {
           packages = {
-            inherit oxmux uboot uboot-ddr3 image-builder h700-kernel h700-debug-kernel;
+            inherit ghazal uboot uboot-ddr3 image-builder h700-kernel h700-debug-kernel;
             vm-initrd = vm.initrd;
             vm = vm.runner;
             default = vm.runner;
           };
 
           apps = {
-            vm = { type = "app"; program = "${vm.runner}/bin/oxmux-vm"; };
-            image = { type = "app"; program = "${image-builder}/bin/oxmux-image-builder"; };
+            vm = { type = "app"; program = "${vm.runner}/bin/ghazal-vm"; };
+            image = { type = "app"; program = "${image-builder}/bin/ghazal-image-builder"; };
           };
 
           devShells.default = pkgs.mkShell {

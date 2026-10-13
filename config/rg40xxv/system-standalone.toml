@@ -1,6 +1,6 @@
-# Stages 3 and 4: oxmux runs the whole boot. No muOS shell scripts run at all.
-#   stage 3: `oxmux install init` points busybox init's sysinit at `oxmux init`.
-#   stage 4: the image builder makes `oxmux init` PID 1 (/init).
+# Stages 3 and 4: ghazal runs the whole boot. No muOS shell scripts run at all.
+#   stage 3: `ghazal install init` points busybox init's sysinit at `ghazal init`.
+#   stage 4: the image builder makes `ghazal init` PID 1 (/init).
 # The rootfs is still the muOS one: kernel modules, udev, RetroArch, cores, and their
 # configs under /opt/muos/share are reused as they are.
 #
@@ -8,7 +8,7 @@
 # three boots that never reach the menu the device boots the old way.
 
 [init.rescue]
-counter = "/opt/oxmux/state/boot-attempts"
+counter = "/opt/ghazal/state/boot-attempts"
 max_attempts = 3
 exec = ["@RESCUE_EXEC@"]
 
@@ -130,7 +130,7 @@ write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq", value 
 write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", value = "1512000", optional = true }
 
 [power]
-# PID 1 (busybox in stage 3, oxmux in stage 4) stops everything and powers off.
+# PID 1 (busybox in stage 3, ghazal in stage 4) stops everything and powers off.
 poweroff = "signal-init"
 reboot = "signal-init"
 sleep_poweroff_after = 3600
@@ -139,8 +139,8 @@ before_suspend = [["modprobe", "-r", "8821cs"]]
 after_resume = [["modprobe", "8821cs"]]
 
 [daemon]
-state = "/opt/oxmux/state/settings.toml"
-socket = "/run/oxmux/daemon.sock"
+state = "/opt/ghazal/state/settings.toml"
+socket = "/run/ghazal/daemon.sock"
 brightness_step = 6
 volume_step = 5
 
@@ -170,7 +170,7 @@ keys = ["menu", "vol_down"]
 action = "brightness-down"
 
 [supervisor]
-log_dir = "/run/oxmux/log"
+log_dir = "/run/ghazal/log"
 
 # --- udev: device nodes, permissions, and the database RetroArch's udev joypad driver
 # reads (S10udev.sh) ---
@@ -208,24 +208,24 @@ optional = true
 # muinput replacement: republishes the pad as muOS-Keys for RetroArch and the frontend.
 [[supervisor.service]]
 name = "input-bridge"
-exec = ["/opt/oxmux/oxmux", "input-bridge"]
+exec = ["/opt/ghazal/ghazal", "input-bridge"]
 after = ["udev-settle"]
 restart = "always"
-env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+env = { GHAZAL_CONFIG_DIR = "/opt/ghazal/etc" }
 
 [[supervisor.service]]
 name = "daemon"
-exec = ["/opt/oxmux/oxmux", "daemon"]
+exec = ["/opt/ghazal/ghazal", "daemon"]
 after = ["input-bridge"]
 restart = "always"
-env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc" }
+env = { GHAZAL_CONFIG_DIR = "/opt/ghazal/etc" }
 
 [[supervisor.service]]
 name = "frontend"
-exec = ["/opt/oxmux/oxmux", "frontend"]
+exec = ["/opt/ghazal/ghazal", "frontend"]
 after = ["daemon", "mixer"]
 restart = "always"
-env = { OXMUX_CONFIG_DIR = "/opt/oxmux/etc", OXMUX_EMBEDDED = "1", OXMUX_BOOT_COUNTER = "/opt/oxmux/state/boot-attempts" }
+env = { GHAZAL_CONFIG_DIR = "/opt/ghazal/etc", GHAZAL_EMBEDDED = "1", GHAZAL_BOOT_COUNTER = "/opt/ghazal/state/boot-attempts" }
 
 # --- Network: wifi + DHCP + SSH (S02network.sh, web/service.sh). Networks come from
 # /etc/wpa_supplicant.conf, as configured in muOS. ---

@@ -45,7 +45,7 @@ pub fn run(config: FrontendConfig, _device: &DeviceConfig) -> Result<()> {
 /// (comma-separated, e.g. "down,a,menu"), as `DIR/NN.png`. Animations are fast-forwarded
 /// to their end state and launches are only printed.
 pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, buttons: &str) -> Result<()> {
-    let (width, height) = match std::env::var("OXMUX_SNAPSHOT_SIZE") {
+    let (width, height) = match std::env::var("GHAZAL_SNAPSHOT_SIZE") {
         Ok(size) => {
             let (width, height) = size.split_once('x').ok_or_else(|| anyhow::anyhow!("snapshot size must be WIDTHxHEIGHT"))?;
             let width: u32 = width.parse()?; let height: u32 = height.parse()?;
@@ -65,7 +65,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         app.tick(Instant::now());
     }
     if let Some(Effect::Launch { spec, .. }) = app.take_startup_effect() {
-        eprintln!("oxmux: would start last game {} {:?}", spec.program.display(), spec.args);
+        eprintln!("ghazal: would start last game {} {:?}", spec.program.display(), spec.args);
     }
     let mut frame = 0;
     let mut save = |screen: &mut Screen| -> Result<()> {
@@ -83,7 +83,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     for name in buttons.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
         if let Some(Effect::Launch { spec, .. }) = app.update(button) {
-            eprintln!("oxmux: would launch {} {:?}", spec.program.display(), spec.args);
+            eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
         }
         app.tick(Instant::now());
         save(&mut screen)?;
@@ -168,7 +168,7 @@ impl ApplicationHandler for Sim {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("oxmux (RG40XXV sim)")
+            .with_title("ghazal (RG40XXV sim)")
             .with_inner_size(PhysicalSize::new(WIDTH * 2, HEIGHT * 2));
         let result = (|| -> Result<()> {
             let window = Rc::new(event_loop.create_window(attrs)?);

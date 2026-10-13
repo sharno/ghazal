@@ -1,4 +1,4 @@
-// oxmux UI. Rust owns all state (src/frontend/app.rs) and pushes it in through the
+// ghazal UI. Rust owns all state (src/frontend/app.rs) and pushes it in through the
 // properties of AppWindow; this file only describes how that state looks.
 
 import "../assets/DejaVuSans.ttf";
@@ -178,6 +178,7 @@ export component AppWindow inherits Window {
     /// -1 means the menu is closed.
     in property <int> menu-selected: -1;
     in property <string> toast;
+    in property <image> brand-logo;
     in property <bool> toast-error;
     in property <bool> levels-visible;
     in property <int> brightness-level;
@@ -194,6 +195,17 @@ export component AppWindow inherits Window {
                 padding-left: Theme.pad;
                 padding-right: Theme.pad;
                 spacing: 12px;
+                Rectangle {
+                    width: Theme.compact ? 18px : 26px;
+                    horizontal-stretch: 0;
+                    Image {
+                        width: parent.width;
+                        height: self.width;
+                        y: (parent.height - self.height) / 2;
+                        source: root.brand-logo;
+                        image-fit: contain;
+                    }
+                }
                 Text {
                     text: root.heading;
                     horizontal-stretch: 1;

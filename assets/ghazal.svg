@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Ghazal gazelle</title>
+  <g fill="#e8663d">
+    <path d="M111 112C83 80 78 38 102 12C91 51 102 73 122 99Z"/>
+    <path d="M145 112C173 80 178 38 154 12C165 51 154 73 134 99Z"/>
+    <path d="M105 126C73 129 45 109 32 85C67 84 91 97 111 113Z"/>
+    <path d="M151 126C183 129 211 109 224 85C189 84 165 97 145 113Z"/>
+    <path d="M128 94C100 94 90 118 96 145L112 205Q128 241 144 205L160 145C166 118 156 94 128 94Z"/>
+  </g>
+  <g fill="#0f1216">
+    <path d="M103 139L119 146L110 153Z"/>
+    <path d="M153 139L137 146L146 153Z"/>
+    <path d="M117 200Q128 195 139 200L128 215Z"/>
+  </g>
+</svg>

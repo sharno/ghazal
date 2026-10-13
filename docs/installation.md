@@ -1,12 +1,14 @@
 # Installing the H700 beta
 
-Download images from [GitHub Releases](https://github.com/sharno/oxmux/releases).
+Download images from [GitHub Releases](https://github.com/sharno/ghazal/releases).
 Every image supports **either one SD card or two SD cards**. Choose the device,
 panel revision and RAM variant; storage layout does not require another image.
 
 ## Choose the image
 
-Files are named `oxmux-v0.1.0-beta.1-<device>-<ddr3|ddr4>.img.gz`.
+New images are named `ghazal-<version>-<device>-<ddr3|ddr4>.img.gz`.
+The original `v0.1.0-beta.1` release predates the rename and retains its
+`oxmux-` filenames and original on-card paths.
 The catalog in [devices.toml](../config/h700/devices.toml) is authoritative.
 
 | Model / panel | Device name in the filename |
@@ -45,7 +47,7 @@ no manual DTB copying is needed for a correctly chosen image.
 
 ## Optional Wi-Fi and SSH
 
-After writing, mount `OXMUXBOOT`. Copy `provision.toml.example` to
+After writing, mount `GHAZALBOOT`. Copy `provision.toml.example` to
 `provision.toml`, and edit it before first boot:
 
 ```toml
@@ -73,9 +75,9 @@ Wi-Fi adapter instead.
 
 1. Safely eject the written card and insert it into **TF1**. Leave TF2 empty.
 2. Boot once and wait for Main Menu. First boot grows and creates the reserved
-   `OXMUXDATA` exFAT partition in the remaining space. Let preparation finish.
+   `GHAZALDATA` exFAT partition in the remaining space. Let preparation finish.
 3. Choose **Shutdown**, wait for the device to turn off, and move the card to
-   the computer. Mount `OXMUXDATA` and copy games into `ROMS/<system>/` and
+   the computer. Mount `GHAZALDATA` and copy games into `ROMS/<system>/` and
    BIOS files into `BIOS/`. Do not put games on the boot partition.
 4. Safely eject, return the card to TF1 and boot. Explore Content lists systems
    with games. BIOS-dependent systems remain hidden until their BIOS is present.
@@ -93,11 +95,11 @@ the factory marker is removed and subsequent boots never format the volume.
 2. Back up the TF2 card before preparing it. Use one data partition formatted
    as exFAT (recommended for computer access), FAT32 or ext4. Existing compatible
    cards can be used without reformatting. The first partition is selected.
-3. Copy `ROMS/`, `BIOS/`, `SAVES/` and `.oxmux/` as needed to the **root** of TF2.
+3. Copy `ROMS/`, `BIOS/`, `SAVES/` and `.ghazal/` as needed to the **root** of TF2.
    Empty cards get the required directories on first boot.
 4. With the handheld off, insert OS into TF1 and data into TF2, then boot.
 5. TF2 takes priority for games, saves, history, thumbnails and Syncthing state.
-   Its filesystem is never formatted or resized by oxmux. TF1 also gets its own
+   Its filesystem is never formatted or resized by ghazal. TF1 also gets its own
    data partition so it remains usable when TF2 is removed.
 
 Set `data_card = "tf2"` in provision.toml if you want a missing TF2 card to be an
@@ -131,12 +133,12 @@ including its games in a one-card setup. A two-card setup preserves TF2 when
 only TF1 is reflashed; re-provision Wi-Fi/SSH on the new OS card.
 
 Three boots that never reach the menu enter recovery. SSH and Wi-Fi remain
-available when provisioned. Logs are in `/var/log/oxmux/`; use `kernel-log.log`,
+available when provisioned. Logs are in `/var/log/ghazal/`; use `kernel-log.log`,
 `wifi.log`, `frontend.log` and the emulator log to report a failure. Include
-the filename, board/panel revision and `/etc/oxmux/image.json` in a bug report.
+the filename, board/panel revision and `/etc/ghazal/image.json` in a bug report.
 Native suspend remains disabled. Use Shutdown before removing a card.
 
-To leave recovery without SSH: hold Power to shut down, mount `OXMUXBOOT` on
+To leave recovery without SSH: hold Power to shut down, mount `GHAZALBOOT` on
 the computer, create an empty file named **retry-boot** (no `.txt` extension),
 and safely eject. The next boot clears the counter, removes the request and
 restarts into a normal boot attempt. You can also correct provision.toml while

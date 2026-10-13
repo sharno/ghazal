@@ -43,7 +43,7 @@ jobs:
           fi
           builder=$(nix build .#image-builder --no-link --print-out-paths)
           printf '%s\n' "$builder" > build/release-tools/store-path.txt
-          "$builder/bin/oxmux-image-builder" --matrix > build/release-tools/devices.json
+          "$builder/bin/ghazal-image-builder" --matrix > build/release-tools/devices.json
           nix-store --query --requisites "$builder" > build/release-tools/paths.txt
           mapfile -t paths < build/release-tools/paths.txt
           nix-store --export "${paths[@]}" | gzip -1 > build/release-tools/runtime.nar.gz
@@ -75,7 +75,7 @@ jobs:
       - name: Build and verify every H700 device image
         run: |
           builder=$(cat build/release-tools/store-path.txt)
-          "$builder/bin/oxmux-image-builder" --all --memory '${{ matrix.memory }}' --version "$VERSION" "$PWD" "$PWD/dist"
+          "$builder/bin/ghazal-image-builder" --all --memory '${{ matrix.memory }}' --version "$VERSION" "$PWD" "$PWD/dist"
           cd dist
           sha256sum -c ./*.sha256
           expected=$(jq '.include | map(select(.memory == "${{ matrix.memory }}")) | length' ../build/release-tools/devices.json)
@@ -110,6 +110,6 @@ jobs:
           sha256sum -c ./*.sha256
           cat ./*.sha256 > SHA256SUMS
           cd ..
-          gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "oxmux $TAG — H700 beta" --notes-file docs/beta-release.md
+          gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
           gh release upload "$TAG" dist/*.img.gz dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
           gh release edit "$TAG" --draft=false

@@ -1,9 +1,9 @@
 //! Finds and parses the three config files: device.toml (hardware), frontend.toml
 //! (games and emulators), system.toml (daemon, power, services, boot plan).
 //!
-//! Directory: `--config-dir`, else `$OXMUX_CONFIG_DIR`, else `etc/` next to the binary,
+//! Directory: `--config-dir`, else `$GHAZAL_CONFIG_DIR`, else `etc/` next to the binary,
 //! else the binary's own directory if it holds any of the files (muOS application
-//! layout), else `/opt/oxmux/etc`, else `/etc/oxmux`. The fixed paths matter for PID 1:
+//! layout), else `/opt/ghazal/etc`, else `/etc/ghazal`. The fixed paths matter for PID 1:
 //! before /proc is mounted the binary can't find out where it lives. A file missing from
 //! the directory falls back to the built-in RG40XXV default.
 
@@ -28,12 +28,12 @@ pub struct Profile {
 
 impl Profile {
     pub fn locate(explicit: Option<&Path>) -> Self {
-        if let Some(dir) = explicit.map(Path::to_path_buf).or_else(|| std::env::var_os("OXMUX_CONFIG_DIR").map(PathBuf::from)) {
+        if let Some(dir) = explicit.map(Path::to_path_buf).or_else(|| std::env::var_os("GHAZAL_CONFIG_DIR").map(PathBuf::from)) {
             return Self { dir: Some(dir) };
         }
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
         let has_files = |d: &Path| FILES.iter().any(|f| d.join(f).is_file());
-        let candidates = exe_dir.iter().flat_map(|d| [d.join("etc"), d.clone()]).chain([PathBuf::from(crate::install::PREFIX).join("etc"), PathBuf::from("/etc/oxmux")]);
+        let candidates = exe_dir.iter().flat_map(|d| [d.join("etc"), d.clone()]).chain([PathBuf::from(crate::install::PREFIX).join("etc"), PathBuf::from("/etc/ghazal")]);
         Self { dir: candidates.into_iter().find(|d| has_files(d)) }
     }
 
@@ -82,7 +82,7 @@ mod tests {
         let system = Profile { dir: None }.system().unwrap();
         let audio = system.supervisor.services.iter().find(|service| service.name == "audio").unwrap();
         assert_eq!(audio.kind, crate::supervisor::Kind::Oneshot);
-        assert_eq!(audio.exec, ["/opt/oxmux/oxmux", "audio-init"]);
+        assert_eq!(audio.exec, ["/opt/ghazal/ghazal", "audio-init"]);
         assert!(system.supervisor.services.iter().find(|service| service.name == "daemon").unwrap().after.contains(&"audio".to_string()));
     }
 

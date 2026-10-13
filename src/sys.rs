@@ -1,4 +1,4 @@
-//! Thin wrappers over the Linux syscalls oxmux uses in place of shell tools
+//! Thin wrappers over the Linux syscalls ghazal uses in place of shell tools
 //! (mount, modprobe, swapon, kill, reboot, ...).
 
 use std::ffi::CString;
@@ -118,7 +118,7 @@ pub fn kill_by_name(name: &str) {
         }
         let comm = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
         if comm.trim_end() == name {
-            eprintln!("oxmux: stopping {name} (pid {pid})");
+            eprintln!("ghazal: stopping {name} (pid {pid})");
             kill(pid, libc::SIGTERM);
         }
     }

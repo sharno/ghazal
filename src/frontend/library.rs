@@ -33,7 +33,7 @@ impl Library {
             .filter(|sys| {
                 let available = sys.requires_any.is_empty() || sys.requires_any.iter().any(|bios| config.bios_dir.join(bios).exists());
                 if !available {
-                    eprintln!("oxmux: hiding {}: needs one of {:?} in {}", sys.name, sys.requires_any, config.bios_dir.display());
+                    eprintln!("ghazal: hiding {}: needs one of {:?} in {}", sys.name, sys.requires_any, config.bios_dir.display());
                 }
                 available
             })
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn systems_needing_bios_stay_hidden_until_it_exists() {
-        let root = std::env::temp_dir().join(format!("oxmux-bios-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("ghazal-bios-{}", std::process::id()));
         std::fs::create_dir_all(root.join("ROMS/PCECD")).unwrap();
         std::fs::create_dir_all(root.join("BIOS")).unwrap();
         std::fs::write(root.join("ROMS/PCECD/Game.chd"), b"").unwrap();

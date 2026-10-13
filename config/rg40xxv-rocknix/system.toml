@@ -1,7 +1,7 @@
 [init.rescue]
-counter = "/var/lib/oxmux/boot-attempts"
+counter = "/var/lib/ghazal/boot-attempts"
 max_attempts = 3
-exec = ["/opt/oxmux/oxmux", "rescue"]
+exec = ["/opt/ghazal/ghazal", "rescue"]
 
 [[init.step]]
 mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
@@ -18,7 +18,7 @@ mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid
 [[init.step]]
 mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,noatime" }
 [[init.step]]
-hostname = "oxmux"
+hostname = "ghazal"
 [[init.step]]
 mount = { source = "/dev/mmcblk0p1", target = "/mnt/boot", fstype = "vfat", options = "rw,noatime", optional = true }
 [[init.step]]
@@ -38,7 +38,7 @@ mkdir = "/run/sshd"
 
 [power]
 suspend = "disabled"
-suspend_checkpoint = "/var/lib/oxmux/suspend-checkpoint"
+suspend_checkpoint = "/var/lib/ghazal/suspend-checkpoint"
 poweroff = "signal-init"
 reboot = "signal-init"
 # Require true suspend-to-RAM; do not silently select s2idle.
@@ -48,8 +48,8 @@ before_suspend = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "off"]]
 after_resume = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]]
 
 [daemon]
-state = "/var/lib/oxmux/settings.toml"
-socket = "/run/oxmux/daemon.sock"
+state = "/var/lib/ghazal/settings.toml"
+socket = "/run/ghazal/daemon.sock"
 [daemon.idle]
 # Native wake is under investigation; keep the device usable until validated.
 sleep_after = 0
@@ -72,13 +72,13 @@ keys = ["menu", "vol_down"]
 action = "brightness-down"
 
 [supervisor]
-log_dir = "/var/log/oxmux"
+log_dir = "/var/log/ghazal"
 # The boot critical path is audio -> daemon -> frontend. They use kernel device
 # nodes directly, so none of them waits for udev; udev only serves RetroArch.
 # Background work waits for the first menu frame so it can't slow it down.
 [[supervisor.service]]
 name = "kernel-log"
-exec = ["/opt/oxmux/oxmux", "kernel-log"]
+exec = ["/opt/ghazal/ghazal", "kernel-log"]
 restart = "always"
 [[supervisor.service]]
 name = "udev"
@@ -108,7 +108,7 @@ restart = "always"
 [[supervisor.service]]
 name = "ssh-host-key"
 kind = "oneshot"
-exec = ["/opt/oxmux/oxmux", "ssh-key"]
+exec = ["/opt/ghazal/ghazal", "ssh-key"]
 [[supervisor.service]]
 name = "sshd"
 exec = ["/usr/sbin/sshd", "-D", "-e"]
@@ -116,26 +116,26 @@ after = ["ssh-host-key"]
 restart = "always"
 [[supervisor.service]]
 name = "syncthing"
-exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.oxmux/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
+exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.ghazal/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
 # ROMS exists only on the prepared data card; never write identity/database to
 # the empty mount point on the OS card when SD2 is absent.
-wait_for = ["/mnt/games/ROMS", "/run/oxmux/first-frame-ready"]
+wait_for = ["/mnt/games/ROMS", "/run/ghazal/first-frame-ready"]
 restart = "always"
 env = { HOME = "/root", GOMAXPROCS = "2" }
 [[supervisor.service]]
 name = "audio"
 kind = "oneshot"
-exec = ["/opt/oxmux/oxmux", "audio-init"]
+exec = ["/opt/ghazal/ghazal", "audio-init"]
 wait_for = ["/dev/snd/controlC0"]
 [[supervisor.service]]
 name = "daemon"
-exec = ["/opt/oxmux/oxmux", "daemon"]
+exec = ["/opt/ghazal/ghazal", "daemon"]
 after = ["audio"]
 restart = "always"
 [[supervisor.service]]
 name = "frontend"
-exec = ["/opt/oxmux/oxmux", "frontend"]
+exec = ["/opt/ghazal/ghazal", "frontend"]
 after = ["daemon"]
-wait_for = ["/dev/dri", "/run/oxmux/daemon.sock"]
+wait_for = ["/dev/dri", "/run/ghazal/daemon.sock"]
 restart = "always"
-env = { OXMUX_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }
+env = { GHAZAL_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }

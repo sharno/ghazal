@@ -3,7 +3,7 @@
 
 # SD1 first, then SD2.
 rom_roots = ["/mnt/mmc/ROMS", "/mnt/sdcard/ROMS"]
-activity_file = "/mnt/mmc/.oxmux/activity.toml"
+activity_file = "/mnt/mmc/.ghazal/activity.toml"
 
 [retroarch]
 bin = "/usr/bin/retroarch"
@@ -13,7 +13,7 @@ configs = ["/opt/muos/share/info/config/retroarch.cfg"]
 core_dirs = ["/opt/muos/share/core"]
 # muOS starts RetroArch fullscreen.
 extra_args = ["-f"]
-log = "/run/oxmux/log/retroarch.log"
+log = "/run/ghazal/log/retroarch.log"
 env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
 
 [[system]]

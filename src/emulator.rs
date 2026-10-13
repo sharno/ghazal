@@ -6,7 +6,7 @@ use std::process::{Child, ExitStatus};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-const SESSION: &str = "/run/oxmux/emulator.toml";
+const SESSION: &str = "/run/ghazal/emulator.toml";
 
 #[derive(Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]

@@ -111,7 +111,7 @@ impl Volume {
 pub fn set_led(path: &Option<std::path::PathBuf>, on: bool) {
     if let Some(p) = path {
         if let Err(e) = sys::write_file(p, if on { "1" } else { "0" }) {
-            eprintln!("oxmux: led: {e:#}");
+            eprintln!("ghazal: led: {e:#}");
         }
     }
 }
@@ -138,7 +138,7 @@ enum SuspendPhase {
 
 /// The dedicated checkpoint is committed before moving to the next phase.
 fn suspend_checkpoint(phase: SuspendPhase, checkpoint: Option<&Path>) -> Result<()> {
-    eprintln!("oxmux: suspend checkpoint {phase:?}");
+    eprintln!("ghazal: suspend checkpoint {phase:?}");
     if let Some(path) = checkpoint {
         sys::write_atomic(path, format!("{phase:?}\n").as_bytes()).context("persisting suspend checkpoint")?;
     }
@@ -178,10 +178,10 @@ pub struct Hardware {
 impl Hardware {
     pub fn open(dev: &DeviceConfig) -> Self {
         let volume = dev.audio.as_ref().and_then(|a| {
-            Volume::open(a).map_err(|e| eprintln!("oxmux: volume unavailable: {e:#}")).ok()
+            Volume::open(a).map_err(|e| eprintln!("ghazal: volume unavailable: {e:#}")).ok()
         });
         Self {
-            backlight: dev.backlight.clone().and_then(|cfg| Backlight::new(cfg).map_err(|error| eprintln!("oxmux: backlight unavailable: {error:#}")).ok()),
+            backlight: dev.backlight.clone().and_then(|cfg| Backlight::new(cfg).map_err(|error| eprintln!("ghazal: backlight unavailable: {error:#}")).ok()),
             volume,
             battery: dev.battery.clone(),
             leds: dev.leds.clone(),

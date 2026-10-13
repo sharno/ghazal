@@ -67,7 +67,7 @@ impl LaunchSpec {
             cmd.stdout(file.try_clone()?).stderr(file);
             pump = Some(reader);
         }
-        eprintln!("oxmux: launching {} {:?}", self.program.display(), self.args);
+        eprintln!("ghazal: launching {} {:?}", self.program.display(), self.args);
         let child = cmd
             .spawn()
             .with_context(|| format!("starting {}", self.program.display()))?;

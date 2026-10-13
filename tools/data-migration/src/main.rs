@@ -1,4 +1,4 @@
-//! Convert a complete MUOS data backup on a mounted SD2 into oxmux's layout.
+//! Convert a complete MUOS data backup on a mounted SD2 into ghazal's layout.
 //! This command never formats disks or changes the original backup.
 use std::error::Error;
 use std::fs;
@@ -23,7 +23,7 @@ impl RestoredCard {
         for name in ["ROMS", "MUOS/bios", "MUOS/save", "MUOS/info/catalogue", "MUOS/syncthing"] {
             if !root.join(name).is_dir() { return Err(format!("restoration incomplete: {name}").into()); }
         }
-        for name in ["BIOS", "SAVES", ".oxmux/syncthing"] {
+        for name in ["BIOS", "SAVES", ".ghazal/syncthing"] {
             if root.join(name).exists() { return Err(format!("destination already exists: {name}").into()); }
         }
         for name in ["MUOS/syncthing/cert.pem", "MUOS/syncthing/key.pem", "MUOS/save/.stfolder", "MUOS/info/catalogue/.stfolder"] {
@@ -43,21 +43,21 @@ impl RestoredCard {
     }
 
     fn convert(self) -> Result<()> {
-        fs::create_dir_all(self.root.join(".oxmux"))?;
+        fs::create_dir_all(self.root.join(".ghazal"))?;
         let config = self.root.join("MUOS/syncthing/config.xml");
-        fs::copy(&config, config.with_extension("xml.before-oxmux"))?;
+        fs::copy(&config, config.with_extension("xml.before-ghazal"))?;
         let staged = config.with_extension("xml.new");
         fs::write(&staged, self.syncthing_config)?;
         fs::set_permissions(&staged, fs::Permissions::from_mode(0o600))?;
         fs::rename(staged, config)?;
-        for (source, destination) in [("MUOS/bios", "BIOS"), ("MUOS/save", "SAVES"), ("MUOS/syncthing", ".oxmux/syncthing")] {
+        for (source, destination) in [("MUOS/bios", "BIOS"), ("MUOS/save", "SAVES"), ("MUOS/syncthing", ".ghazal/syncthing")] {
             fs::rename(self.root.join(source), self.root.join(destination))?;
         }
-        for name in [".oxmux", ".oxmux/syncthing"] {
+        for name in [".ghazal", ".ghazal/syncthing"] {
             fs::set_permissions(self.root.join(name), fs::Permissions::from_mode(0o700))?;
         }
-        for name in ["cert.pem", "key.pem", "https-cert.pem", "https-key.pem", "api.txt", "config.xml", "config.xml.before-oxmux"] {
-            fs::set_permissions(self.root.join(".oxmux/syncthing").join(name), fs::Permissions::from_mode(0o600))?;
+        for name in ["cert.pem", "key.pem", "https-cert.pem", "https-key.pem", "api.txt", "config.xml", "config.xml.before-ghazal"] {
+            fs::set_permissions(self.root.join(".ghazal/syncthing").join(name), fs::Permissions::from_mode(0o600))?;
         }
         println!("Converted SD2: ROMS, BIOS, SAVES and persistent Syncthing; remaining MUOS data preserved.");
         Ok(())
@@ -65,7 +65,7 @@ impl RestoredCard {
 }
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let root = args.next().ok_or("usage: oxmux-data-migration MOUNTPOINT")?;
+    let root = args.next().ok_or("usage: ghazal-data-migration MOUNTPOINT")?;
     if args.next().is_some() { return Err("expected exactly one mountpoint".into()); }
     RestoredCard::validate(Path::new(&root))?.convert()
 }

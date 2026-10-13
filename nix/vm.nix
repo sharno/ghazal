@@ -1,16 +1,16 @@
 # Boot-test machine: QEMU aarch64 "virt" with a stock nixpkgs kernel and an initramfs
-# whose /init is oxmux. virtio-gpu gives the frontend a 640x480 KMS display like the
+# whose /init is ghazal. virtio-gpu gives the frontend a 640x480 KMS display like the
 # handheld's; the virtio keyboard stands in for the gamepad. Only the kernel modules
-# the machine needs are included; oxmux's coldplug loads them.
-{ lib, runCommand, writeShellApplication, kmod, cpio, xz, qemu, oxmux, kernel, busybox, profile }:
+# the machine needs are included; ghazal's coldplug loads them.
+{ lib, runCommand, writeShellApplication, kmod, cpio, xz, qemu, ghazal, kernel, busybox, profile }:
 
 let
   version = kernel.modDirVersion;
   wantedModules = [ "virtio_gpu" "virtio_input" "virtio_pci" "virtio_mmio" "virtio_blk" "evdev" ];
 
-  # The listed modules plus their dependencies, decompressed (oxmux's loader wants plain
+  # The listed modules plus their dependencies, decompressed (ghazal's loader wants plain
   # .ko files) and re-indexed with depmod.
-  modules = runCommand "oxmux-vm-modules-${version}" { nativeBuildInputs = [ kmod xz ]; } ''
+  modules = runCommand "ghazal-vm-modules-${version}" { nativeBuildInputs = [ kmod xz ]; } ''
     src=${kernel.modules}/lib/modules/${version}
     mkdir -p $out/lib/modules/${version}
     for m in ${lib.concatStringsSep " " wantedModules}; do
@@ -32,12 +32,12 @@ let
   applets = [ "sh" "ls" "cat" "ps" "mount" "umount" "dmesg" "grep" "less" "top" "kill" "ln"
               "mkdir" "rm" "cp" "mv" "echo" "vi" "free" "df" "uname" "sleep" "poweroff" "reboot" ];
 
-  initrd = runCommand "oxmux-vm-initrd" { nativeBuildInputs = [ cpio xz ]; } ''
+  initrd = runCommand "ghazal-vm-initrd" { nativeBuildInputs = [ cpio xz ]; } ''
     root=$PWD/root
-    mkdir -p $root/{bin,dev,proc,sys,run,tmp,root,etc,opt/oxmux/etc}
-    install -m755 ${oxmux}/bin/oxmux $root/opt/oxmux/oxmux
-    ln -s /opt/oxmux/oxmux $root/init
-    cp ${profile}/*.toml $root/opt/oxmux/etc/
+    mkdir -p $root/{bin,dev,proc,sys,run,tmp,root,etc,opt/ghazal/etc}
+    install -m755 ${ghazal}/bin/ghazal $root/opt/ghazal/ghazal
+    ln -s /opt/ghazal/ghazal $root/init
+    cp ${profile}/*.toml $root/opt/ghazal/etc/
     install -m755 ${busybox}/bin/busybox $root/bin/busybox
     for a in ${lib.concatStringsSep " " applets}; do ln -s busybox $root/bin/$a; done
     cp -r ${modules}/lib $root/
@@ -50,15 +50,15 @@ let
   '';
 
   runner = writeShellApplication {
-    name = "oxmux-vm";
+    name = "ghazal-vm";
     runtimeInputs = [ qemu ];
     text = ''
-      # Usage: oxmux-vm [extra qemu args]. Serial console (root shell) on stdio.
-      # OXMUX_VM_HEADLESS=1: no window; QEMU monitor on $OXMUX_VM_MONITOR (a unix socket)
+      # Usage: ghazal-vm [extra qemu args]. Serial console (root shell) on stdio.
+      # GHAZAL_VM_HEADLESS=1: no window; QEMU monitor on $GHAZAL_VM_MONITOR (a unix socket)
       # for scripted key presses and screendumps.
       display=(-display "gtk,zoom-to-fit=on")
-      if [ -n "''${OXMUX_VM_HEADLESS:-}" ]; then
-        display=(-display none -monitor "unix:''${OXMUX_VM_MONITOR:-/tmp/oxmux-vm.monitor},server,nowait")
+      if [ -n "''${GHAZAL_VM_HEADLESS:-}" ]; then
+        display=(-display none -monitor "unix:''${GHAZAL_VM_MONITOR:-/tmp/ghazal-vm.monitor},server,nowait")
       fi
       exec qemu-system-aarch64 \
         -machine virt -cpu cortex-a53 -smp 4 -m 1024 \

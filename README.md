@@ -1,8 +1,12 @@
-# oxmux
+# Ghazal
+
+<img src="assets/ghazal.svg" width="96" alt="Ghazal gazelle logo">
+
+Ghazal (formerly oxmux) is a standalone Linux gaming system for Anbernic H700 handhelds.
 
 ## H700 beta images
 
-[Downloads](https://github.com/sharno/oxmux/releases) ·
+[Downloads](https://github.com/sharno/ghazal/releases) ·
 [Install on one or two SD cards](docs/installation.md) ·
 [File structure](docs/storage-layout.md) ·
 [Supported device and panel variants](config/h700/devices.toml)
@@ -16,14 +20,14 @@ Only the RG40XX-V v2 / DDR4 target has physical acceptance so far;
 ## Standalone RG40XX-V image
 
 The standalone target now assembles its own ext4 root filesystem and boots
-oxmux as PID 1, from a repository-built U-Boot and kernel with every driver
+ghazal as PID 1, from a repository-built U-Boot and kernel with every driver
 built in (no initramfs, no modules). A checksum-pinned ROCKNIX H700 bundle
 supplies firmware, RetroArch/cores and their library dependencies. No muOS scripts or
 EmulationStation are used. SSH, Wi-Fi with DHCP/DNS and persistent service logs
 are included. See [the standalone build and device runbook](docs/standalone.md).
 
 ```sh
-nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/oxmux-rg40xxv.img"
+nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/ghazal-rg40xxv.img"
 ```
 
 This targets DDR4 boards and has booted on an RG40XX-V with the v2 panel.
@@ -34,7 +38,7 @@ The older muOS stages below are retained as legacy development tools.
 ### Brightness and volume
 
 Volume Up/Down adjusts sound. Hold Menu while pressing Volume Up/Down to
-adjust brightness. In the oxmux frontend, both levels appear as percentage
+adjust brightness. In the ghazal frontend, both levels appear as percentage
 labels and bars for three seconds after a change, and remain visible while
 the menu is open. These indicators do not overlay a running emulator.
 The standalone profile reads the kernel's backlight range automatically.
@@ -60,7 +64,7 @@ Main Menu. Missing games, missing BIOS/cores and launch failures leave the menu
 available, and frontend restarts do not repeat the automatic launch that boot.
 Interacting with the menu while its initial library scan runs cancels autostart.
 To disable it from a computer, set `startup = "menu"` in
-`/var/lib/oxmux/frontend-settings.toml` on the OS partition (`OXMUXROOT`).
+`/var/lib/ghazal/frontend-settings.toml` on the OS partition (`GHAZALROOT`).
 
 A Rust userland for the Anbernic RG40XXV (Allwinner H700), built as a muOS alternative.
 It replaces muOS's frontend and its ~21,600 lines of boot and runtime shell scripts with
@@ -74,34 +78,34 @@ You can move a muOS install forward one stage at a time and back again.
 
 | Stage | What runs | Install | Undo |
 |---|---|---|---|
-| 1 | oxmux as a muOS **application**; muOS runs everything else | `scripts/deploy.sh` | delete the app folder |
-| 2 | muOS boots, but **S99muos.sh** starts `oxmux supervise` (daemon + frontend) instead of muOS's frontend, hotkey, battery and low-power scripts | `oxmux install frontend` | `oxmux uninstall` |
-| 3 | busybox init's **sysinit** runs `oxmux init`; no muOS script runs at all | `oxmux install init` | `oxmux uninstall` |
-| 4 | a standalone **SD image** where oxmux owns PID 1 | `nix run .#image -- ...` | reflash |
+| 1 | ghazal as a muOS **application**; muOS runs everything else | `scripts/deploy.sh` | delete the app folder |
+| 2 | muOS boots, but **S99muos.sh** starts `ghazal supervise` (daemon + frontend) instead of muOS's frontend, hotkey, battery and low-power scripts | `ghazal install frontend` | `ghazal uninstall` |
+| 3 | busybox init's **sysinit** runs `ghazal init`; no muOS script runs at all | `ghazal install init` | `ghazal uninstall` |
+| 4 | a standalone **SD image** where ghazal owns PID 1 | `nix run .#image -- ...` | reflash |
 
 ### Safety nets
 
 - **Preflight.** `install` checks that every config parses and every service binary
   exists before it changes anything. It refuses if one is missing.
-- **Backups.** Replaced files are kept as `*.oxmux-orig`, and `oxmux uninstall` restores them.
+- **Backups.** Replaced files are kept as `*.ghazal-orig`, and `ghazal uninstall` restores them.
 - **Rescue.** The standalone image records boot attempts durably and resets the counter
   after the menu draws its first frame. Three incomplete boots enter a built-in Wi-Fi/SSH
   recovery supervisor. Startup configuration and supervisor errors enter recovery directly.
   Legacy muOS installs retain their original-init recovery path.
-- **Fallback frontend.** In stage 2, if the oxmux frontend crash-loops (5 times in a
+- **Fallback frontend.** In stage 2, if the ghazal frontend crash-loops (5 times in a
   minute), the supervisor runs muOS's own frontend instead.
 
 ## What replaces what
 
-| muOS | oxmux |
+| muOS | ghazal |
 |---|---|
-| `init/sysinit`, `init/S*.sh`: mounts, modules, governor, zram, bind mounts, udev | `oxmux init`, boot plan in `system.toml` (`[[init.step]]`) |
-| `var/process.sh`, `mux/frontend.sh` restart loop | `oxmux supervise`: dependency-ordered services with backoff and fallbacks |
-| `muhotkey` + `mux/hotkey.sh`, `device/bright.sh`, `device/audio.sh` | `oxmux daemon`: hotkeys from `[[daemon.hotkey]]`, backlight via dispdbg, volume via ALSA ioctls |
+| `init/sysinit`, `init/S*.sh`: mounts, modules, governor, zram, bind mounts, udev | `ghazal init`, boot plan in `system.toml` (`[[init.step]]`) |
+| `var/process.sh`, `mux/frontend.sh` restart loop | `ghazal supervise`: dependency-ordered services with backoff and fallbacks |
+| `muhotkey` + `mux/hotkey.sh`, `device/bright.sh`, `device/audio.sh` | `ghazal daemon`: hotkeys from `[[daemon.hotkey]]`, backlight via dispdbg, volume via ALSA ioctls |
 | `system/suspend.sh` + `mususpend`, `system/halt.sh` | daemon: tap power to sleep, hold to power off, RTC auto-poweroff after long sleeps |
 | `mubattery`, `system/lowpower.sh`, `mux/idle.sh` | daemon: low-battery LED, clean poweroff at critical, idle dim and sleep |
-| `muinput` (C) | `oxmux input-bridge`: same `muOS-Keys` identity and mapping, including rumble |
-| `muxfrontend` (C/LVGL) | `oxmux frontend` (Slint) |
+| `muinput` (C) | `ghazal input-bridge`: same `muOS-Keys` identity and mapping, including rumble |
+| `muxfrontend` (C/LVGL) | `ghazal frontend` (Slint) |
 | GET_VAR/SET_VAR store (one file per key) | `device.toml`, `frontend.toml`, `system.toml` |
 | PipeWire (in stage 3+) | not needed: RetroArch's ALSA output goes straight to the codec |
 
@@ -113,7 +117,7 @@ needs its database), `alsactl` (restores mixer routing once), and optionally `wp
 
 - `src/frontend/`: Slint UI (`ui/app.slint`), ROM library, RetroArch launching, and its
   fbdev, evdev and desktop backends
-- `src/daemon/`: hotkeys, power, idle, battery, and the control socket (`oxmux ctl`)
+- `src/daemon/`: hotkeys, power, idle, battery, and the control socket (`ghazal ctl`)
 - `src/supervisor.rs`: service supervision
 - `src/init/`: boot plan, module loading (modules.dep + finit_module), zram
 - `src/input_bridge.rs`: muinput replacement (uinput)
@@ -121,8 +125,8 @@ needs its database), `alsactl` (restores mixer routing once), and optionally `wp
 - `src/install.rs`: stage installer
 - `config/rg40xxv/`: device profile, frontend config, and the per-stage `system-*.toml` profiles
 
-Configs are found in `--config-dir`, `$OXMUX_CONFIG_DIR`, `etc/` next to the binary, the
-binary's own directory, or `/etc/oxmux`, with built-in RG40XXV defaults otherwise.
+Configs are found in `--config-dir`, `$GHAZAL_CONFIG_DIR`, `etc/` next to the binary, the
+binary's own directory, or `/etc/ghazal`, with built-in RG40XXV defaults otherwise.
 
 ## Develop
 
@@ -139,36 +143,36 @@ In the simulator: arrows = d-pad, Z/Enter = A, X/Backspace = B, Q/W = L1/R1, Esc
 Enable SSH in muOS, then:
 
 ```bash
-DEVICE=root@<ip> scripts/deploy.sh            # stage 1, then start "Oxmux" from Applications
-ssh root@<ip> /mnt/mmc/MUOS/application/Oxmux/oxmux probe-input   # confirm button codes
+DEVICE=root@<ip> scripts/deploy.sh            # stage 1, then start "Ghazal" from Applications
+ssh root@<ip> /mnt/mmc/MUOS/application/Ghazal/ghazal probe-input   # confirm button codes
 DEVICE=root@<ip> scripts/deploy.sh frontend   # stage 2 (dry run first, then install); reboot
 DEVICE=root@<ip> scripts/deploy.sh init       # stage 3; reboot
 ```
 
-On the device, `oxmux status` shows the current stage, `oxmux check` validates configs,
-`oxmux ctl status` talks to the daemon, and logs are in `/run/oxmux/log/`.
+On the device, `ghazal status` shows the current stage, `ghazal check` validates configs,
+`ghazal ctl status` talks to the daemon, and logs are in `/run/ghazal/log/`.
 
 The legacy muOS-based image builder needs an official muOS RG40XXV image. It is
 separate from the standalone `nix run .#image` recipe:
 
 ```bash
-nix develop -c scripts/build-image.sh MustardOS_RG40XXV_<version>.img.xz dist/oxmux-rg40xxv.img
+nix develop -c scripts/build-image.sh MustardOS_RG40XXV_<version>.img.xz dist/ghazal-rg40xxv.img
 ```
 
 ## Nix image (mainline track)
 
-The flake builds a muOS-free system from nixpkgs, with oxmux as PID 1:
+The flake builds a muOS-free system from nixpkgs, with ghazal as PID 1:
 
 ```bash
-nix build .#oxmux     # static aarch64 binary (prebuilt musl std from rust-overlay)
+nix build .#ghazal     # static aarch64 binary (prebuilt musl std from rust-overlay)
 nix run .#vm          # boot it in QEMU aarch64: KMS on virtio-gpu, keyboard as gamepad
 nix build .#uboot     # mainline U-Boot + TF-A for H700 (anbernic_rg35xx_h700_defconfig)
 ```
 
 The VM exercises the same userland on virtual hardware. It uses the stock nixpkgs kernel
-(prebuilt on cache.nixos.org), a static busybox for a serial shell, and oxmux's own driver
+(prebuilt on cache.nixos.org), a static busybox for a serial shell, and ghazal's own driver
 loading (`coldplug`: modalias → modules.alias) instead of udev. Its profile is in
-`config/qemu/`. `OXMUX_VM_HEADLESS=1 OXMUX_VM_MONITOR=/tmp/mon nix run .#vm` runs it without
+`config/qemu/`. `GHAZAL_VM_HEADLESS=1 GHAZAL_VM_MONITOR=/tmp/mon nix run .#vm` runs it without
 a window, for scripted `sendkey`/`screendump` tests.
 
 The standalone handheld image supplies the following hardware components:
@@ -184,7 +188,7 @@ The standalone handheld image supplies the following hardware components:
 
 ### Suspend policy
 
-oxmux's suspend path is kernel-agnostic: `/sys/power/state` = `mem` with the wakeup_count
+ghazal's suspend path is kernel-agnostic: `/sys/power/state` = `mem` with the wakeup_count
 handshake, plus hooks. So the same userland sleeps on whichever kernel can.
 
 - **Vendor kernel (4.9, from muOS):** legacy stages 1–3 and the legacy image retain
@@ -204,7 +208,7 @@ handshake, plus hooks. So the same userland sleeps on whichever kernel can.
 - Bluetooth, the RGB LEDs (serial MCU on ttyS5), HDMI switching and the USB gadget are not
   ported yet.
 - The standalone rootfs uses a checksum-pinned ROCKNIX hardware/runtime bundle,
-  with oxmux as PID 1 and its own service plan. The legacy stage-4 script remains
+  with ghazal as PID 1 and its own service plan. The legacy stage-4 script remains
   available for muOS migration.
 
 ## License

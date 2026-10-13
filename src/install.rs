@@ -1,12 +1,12 @@
-//! `oxmux install <frontend|init>`, `oxmux uninstall`, `oxmux status`, `oxmux check`.
+//! `ghazal install <frontend|init>`, `ghazal uninstall`, `ghazal status`, `ghazal check`.
 //! Run on the device (as root) to move a muOS install through the stages:
 //!
-//!   frontend  stage 2: muOS boots as usual, but S99muos.sh starts `oxmux supervise`
+//!   frontend  stage 2: muOS boots as usual, but S99muos.sh starts `ghazal supervise`
 //!             (daemon + frontend) instead of muOS's frontend, hotkey and power scripts.
-//!   init      stage 3: busybox init's sysinit runs `oxmux init`; no muOS script runs.
+//!   init      stage 3: busybox init's sysinit runs `ghazal init`; no muOS script runs.
 //!
-//! Originals are kept next to what they replace as `*.oxmux-orig` and restored by
-//! `oxmux uninstall`. Stage 4 (a whole SD image) is built on a PC: scripts/build-image.sh.
+//! Originals are kept next to what they replace as `*.ghazal-orig` and restored by
+//! `ghazal uninstall`. Stage 4 (a whole SD image) is built on a PC: scripts/build-image.sh.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -16,9 +16,9 @@ use anyhow::{bail, Context, Result};
 use crate::profile::Profile;
 use crate::system::SystemConfig;
 
-pub const PREFIX: &str = "/opt/oxmux";
-const ORIG: &str = "oxmux-orig";
-const MARKER: &str = "# oxmux shim";
+pub const PREFIX: &str = "/opt/ghazal";
+const ORIG: &str = "ghazal-orig";
+const MARKER: &str = "# ghazal shim";
 const S99: &str = "/opt/muos/script/init/S99muos.sh";
 
 const SYSTEM_FRONTEND: &str = include_str!("../config/rg40xxv/system-muos-frontend.toml");
@@ -30,10 +30,10 @@ pub enum Stage {
     Init,
 }
 
-/// Maps an on-device path to where it is on disk. `OXMUX_SYSROOT` points the installer at
+/// Maps an on-device path to where it is on disk. `GHAZAL_SYSROOT` points the installer at
 /// a mounted or extracted rootfs instead of `/` (used by tests).
 fn host(path: impl AsRef<Path>) -> PathBuf {
-    let root = std::env::var_os("OXMUX_SYSROOT").map(PathBuf::from).unwrap_or_else(|| "/".into());
+    let root = std::env::var_os("GHAZAL_SYSROOT").map(PathBuf::from).unwrap_or_else(|| "/".into());
     root.join(path.as_ref().strip_prefix("/").unwrap_or(path.as_ref()))
 }
 
@@ -78,11 +78,11 @@ pub fn install(stage: Stage, dry_run: bool) -> Result<()> {
             // In stage 3 muOS's own boot only runs as the rescue path; it must be pure muOS.
             restore(&host(S99))?;
             let sysinit = sysinit.expect("found above");
-            shim(&host(&sysinit), &format!("#!/bin/sh\n{MARKER} (stage 3). Original: {}\nexec {PREFIX}/oxmux init\n", orig(&sysinit).display()))?;
+            shim(&host(&sysinit), &format!("#!/bin/sh\n{MARKER} (stage 3). Original: {}\nexec {PREFIX}/ghazal init\n", orig(&sysinit).display()))?;
         }
     }
     sync_fs();
-    println!("installed stage {stage:?}. Reboot to use it; `{PREFIX}/oxmux uninstall` reverts.");
+    println!("installed stage {stage:?}. Reboot to use it; `{PREFIX}/ghazal uninstall` reverts.");
     Ok(())
 }
 
@@ -97,15 +97,15 @@ pub fn uninstall() -> Result<()> {
         }
     }
     sync_fs();
-    println!("restored {restored} muOS file(s); {PREFIX} was left in place (delete it to remove oxmux entirely)");
+    println!("restored {restored} muOS file(s); {PREFIX} was left in place (delete it to remove ghazal entirely)");
     Ok(())
 }
 
 pub fn status() -> Result<()> {
-    let s99 = if is_shim(&host(S99)) { "oxmux (stage 2)" } else { "muOS" };
+    let s99 = if is_shim(&host(S99)) { "ghazal (stage 2)" } else { "muOS" };
     println!("S99muos.sh: {s99}");
     match find_sysinit() {
-        Ok(p) => println!("sysinit {}: {}", p.display(), if is_shim(&host(&p)) { "oxmux (stage 3)" } else { "muOS" }),
+        Ok(p) => println!("sysinit {}: {}", p.display(), if is_shim(&host(&p)) { "ghazal (stage 3)" } else { "muOS" }),
         Err(e) => println!("sysinit: {e:#}"),
     }
     println!("init (PID 1): {}", std::fs::read_link("/proc/1/exe").map(|p| p.display().to_string()).unwrap_or("?".into()));
@@ -116,7 +116,7 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-/// `oxmux check`: validates the installed configs without changing anything.
+/// `ghazal check`: validates the installed configs without changing anything.
 pub fn check(profile: &Profile) -> Result<()> {
     profile.device().context("device.toml")?;
     profile.frontend().context("frontend.toml")?;
@@ -195,7 +195,7 @@ fn install_files(system_text: &str) -> Result<()> {
 
     // Copy ourselves into place (rename makes replacing a running binary safe).
     let me = std::env::current_exe()?;
-    let target = host(PREFIX).join("oxmux");
+    let target = host(PREFIX).join("ghazal");
     if me != target {
         let tmp = target.with_extension("new");
         std::fs::copy(&me, &tmp).with_context(|| format!("copying to {}", tmp.display()))?;
@@ -219,7 +219,7 @@ fn install_files(system_text: &str) -> Result<()> {
     Ok(())
 }
 
-/// Replaces `path` with a shim, keeping the original as `<path>.oxmux-orig`.
+/// Replaces `path` with a shim, keeping the original as `<path>.ghazal-orig`.
 fn shim(path: &Path, contents: &str) -> Result<()> {
     if !path.exists() {
         bail!("{} not found", path.display());
@@ -230,7 +230,7 @@ fn shim(path: &Path, contents: &str) -> Result<()> {
     } else if !backup.exists() {
         bail!("{} is already a shim but its backup is missing", path.display());
     }
-    let tmp = path.with_extension("oxmux-new");
+    let tmp = path.with_extension("ghazal-new");
     std::fs::write(&tmp, contents)?;
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     std::fs::rename(&tmp, path)?;
@@ -252,11 +252,11 @@ fn restore(path: &Path) -> Result<bool> {
 fn s99_shim() -> String {
     format!(
         r#"#!/bin/sh
-{MARKER} (stage 2). muOS's original is S99muos.sh.{ORIG}; `{PREFIX}/oxmux uninstall` restores it.
+{MARKER} (stage 2). muOS's original is S99muos.sh.{ORIG}; `{PREFIX}/ghazal uninstall` restores it.
 case "$1" in
-    stop) kill "$(cat /run/oxmux/supervise.pid 2>/dev/null)" 2>/dev/null ;;
-    *) OXMUX_CONFIG_DIR={PREFIX}/etc setsid {PREFIX}/oxmux supervise --pidfile /run/oxmux/supervise.pid \
-           </dev/null >>/run/oxmux-supervise.log 2>&1 & ;;
+    stop) kill "$(cat /run/ghazal/supervise.pid 2>/dev/null)" 2>/dev/null ;;
+    *) GHAZAL_CONFIG_DIR={PREFIX}/etc setsid {PREFIX}/ghazal supervise --pidfile /run/ghazal/supervise.pid \
+           </dev/null >>/run/ghazal-supervise.log 2>&1 & ;;
 esac
 "#
     )

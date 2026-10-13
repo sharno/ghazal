@@ -98,7 +98,7 @@ mod tests {
     }
     #[test]
     fn atomic_publication_wakes_watch() {
-        let dir = std::env::temp_dir().join(format!("oxmux-levels-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ghazal-levels-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("daemon.sock");
         let watch = Watch::open(&socket).unwrap().unwrap();

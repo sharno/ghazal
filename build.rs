@@ -1,4 +1,11 @@
 fn main() {
+    // Rasterize the vector mark at build time; the handheld needs no SVG decoder.
+    println!("cargo:rerun-if-changed=assets/ghazal.svg");
+    let svg = std::fs::read("assets/ghazal.svg").expect("reading gazelle logo");
+    let tree = resvg::usvg::Tree::from_data(&svg, &Default::default()).expect("parsing gazelle logo");
+    let mut pixels = resvg::tiny_skia::Pixmap::new(64, 64).expect("allocating logo");
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(0.25, 0.25), &mut pixels.as_mut());
+    std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("ghazal-logo.rgba"), pixels.data()).expect("embedding gazelle logo");
     // Fonts are embedded as TTF and rasterized at runtime, so any character in a game
     // title renders (pre-rendered glyphs would only cover characters seen in .slint files).
     let config = slint_build::CompilerConfiguration::new()

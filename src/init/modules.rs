@@ -117,7 +117,7 @@ pub fn coldplug(exclude: &[String]) -> Result<Vec<String>> {
                 loaded.push(module.clone());
                 match load(module, "") {
                     Ok(()) => new += 1,
-                    Err(e) => eprintln!("oxmux-init: coldplug {module}: {e:#}"),
+                    Err(e) => eprintln!("ghazal-init: coldplug {module}: {e:#}"),
                 }
             }
         }

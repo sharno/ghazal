@@ -91,7 +91,7 @@ pub fn apply(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if let Some(card) = config.data_card {
         crate::sys::write_atomic(
-            Path::new("/var/lib/oxmux/data-card"),
+            Path::new("/var/lib/ghazal/data-card"),
             match card {
                 DataCard::Auto => b"auto\n",
                 DataCard::Tf1 => b"tf1\n",
@@ -132,7 +132,7 @@ pub fn apply(path: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("provisioning has no parent"))?,
     )?
     .sync_all()?;
-    eprintln!("oxmux: first-boot network and SSH provisioning applied");
+    eprintln!("ghazal: first-boot network and SSH provisioning applied");
     Ok(())
 }
 
@@ -153,10 +153,10 @@ fn reject(path: &Path, reason: &str) -> Result<()> {
         .as_bytes(),
     )?;
     crate::sys::write_atomic(
-        Path::new("/run/oxmux/provision-warning"),
-        b"Provisioning rejected; see OXMUXBOOT/provision.error.txt",
+        Path::new("/run/ghazal/provision-warning"),
+        b"Provisioning rejected; see GHAZALBOOT/provision.error.txt",
     )?;
-    eprintln!("oxmux: provisioning rejected; continuing offline: {reason}");
+    eprintln!("ghazal: provisioning rejected; continuing offline: {reason}");
     Ok(())
 }
 
@@ -164,7 +164,7 @@ pub fn retry_boot(request: &Path) -> Result<()> {
     if !request.exists() {
         return Ok(());
     }
-    crate::sys::write_atomic(Path::new("/var/lib/oxmux/boot-attempts"), b"0\n")?;
+    crate::sys::write_atomic(Path::new("/var/lib/ghazal/boot-attempts"), b"0\n")?;
     fs::remove_file(request)?;
     let directory = request
         .parent()
@@ -179,7 +179,7 @@ pub fn retry_boot(request: &Path) -> Result<()> {
         libc::MS_REMOUNT | libc::MS_RDONLY,
         "",
     )?;
-    eprintln!("oxmux: boot counter reset by the boot-partition retry request");
+    eprintln!("ghazal: boot counter reset by the boot-partition retry request");
     crate::sys::reboot(libc::RB_AUTOBOOT)
 }
 #[cfg(test)]

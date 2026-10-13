@@ -1,4 +1,4 @@
-//! oxmux: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
+//! ghazal: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
 
 mod daemon;
 mod debug;
@@ -28,9 +28,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use profile::Profile;
 
 const HELP: &str = "\
-oxmux - Rust userland for Anbernic H700 handhelds
+ghazal - Rust userland for Anbernic H700 handhelds
 
-USAGE: oxmux [--config-dir DIR] [COMMAND]
+USAGE: ghazal [--config-dir DIR] [COMMAND]
 
 COMMANDS:
   frontend (default)     the game menu
@@ -47,8 +47,8 @@ COMMANDS:
   audio-init             apply and verify the configured ALSA signal path
   observe audio|boot|frame|press|recent-benchmark  inspect and exercise the real device
 
-Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $OXMUX_CONFIG_DIR,
-etc/ next to the binary, the binary's directory, or /etc/oxmux; built-in defaults otherwise.";
+Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $GHAZAL_CONFIG_DIR,
+etc/ next to the binary, the binary's directory, or /etc/ghazal; built-in defaults otherwise.";
 
 fn main() {
     // Invoked as /init (stage 4 image): be PID 1.
@@ -59,12 +59,12 @@ fn main() {
         debug::resolvconf()
     } else if as_init { run_init(&Profile::locate(None)) } else { run() };
     if let Err(e) = result {
-        eprintln!("oxmux: {e:#}");
+        eprintln!("ghazal: {e:#}");
         // PID 1 exiting panics the kernel. Keep a console available on an independent
         // image even when configuration or the root mount is broken.
         if std::process::id() == 1 {
             use std::os::unix::process::CommandExt;
-            eprintln!("oxmux: opening emergency console");
+            eprintln!("ghazal: opening emergency console");
             let _ = std::process::Command::new("/bin/sh").arg("-i").exec();
             loop { std::thread::sleep(std::time::Duration::from_secs(60)); }
         }
@@ -120,7 +120,7 @@ fn run() -> Result<()> {
             let stage = match rest.first().map(String::as_str) {
                 Some("frontend") => install::Stage::Frontend,
                 Some("init") => install::Stage::Init,
-                _ => bail!("usage: oxmux install frontend|init [--dry-run]"),
+                _ => bail!("usage: ghazal install frontend|init [--dry-run]"),
             };
             install::install(stage, rest.iter().any(|a| a == "--dry-run"))
         }
@@ -152,7 +152,7 @@ fn run_frontend(profile: &Profile, args: &[String]) -> Result<()> {
     frontend::platform::run(config, &device)
 }
 
-/// Boot. If oxmux can't even load its config, hand over to the init it replaced rather
+/// Boot. If ghazal can't even load its config, hand over to the init it replaced rather
 /// than leave the device unbootable.
 fn run_init(profile: &Profile) -> Result<()> {
     let result = std::panic::catch_unwind(|| -> Result<()> {
@@ -165,16 +165,16 @@ fn run_init(profile: &Profile) -> Result<()> {
         Ok(Err(e)) => e,
         Err(_) => anyhow!("panicked"),
     };
-    eprintln!("oxmux init failed: {err:#}");
-    if std::process::id() == 1 && std::path::Path::new("/etc/oxmux/hardware.lock").exists() {
+    eprintln!("ghazal init failed: {err:#}");
+    if std::process::id() == 1 && std::path::Path::new("/etc/ghazal/hardware.lock").exists() {
         return init::rescue().context("standalone recovery failed");
     }
-    let fallbacks = ["/init.muos", "/opt/muos/script/init/sysinit.oxmux-orig"];
+    let fallbacks = ["/init.muos", "/opt/muos/script/init/sysinit.ghazal-orig"];
     for f in fallbacks.iter().filter(|f| std::path::Path::new(f).exists()) {
         use std::os::unix::process::CommandExt;
-        eprintln!("oxmux: falling back to {f}");
+        eprintln!("ghazal: falling back to {f}");
         let e = std::process::Command::new(f).exec();
-        eprintln!("oxmux: exec {f}: {e}");
+        eprintln!("ghazal: exec {f}: {e}");
     }
     Err(err)
 }

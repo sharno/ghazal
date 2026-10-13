@@ -111,7 +111,7 @@ impl Framebuffer {
         fb.reload()?;
         let v = &fb.var;
         eprintln!(
-            "oxmux: fb {}x{} (virtual {}x{}) {}bpp r{}:{} g{}:{} b{}:{} line={}",
+            "ghazal: fb {}x{} (virtual {}x{}) {}bpp r{}:{} g{}:{} b{}:{} line={}",
             v.xres, v.yres, v.xres_virtual, v.yres_virtual, v.bits_per_pixel,
             v.red.offset, v.red.length, v.green.offset, v.green.length, v.blue.offset, v.blue.length,
             fb.line_length,
