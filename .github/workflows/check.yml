@@ -1,4 +1,4 @@
-name: Rust checks
+name: Rust checks and storage verification
 on: [push, pull_request, workflow_call]
 permissions:
   contents: read
