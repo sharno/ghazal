@@ -132,6 +132,7 @@ binary's own directory, or `/etc/ghazal`, with built-in RG40XXV defaults otherwi
 
 Keep personal provisioning, game inventories and device-session logs outside
 this repository. Documentation and release attachments describe shared behavior.
+Use the ignored `secrets/` directory for local image provisioning inputs.
 
 ```bash
 nix develop -c cargo sim                      # simulator window (keyboard = gamepad)
