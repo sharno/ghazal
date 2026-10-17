@@ -1,8 +1,15 @@
 # Ghazal H700 beta
 
-This release adds the gazelle branding and Configuration → Startup, with
-Main Menu or Last Game choices. Automatic game launch is attempted once per
-boot; exiting or failing to launch returns to the menu.
+This release fixes input leaking from an emulator into the menu after quitting:
+gameplay can no longer trigger another launch, change systems or scroll the menu.
+Held controls must return to neutral before the menu accepts new input.
+
+RetroArch automatic save and resume remain enabled for cores that support save
+states. A failed automatic save now produces a warning when returning to the
+menu. In-game saves and automatic save states are separate.
+
+Configuration → Startup offers Main Menu or Last Game. Automatic game launch is
+attempted once per boot; exiting or failing to launch returns to the menu.
 
 This beta provides 38 flashable images: 19 device/panel variants, each with
 DDR3 and DDR4 bootloaders. Every image supports one-card and two-card setups.
