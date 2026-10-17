@@ -62,15 +62,22 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Updates and build independence
 
-- RAUC A/B updates are implemented; see docs/updates.md. Validate the new layout
-  on spare hardware: first boot, both slot boots, confirmation, interrupted install,
-  repeated failed trials, Reset/power-loss recovery and retained identities/data.
-  Beta 4 and earlier need a one-time reflash; do not repartition a live user's card.
+- RAUC A/B updates are implemented; see docs/updates.md for completed hardware
+  checks and migration requirements. Still validate deliberate power removal
+  during installation/environment writes and other boards. A controlled SSH
+  migration requires a verified raw backup and a compatible actual disk layout;
+  it must never become a blind automatic repartitioning step.
+- Classify user-volume failures separately from OS faults. A missing/full data
+  card is shared by both slots: retain Wi-Fi/SSH recovery instead of exhausting
+  both boot budgets. Keep this distinction through anyhow boot-step context.
 - Complete bootloader watchdog handover so a kernel hang before the userspace
   watchdog starts also resets automatically. Preserve fast boot and measure it.
 - Keep shared settings migrations compatible with the previous OS slot. Keep
   update dependencies in their own Nix closure; mixing their ELF interpreter or
   libraries with the emulator runtime can silently select an incompatible glibc.
+- Exercise application writes with the root mounted read-only. RetroArch core
+  options, its home and caches belong on the selected data card; `/root` must
+  not be assumed writable just because launching and saving a game succeeded.
 - The Allwinner SPL at 8 KiB overlaps a conventional primary GPT entry array.
   Preserve the MBR/extended layout unless bootloader placement is redesigned.
 - Check resolved U-Boot Kconfig and the on-device environment reader together.

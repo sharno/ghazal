@@ -258,6 +258,10 @@ pub fn rescue() -> Result<()> {
     run(system, &device)
 }
 
+pub fn data_unavailable(error: &anyhow::Error) -> bool {
+    error.is::<storage::DataUnavailable>()
+}
+
 fn recovery_config() -> Result<SystemConfig> {
     let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
     system.init.rescue = None;

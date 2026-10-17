@@ -93,6 +93,9 @@ impl FactoryLayout {
 }
 
 pub fn prepare() -> Result<()> {
+    prepare_inner().map_err(|error| DataUnavailable(error).into())
+}
+fn prepare_inner() -> Result<()> {
     if !Path::new(FACTORY).exists() {
         return Ok(());
     }
@@ -221,6 +224,9 @@ fn prepare_partition(
 }
 
 pub fn directories() -> Result<()> {
+    directories_inner().map_err(|error| DataUnavailable(error).into())
+}
+fn directories_inner() -> Result<()> {
     if !crate::sys::is_mounted(Path::new("/mnt/games")) {
         bail!("data directory is not mounted");
     }
@@ -231,6 +237,8 @@ pub fn directories() -> Result<()> {
         "SAVES/state",
         "SAVES/screenshots",
         ".ghazal",
+        ".ghazal/home",
+        ".ghazal/cache",
     ] {
         fs::create_dir_all(Path::new("/mnt/games").join(name))?;
     }
@@ -250,7 +258,22 @@ pub fn directories() -> Result<()> {
     Ok(())
 }
 
+/// An unavailable user volume needs recovery access, not firmware rollback.
+/// Both OS slots share this card preference and cannot repair a missing card.
+#[derive(Debug)]
+pub struct DataUnavailable(anyhow::Error);
+impl std::fmt::Display for DataUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "data volume unavailable: {:#}", self.0)
+    }
+}
+impl std::error::Error for DataUnavailable {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
+}
 pub fn mount_data() -> Result<()> {
+    mount_data_inner().map_err(|error| DataUnavailable(error).into())
+}
+fn mount_data_inner() -> Result<()> {
     use std::time::{Duration, Instant};
     let mode = match fs::read_to_string("/var/lib/ghazal/data-card") {
         Ok(mode) => mode,
@@ -320,6 +343,13 @@ pub fn mount_data() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn data_fault_keeps_its_recovery_classification_through_boot_context() {
+        let fault = anyhow::Error::new(DataUnavailable(anyhow::anyhow!("missing card")))
+            .context("required data-mount boot step");
+        assert!(crate::init::data_unavailable(&fault));
+        assert!(!crate::init::data_unavailable(&anyhow::anyhow!("invalid OS profile")));
+    }
     fn factory() -> [u8; 512] {
         let mut mbr = [0; 512];
         mbr[510..].copy_from_slice(&[0x55, 0xaa]);

@@ -168,6 +168,10 @@ fn run_init(profile: &Profile) -> Result<()> {
         Err(_) => anyhow!("panicked"),
     };
     eprintln!("ghazal init failed: {err:#}");
+    if std::process::id() == 1 && init::data_unavailable(&err) {
+        eprintln!("ghazal: keeping Wi-Fi and SSH recovery available; restore the data card or correct its preference, then reboot");
+        return init::rescue().context("data recovery failed");
+    }
     if std::process::id() == 1 && std::fs::read_to_string("/proc/cmdline").is_ok_and(|line| line.split_whitespace().any(|word| matches!(word, "rauc.slot=A" | "rauc.slot=B"))) {
         eprintln!("ghazal: failed A/B boot; rebooting to retry or roll back");
         sys::sync();

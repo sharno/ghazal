@@ -126,5 +126,5 @@ jobs:
           cat ./*.sha256 > SHA256SUMS
           cd ..
           gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
-          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
+          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md docs/updates.md config/h700/devices.toml
           gh release edit "$TAG" --draft=false

@@ -45,7 +45,9 @@ GHAZALDATA/                 # or the root of your TF2 partition
 └── .ghazal/
     ├── activity.toml     # Collection and History
     ├── thumbnails/       # downloaded art and missing-art markers
-    ├── retroarch/        # persistent RetroArch configuration
+    ├── retroarch/        # native settings and per-core options
+    ├── home/             # writable home for libretro cores
+    ├── cache/            # disposable emulator caches
     └── syncthing/        # this card's Syncthing identity and database
 ```
 

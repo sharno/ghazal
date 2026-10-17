@@ -24,7 +24,7 @@ For SSH use `ghazal update check` and `ghazal update install`, followed by
 A failed download can be retried; temporary bundles are held on the active data
 card under `.ghazal/updates/` and removed after installation or a handled failure.
 
-## Existing installations need a one-time reflash
+## Existing installations need a one-time migration
 
 Beta 4 and earlier have one OS slot. They cannot gain redundant slots by copying
 a new executable or writing an update bundle. Back up the entire data volume
@@ -36,6 +36,12 @@ one-card installation, back up its data to another device first, reflash TF1,
 let first boot prepare the data partition, then restore the backup. Provision
 Wi-Fi and SSH again, or restore the backed-up persistent settings deliberately.
 Never write `.raucb` to the whole card; it is for RAUC, not an image writer.
+
+An early two-partition card with sufficient unallocated space can also be
+migrated over SSH after a verified raw backup, preserving its original OS until
+the new slot boots. This requires inspecting the actual partition layout and
+bootloader; it is not a general updater operation. The supported installation
+procedure for existing cards remains backup and reflash.
 
 ## Layout and recovery
 
@@ -69,6 +75,11 @@ U-Boot tries the other slot. A kernel hang before userspace arms the watchdog
 can still require Reset; bootloader-to-kernel watchdog handover needs physical
 validation. If both slots are exhausted, reflash from a computer after backing
 up data. Routine updates do not replace SPL/U-Boot or the partition layout.
+
+A missing, invalid or full data volume enters Wi-Fi/SSH recovery rather than
+repeatedly rebooting through both slots. Correct the selected card or its
+`/var/lib/ghazal/data-card` preference, then reboot. Rolling back OS code cannot
+repair a shared data-card fault.
 
 Rollback restores OS code, not previous copies of shared data. Future settings
 migrations must retain compatibility with the previous OS; destructive shared
@@ -105,5 +116,11 @@ an inactive slot, wrong-device rejection, corrupted payload rejection and active
 slot preservation. It also executes the production boot-selection script with
 mocked load/boot commands to observe trial exhaustion and fallback. This models
 script decisions; it does not emulate U-Boot MMC/environment drivers or prove
-H700 watchdog, panel or power-loss behavior. Validate those on a spare card
-before treating this new layout as hardware-verified.
+H700 watchdog, panel or power-loss behavior.
+
+Physical RG40XX-V v2 / DDR4 checks cover both slot boots, signed installation
+from TF2 ext4 and TF1 exFAT, retained settings/SSH identities/saves, a missing
+inactive kernel, and three failed frontend starts followed by automatic watchdog
+resets and fallback. The data volume recovered after those resets. Deliberate
+power removal during installation or an environment write, early kernel hangs,
+and other hardware variants still need physical validation.
