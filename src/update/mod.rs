@@ -373,6 +373,7 @@ fn spawn(
         .name("ghazal-update".into())
         .spawn(move || {
             if let Err(error) = work(&send) {
+                eprintln!("ghazal-update: {error:#}");
                 let _ = send.send(Event::Failed(format!("{error:#}")));
             }
         })?;

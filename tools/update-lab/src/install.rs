@@ -21,9 +21,10 @@ impl Drop for Processes {
 }
 pub fn exercise(directory: &Path, expected: &[u8]) -> Result<()> {
     let bus = format!("unix:path={}/bus", directory.display());
+    fs::write("dbus.conf", format!("<busconfig><type>system</type><listen>{bus}</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow user=\"root\"/><allow own=\"*\"/><allow send_destination=\"*\"/><allow receive_sender=\"*\"/></policy></busconfig>\n"))?;
     let mut processes = Processes(vec![Command::new("dbus-daemon")
         .args([
-            "--session",
+            "--config-file=dbus.conf",
             "--nofork",
             "--print-address=1",
             "--address",

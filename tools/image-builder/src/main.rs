@@ -71,6 +71,11 @@ impl Options {
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--check-mountpoints" => {
+                    check_mountpoints(Path::new(&args.next().ok_or("missing root tree")?))?;
+                    println!("Read-only root mountpoints are complete");
+                    std::process::exit(0);
+                }
                 "--device" => options.device = args.next().ok_or("missing device")?,
                 "--memory" => options.memory = args.next().ok_or("missing memory")?,
                 "--version" => options.version = args.next().ok_or("missing version")?,
@@ -305,6 +310,46 @@ fn splice(src: &Path, dst: &Path, offset: u64) -> Result<()> {
     std::io::copy(&mut input, &mut out)?;
     Ok(())
 }
+/// Mount creates its target before mounting. On a read-only root, static
+/// mountpoints must already exist; writable mounts can create their children.
+fn check_mountpoints(root: &Path) -> Result<()> {
+    let config: toml::Value =
+        toml::from_str(&fs::read_to_string(root.join("etc/ghazal/system.toml"))?)?;
+    let steps = config["init"]["step"]
+        .as_array()
+        .ok_or("missing boot plan")?;
+    let mut writable = Vec::<PathBuf>::new();
+    for step in steps {
+        if let Some(target) = step.get("mkdir").and_then(toml::Value::as_str) {
+            let target = Path::new(target);
+            if !writable.iter().any(|parent| target.starts_with(parent))
+                && !root.join(target.strip_prefix("/")?).is_dir()
+            {
+                return Err(
+                    format!("mkdir cannot write read-only root: {}", target.display()).into(),
+                );
+            }
+        }
+        if let Some(mount) = step.get("mount") {
+            let target = Path::new(mount["target"].as_str().ok_or("missing mount target")?);
+            if !writable.iter().any(|parent| target.starts_with(parent))
+                && !root.join(target.strip_prefix("/")?).is_dir()
+            {
+                return Err(
+                    format!("missing mountpoint on read-only root: {}", target.display()).into(),
+                );
+            }
+            if mount["options"]
+                .as_str()
+                .is_some_and(|options| options.split(',').any(|option| option == "rw"))
+                || matches!(mount["fstype"].as_str(), Some("tmpfs" | "devtmpfs"))
+            {
+                writable.push(target.into());
+            }
+        }
+    }
+    Ok(())
+}
 fn main() -> Result<()> {
     let options = Options::parse()?;
     let mut args = options.args.clone();
@@ -424,6 +469,7 @@ fn main() -> Result<()> {
         "run",
         "tmp",
         "mnt/games",
+        "mnt/boot",
         "root/.ssh",
         "etc/ssh",
         "var/lib/ghazal",
@@ -820,6 +866,7 @@ fn main() -> Result<()> {
     let state = work.join("state");
     fs::rename(root.join("var"), &state)?;
     fs::create_dir(root.join("var"))?;
+    check_mountpoints(&root)?;
     fs::create_dir_all(state.join("lib/ghazal/ssh"))?;
     fs::rename(
         root.join("root/.ssh/authorized_keys"),
