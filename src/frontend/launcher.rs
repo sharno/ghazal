@@ -32,15 +32,34 @@ impl LaunchSpec {
             .find(|p| p.is_file())
             .with_context(|| format!("core {core} not found"))?;
 
-        let mut args: Vec<OsString> = Vec::new();
-        if let Some(cfg) = ra.configs.iter().find(|p| p.is_file()) {
-            args.extend(["-c".into(), cfg.into()]);
-        }
+        let mut args = Self::retroarch_config(config)?;
         args.extend(ra.extra_args.iter().map(OsString::from));
         args.extend(["-L".into(), core.into(), game.path.clone().into()]);
 
         let env = ra.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env })
+    }
+
+    fn retroarch_config(config: &FrontendConfig) -> Result<Vec<OsString>> {
+        let ra = &config.retroarch;
+        let template = ra.configs.iter().find(|path| path.is_file());
+        let selected = if let Some(path) = &ra.user_config {
+            if !path.exists() {
+                let template = template.context("RetroArch configuration template is missing")?;
+                crate::sys::write_atomic(path, &std::fs::read(template)?)?;
+            }
+            Some(path)
+        } else { template };
+        Ok(selected.map_or_else(Vec::new, |path| vec!["-c".into(), path.into()]))
+    }
+
+    pub fn retroarch_settings(config: &FrontendConfig) -> Result<Self> {
+        let ra = &config.retroarch;
+        let mut args = Self::retroarch_config(config)?;
+        args.extend(ra.extra_args.iter().map(OsString::from));
+        args.push("--menu".into());
+        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(),
+            env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect() })
     }
 
     fn standalone(command: &Standalone, game: &Game) -> Self {

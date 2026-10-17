@@ -53,6 +53,9 @@ pub struct RetroArch {
     /// First existing file wins. Empty means RetroArch picks its own default.
     #[serde(default)]
     pub configs: Vec<PathBuf>,
+    /// Writable user configuration, initialized from the first template once.
+    #[serde(default)]
+    pub user_config: Option<PathBuf>,
     /// Searched in order for the system's core file.
     pub core_dirs: Vec<PathBuf>,
     #[serde(default)]
@@ -157,6 +160,7 @@ impl FrontendConfig {
         if let Some(catalogue) = &mut self.muos_catalogue { fix(catalogue); }
         self.retroarch.core_dirs.iter_mut().for_each(fix);
         self.retroarch.configs.iter_mut().for_each(fix);
+        if let Some(config) = &mut self.retroarch.user_config { fix(config); }
         if let Some(log) = &mut self.retroarch.log {
             fix(log);
         }

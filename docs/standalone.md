@@ -193,6 +193,19 @@ again. Library rescans run in a worker so navigation remains responsive.
 Activity format 2 stores game paths, so changing a system label or core mapping
 preserves favorites and history. Existing format 1 files migrate atomically.
 
+Configuration → RetroArch settings opens RetroArch's own menu without launching
+a game or adding to History. Open its Settings tab to change video, audio, input
+and saving options. Quit RetroArch (or press Menu + Start) to return to Ghazal.
+Changes save on exit to `/mnt/games/.ghazal/retroarch/retroarch.cfg`, initialized
+from the image's defaults on first use. This file is shared by games and the
+settings screen and stays with the data card.
+
+Manual save states (Menu + R1) automatically advance the slot and retain the
+latest ten numbered states per game. Menu + L1 loads the selected slot; use the
+in-game RetroArch menu (Menu + X) to choose an older slot. The `.state.auto`
+resume state is separate from those ten slots. These are defaults, adjustable
+under RetroArch Settings → Saving.
+
 Menu + Start exits a running emulator. The daemon identifies it through a
 PID file descriptor and verified process start time, sends TERM, then KILL
 if it does not exit within 10 seconds. RetroArch saves an automatic state

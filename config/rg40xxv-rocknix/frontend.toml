@@ -13,6 +13,7 @@ activity_file = "/mnt/games/.ghazal/activity.toml"
 bin = "/usr/bin/retroarch"
 # Our own RetroArch configuration.
 configs = ["/etc/ghazal/retroarch.cfg"]
+user_config = "/mnt/games/.ghazal/retroarch/retroarch.cfg"
 core_dirs = ["/usr/lib/libretro"]
 extra_args = ["-f"]
 log = "/var/log/ghazal/retroarch.log"

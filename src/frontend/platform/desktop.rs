@@ -214,9 +214,9 @@ impl ApplicationHandler for Sim {
         match effect {
             None => {}
             Some(Effect::Quit) => return event_loop.exit(),
-            Some(Effect::Launch { spec, game }) => {
+            Some(Effect::Launch { spec, purpose }) => {
                 // Blocks the window while the emulator runs, same as on the device.
-                let result = spec.run(|| self.app.launch_started(game));
+                let result = spec.run(|| self.app.session_started(purpose));
                 self.repeater.clear();
                 self.app.launch_finished(result);
             }

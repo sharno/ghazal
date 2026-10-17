@@ -56,6 +56,10 @@ on the home screen it selects Explore Content.
 
 ### Startup
 
+**Configuration → RetroArch settings** opens the native RetroArch menu. Settings
+save on exit to the data card. Manual saves use ten rolling numbered states;
+the automatic resume state is separate. In-game, Menu + X opens RetroArch.
+
 In **Configuration → Startup**, choose **Main Menu** (default) or **Last Game**.
 The choice is saved on the OS card and applies on the next boot. Last Game
 starts the most recently launched game from the active data card's history;

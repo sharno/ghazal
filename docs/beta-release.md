@@ -1,5 +1,10 @@
 # Ghazal H700 beta
 
+Configuration → RetroArch settings opens the native emulator settings menu.
+Changes persist on the data card and apply to games. Manual save states advance
+automatically and retain ten numbered states per game; the automatic resume
+state remains separate. Change saving defaults in RetroArch Settings → Saving.
+
 This release fixes input leaking from an emulator into the menu after quitting:
 gameplay can no longer trigger another launch, change systems or scroll the menu.
 Held controls must return to neutral before the menu accepts new input.

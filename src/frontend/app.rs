@@ -26,9 +26,11 @@ const ROW_WINDOW: usize = 48;
 const ROW_MARGIN: usize = 16;
 
 pub enum Effect {
-    Launch { spec: LaunchSpec, game: GameId },
+    Launch { spec: LaunchSpec, purpose: LaunchPurpose },
     Quit,
 }
+
+pub enum LaunchPurpose { Game(GameId), RetroArchSettings }
 
 #[derive(Clone, Copy, PartialEq)]
 enum View {
@@ -94,6 +96,7 @@ enum MenuItem {
     Brightness,
     Volume,
     Startup,
+    RetroArchSettings,
 }
 
 impl MenuItem {
@@ -115,6 +118,7 @@ impl MenuItem {
                 StartupMode::Menu => "Startup: Main Menu",
                 StartupMode::LastGame => "Startup: Last Game",
             },
+            Self::RetroArchSettings => "RetroArch settings",
         }
     }
 }
@@ -303,7 +307,7 @@ impl App {
             return None;
         };
         match LaunchSpec::new(&self.config, system, game) {
-            Ok(spec) => Some(Effect::Launch { spec, game: id }),
+            Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) }),
             Err(error) => { self.error(format!("Starting last game: {error:#}")); None }
         }
     }
@@ -370,6 +374,7 @@ impl App {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
+                        MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         _ => {},
                     }
                 }
@@ -403,7 +408,7 @@ impl App {
         let (system, game) = self.game_at(list, cursor)?;
         let id = GameId::new(system, game);
         match LaunchSpec::new(&self.config, system, game) {
-            Ok(spec) => Some(Effect::Launch { spec, game: id }),
+            Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) }),
             Err(error) => {
                 self.error(format!("{error:#}"));
                 None
@@ -421,7 +426,8 @@ impl App {
         self.rows_for = None;
     }
 
-    pub fn launch_started(&mut self, game: GameId) {
+    pub fn session_started(&mut self, purpose: LaunchPurpose) {
+        let LaunchPurpose::Game(game) = purpose else { return };
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
         if let Err(error) = self.catalog.launched(game.clone()) {
@@ -582,7 +588,7 @@ impl App {
     }
 
     fn configuration_items(&self) -> Vec<MenuItem> {
-        let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails];
+        let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items
     }
@@ -660,6 +666,10 @@ impl App {
             self.menu = None;
         }
         match item {
+            MenuItem::RetroArchSettings => match LaunchSpec::retroarch_settings(&self.config) {
+                Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
+                Err(error) => { self.error(format!("RetroArch settings: {error:#}")); None }
+            },
             MenuItem::Startup => {
                 let mut settings = self.settings.clone();
                 settings.startup = settings.startup.next();
