@@ -463,7 +463,8 @@ mod tests {
     fn recovery_preserves_access_and_power_without_data_dependencies() {
         let system = recovery_config().unwrap();
         assert!(system.init.rescue.is_none());
-        assert!(system.init.steps.iter().any(|step| matches!(step, Step::RetryBoot(_))));
+        assert!(!system.init.steps.iter().any(|step| matches!(step, Step::RetryBoot(_))));
+        assert!(system.init.steps.iter().any(|step| matches!(step, Step::Mount(mount) if mount.target == Path::new("/var"))));
         assert!(system.init.steps.iter().any(|step| matches!(step, Step::Provision(_))));
         assert!(!system.init.steps.iter().any(|step| matches!(step,
             Step::Storage(_) | Step::DataDirectories(_) | Step::DataMount(_))));
