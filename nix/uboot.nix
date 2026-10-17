@@ -12,7 +12,7 @@
 # This exact configuration has booted the handheld. A broken bootloader only
 # recovers by rewriting the card from another computer (an earlier build with
 # CONFIG_BOOTSTAGE_FDT never started): test changes on a spare card first.
-{ lib, buildUBoot, fetchFromGitHub, fetchzip, armTrustedFirmwareAllwinnerH616, memory ? "DDR4" }:
+{ lib, stdenv, buildUBoot, fetchFromGitHub, fetchzip, armTrustedFirmwareAllwinnerH616, memory ? "DDR4" }:
 let
   rocknix = fetchzip {
     url = "https://github.com/ROCKNIX/distribution/archive/7cffc96617df2a051af091182e8a3d270fd794a4.tar.gz";
@@ -49,11 +49,14 @@ buildUBoot {
     CONFIG_ENV_IS_IN_MMC=y
     # CONFIG_ENV_IS_IN_FAT is not set
     # CONFIG_ENV_IS_NOWHERE is not set
-    CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+    CONFIG_ENV_REDUNDANT=y
     CONFIG_ENV_SIZE=0x20000
     CONFIG_ENV_OFFSET=0x400000
     CONFIG_ENV_OFFSET_REDUND=0x420000
-    CONFIG_SYS_MMC_ENV_DEV=0
+    CONFIG_ENV_MMC_DEVICE_INDEX=0
+    CONFIG_ENV_MMC_EMMC_HW_PARTITION=0
+    # CONFIG_ENV_MMC_USE_DT is not set
+    # CONFIG_ENV_MMC_USE_SW_PARTITION is not set
     CONFIG_CMD_SAVEENV=y
     CONFIG_CMD_SETEXPR=y
     CONFIG_CMD_EXT4=y
@@ -61,7 +64,17 @@ buildUBoot {
     CONFIG_USE_BOOTCOMMAND=y
     CONFIG_BOOTCOMMAND="${bootcommand}"
   '';
+  postConfigure = ''
+    make CROSS_COMPILE=${stdenv.cc.targetPrefix} olddefconfig
+    # Validate the resolved Kconfig, not just the requested fragment. U-Boot
+    # 2026 uses ENV_REDUNDANT; the former SYS_REDUNDAND_ENVIRONMENT is ignored.
+    for setting in ENV_IS_IN_MMC=y ENV_REDUNDANT=y ENV_SIZE=0x20000 \
+      ENV_OFFSET=0x400000 ENV_OFFSET_REDUND=0x420000 ENV_MMC_DEVICE_INDEX=0 \
+      ENV_MMC_EMMC_HW_PARTITION=0; do
+      grep -qx "CONFIG_$setting" .config || { echo "Missing boot-state setting: $setting" >&2; exit 1; }
+    done
+  '';
   extraMeta.platforms = [ "aarch64-linux" ];
   env.BL31 = "${armTrustedFirmwareAllwinnerH616}/bl31.bin";
-  filesToInstall = [ "u-boot-sunxi-with-spl.bin" ];
+  filesToInstall = [ "u-boot-sunxi-with-spl.bin" ".config" ];
 }

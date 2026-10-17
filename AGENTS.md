@@ -73,6 +73,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   libraries with the emulator runtime can silently select an incompatible glibc.
 - The Allwinner SPL at 8 KiB overlaps a conventional primary GPT entry array.
   Preserve the MBR/extended layout unless bootloader placement is redesigned.
+- Check resolved U-Boot Kconfig and the on-device environment reader together.
+  U-Boot 2026 uses `ENV_REDUNDANT`; the old `SYS_REDUNDAND_ENVIRONMENT` fragment
+  is silently ignored and produces a different environment header. Both the
+  bootloader derivation and image builder must reject mismatched bank settings.
 - Further build independence means packaging emulators and runtime libraries
   from pinned sources rather than extracting the binary bundle. Preserve firmware
   provenance and licensing, and validate performance before replacing working binaries.

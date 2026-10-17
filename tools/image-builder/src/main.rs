@@ -385,6 +385,30 @@ fn main() -> Result<()> {
     } else {
         "GHAZAL_UBOOT"
     })?);
+    let boot_config = fs::read_to_string(
+        uboot
+            .parent()
+            .ok_or("missing bootloader directory")?
+            .join(".config"),
+    )?;
+    for setting in [
+        "ENV_IS_IN_MMC=y",
+        "ENV_REDUNDANT=y",
+        "ENV_SIZE=0x20000",
+        "ENV_OFFSET=0x400000",
+        "ENV_OFFSET_REDUND=0x420000",
+        "ENV_MMC_DEVICE_INDEX=0",
+        "ENV_MMC_EMMC_HW_PARTITION=0",
+    ] {
+        if !boot_config
+            .lines()
+            .any(|line| line == format!("CONFIG_{setting}"))
+        {
+            return Err(
+                format!("bootloader does not implement the A/B environment: {setting}").into(),
+            );
+        }
+    }
     let builder_shell = std::env::var("GHAZAL_BUILDER_SHELL")?;
     let lock: BTreeMap<_, _> = fs::read_to_string(repo.join("hardware.lock"))?
         .lines()
