@@ -9,15 +9,17 @@ The repository builds the bootloader and kernel from pinned sources:
 defconfig) and `nix/h700-kernel.nix` (Linux with ROCKNIX's patch set and H700
 config). A pinned ROCKNIX image supplies firmware, emulator binaries and their
 library dependencies. `hardware.lock` records its digest and source revision.
-The initial profile targets the LPDDR4 ("DDR4") RG40XX-V; DDR3 boards need a
-U-Boot built with the DDR3 DRAM settings.
+Release images cover the device catalog with separate DDR3 and DDR4 bootloaders.
+Choose the image matching the board, panel and RAM revision; see
+[installation](installation.md) and the [device catalog](../config/h700/devices.toml).
 
 The boot partition contains the kernel, the board device tree and
 `extlinux/extlinux.conf`. Every driver the handheld uses is built into the
 kernel, so there is no initramfs and no module loading: the kernel mounts the
-ext4 root filesystem and runs `/sbin/init`, which is ghazal. User games, BIOS,
-saves and states belong on SD2; system logs, SSH host keys and settings persist
-on SD1.
+ext4 root filesystem and runs `/sbin/init`, which is ghazal. Games, BIOS, saves
+and data-card settings live on TF2 when present, otherwise on TF1's data
+partition. System logs, SSH host keys and OS settings persist on TF1's root
+partition. See [the storage layout](storage-layout.md).
 
 ## Boot time
 
@@ -61,14 +63,16 @@ nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/ghazal-rg40xxv.img"
 
 The builder refuses to overwrite an existing output. It verifies the upstream
 SHA-256 and embedded source revision, resolves the recursive AArch64 ELF library
-closure, and writes a 1.14 GiB MBR image: 128 MiB boot partition and 1 GiB ext4
-root. Unused card space is currently left untouched. Only regular output files
+closure, and writes an MBR image with a 128 MiB boot partition, a 1 GiB ext4
+root and a reserved 128 MiB data partition. First boot initializes and grows
+the data partition to use the remaining card space. Only regular output files
 are opened; flashing is a separate operation. The provisioned image is private
 because it contains Wi-Fi credentials. Host SSH keys are generated on first boot,
 so they are never shared between separately provisioned devices.
 
 The recipe and dependency inputs are pinned. Images are not yet byte-for-byte
-deterministic: filesystem UUIDs, machine IDs and creation timestamps vary.
+deterministic: filesystem UUIDs and creation timestamps vary. Machine IDs and
+SSH host keys are generated per device on first boot.
 
 ## Data and debugging
 
