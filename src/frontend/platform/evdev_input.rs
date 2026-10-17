@@ -18,7 +18,10 @@ struct Pad {
     stick: [Option<(i32, i32)>; 2],
     /// Current digital direction per axis (-1, 0, 1) for hat0 x/y and stick x/y.
     axis_state: [i8; 4],
+    gate: Gate,
 }
+
+enum Gate { WaitingForNeutral, Ready }
 
 pub struct Input {
     pads: Vec<Pad>,
@@ -69,7 +72,7 @@ impl Input {
             };
             let stick = [range(ABS_X), range(ABS_Y)];
             eprintln!("ghazal: using input {} ({name}) stick={stick:?}", path.display());
-            pads.push(Pad { device, stick, axis_state: [0; 4] });
+            pads.push(Pad { device, stick, axis_state: [0; 4], gate: Gate::WaitingForNeutral });
         }
         if pads.is_empty() {
             bail!("no gamepad {:?} in /dev/input (see `ghazal probe-input`)", dev.input.gamepad);
@@ -84,24 +87,15 @@ impl Input {
         ];
         let map = names.iter().filter_map(|(n, b)| dev.button(n).map(|code| (code, *b))).collect();
         let mut input = Self { pads, companions, map, grab: dev.input.grab, grabbed: false };
-        input.acquire();
+        input.acquire()?;
         Ok(input)
     }
 
-    /// Called when the frontend comes back to the foreground: drops input queued while
-    /// the emulator ran and, if configured, grabs the pad so nothing else reacts to menu
-    /// navigation (the daemon never grabs, so hotkeys keep working either way).
-    pub fn acquire(&mut self) {
-        for device in &mut self.companions {
-            while device.fetch_events().is_ok_and(|events| events.count() > 0) {}
-        }
+    /// Fresh descriptors have no gameplay backlog. Held controls must return to
+    /// neutral before this frontend session accepts any input.
+    fn acquire(&mut self) -> Result<()> {
         for pad in &mut self.pads {
-            while let Ok(events) = pad.device.fetch_events() {
-                if events.count() == 0 {
-                    break;
-                }
-            }
-            pad.axis_state = [0; 4];
+            pad.gate = if pad.neutral()? { Gate::Ready } else { Gate::WaitingForNeutral };
             if self.grab {
                 if let Err(e) = pad.device.grab() {
                     eprintln!("ghazal: grab failed: {e}");
@@ -109,6 +103,7 @@ impl Input {
             }
         }
         self.grabbed = self.grab;
+        Ok(())
     }
 
     pub fn release(&mut self) {
@@ -166,6 +161,10 @@ impl Input {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
                 Err(e) => return Err(e.into()),
             };
+            if matches!(pad.gate, Gate::WaitingForNeutral) {
+                if pad.neutral()? { pad.gate = Gate::Ready; }
+                continue;
+            }
             for ev in events {
                 match ev.event_type() {
                     // value 2 is kernel autorepeat; we do our own.
@@ -206,6 +205,25 @@ impl Input {
             }
         }
         Ok(())
+    }
+}
+
+impl Pad {
+    fn neutral(&self) -> Result<bool> {
+        if self.device.get_key_state()?.iter().next().is_some() { return Ok(false); }
+        if self.device.supported_absolute_axes().is_some() {
+            let axes = self.device.get_abs_state()?;
+            for code in [ABS_HAT0X, ABS_HAT0Y] {
+                if self.device.supported_absolute_axes().is_some_and(|supported| supported.contains(evdev::AbsoluteAxisType(code)))
+                    && axes[code as usize].value != 0 { return Ok(false); }
+            }
+            for (axis, range) in self.stick.iter().enumerate() {
+                if let Some(range) = range {
+                    if stick_direction(axes[axis].value, *range, 1) != 0 { return Ok(false); }
+                }
+            }
+        }
+        Ok(true)
     }
 }
 

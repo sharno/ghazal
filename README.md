@@ -59,7 +59,7 @@ on the home screen it selects Explore Content.
 In **Configuration → Startup**, choose **Main Menu** (default) or **Last Game**.
 The choice is saved on the OS card and applies on the next boot. Last Game
 starts the most recently launched game from the active data card's history;
-it does not automatically load a save state. Exiting the emulator returns to
+RetroArch resumes its automatic save state when the core supports it. Exiting the emulator returns to
 Main Menu. Missing games, missing BIOS/cores and launch failures leave the menu
 available, and frontend restarts do not repeat the automatic launch that boot.
 Interacting with the menu while its initial library scan runs cancels autostart.

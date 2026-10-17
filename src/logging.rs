@@ -51,7 +51,13 @@ impl RollingLog {
 #[derive(Debug)]
 pub struct LogPump {
     stopping: Arc<AtomicBool>,
-    thread: Option<JoinHandle<Option<String>>>,
+    thread: Option<JoinHandle<EmulatorReport>>,
+}
+
+#[derive(Default)]
+pub struct EmulatorReport {
+    pub error: Option<String>,
+    pub save_warning: Option<String>,
 }
 
 impl LogPump {
@@ -86,7 +92,7 @@ impl LogPump {
                 }
             })();
             if let Err(error) = result { eprintln!("ghazal: log writer failed: {error:#}"); }
-            diagnostic.finish()
+            EmulatorReport { save_warning: diagnostic.save_warning.take(), error: diagnostic.finish() }
         })?;
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))
     }
@@ -96,7 +102,7 @@ impl LogPump {
         self.stopping.store(true, Ordering::Release);
     }
 
-    pub fn finish(mut self) -> Result<Option<String>> {
+    pub fn finish(mut self) -> Result<EmulatorReport> {
         self.stop();
         self.thread.take().context("log worker already finished")?.join()
             .map_err(|_| anyhow::anyhow!("log worker panicked"))
@@ -107,6 +113,7 @@ impl LogPump {
 struct Diagnostics {
     partial: Vec<u8>,
     last: Option<(DiagnosticSource, String)>,
+    save_warning: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -125,6 +132,9 @@ impl Diagnostics {
 
     fn line(&mut self) {
         let line = String::from_utf8_lossy(&self.partial);
+        if line.contains("[State] Auto save state to") && line.trim_end().ends_with("failed.") {
+            self.save_warning = Some("Automatic save state failed. This core may not support save states; progress cannot automatically resume.".into());
+        }
         let message = if let Some((_, body)) = line.split_once("[libretro ERROR]") {
             Some((DiagnosticSource::Core, body.trim()))
         } else if let Some((_, body)) = line.split_once("[Environ] SET_MESSAGE:") {

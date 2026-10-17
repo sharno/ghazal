@@ -442,7 +442,7 @@ impl App {
             if status.success() { Ok(()) } else { anyhow::bail!("emulator exited with {status}") }
         });
         if let Err(e) = result {
-            eprintln!("ghazal: launch failed: {e:#}");
+            eprintln!("ghazal: emulator session: {e:#}");
             self.error(format!("{e:#}"));
         }
         self.refresh_status(Instant::now());

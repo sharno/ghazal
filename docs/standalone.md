@@ -198,7 +198,10 @@ PID file descriptor and verified process start time, sends TERM, then KILL
 if it does not exit within 10 seconds. RetroArch saves an automatic state
 while quitting, and the next launch of that game resumes from it; this also
 happens on idle poweroff and when holding Power. The frontend regains its display and
-input ownership when the process exits. BIOS-dependent systems still require
+input ownership when the process exits. Gameplay input is discarded, and held
+controls must return to neutral before menu navigation resumes. Automatic resume
+requires core save-state support; a failed automatic save is reported on return
+to the menu. In-game saves are separate from save states. BIOS-dependent systems still require
 the appropriate user-provided files in `/mnt/games/BIOS`. A system with
 `requires_any` in `frontend.toml` stays hidden until one of those files is
 in `bios_dir`; rescan after adding one. On the RG40XX-V that applies to PC

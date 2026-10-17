@@ -75,11 +75,12 @@ impl LaunchSpec {
         let mut session = crate::emulator::Session::register(child)?;
         on_started();
         let status = session.wait()?;
-        let diagnostic = pump.map(crate::logging::LogPump::finish).transpose()?.flatten();
+        let report = pump.map(crate::logging::LogPump::finish).transpose()?.unwrap_or_default();
         if !status.success() {
-            if let Some(diagnostic) = diagnostic { bail!("{diagnostic} (emulator exited with {status})"); }
+            if let Some(diagnostic) = report.error { bail!("{diagnostic} (emulator exited with {status})"); }
             bail!("emulator exited with {status}");
         }
+        if let Some(warning) = report.save_warning { bail!("{warning}"); }
         Ok(status)
     }
 }

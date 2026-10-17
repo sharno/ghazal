@@ -237,10 +237,12 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
             None => {}
             Some(Effect::Quit) => return Ok(()),
             Some(Effect::Launch { spec, game }) => {
-                input.release();
+                // Close the evdev clients entirely: gameplay must never enter a
+                // frontend queue (including SYN_DROPPED recovery batches).
+                drop(input);
                 let result = display.with_released(|| spec.run(|| app.launch_started(game)))?;
                 screen.invalidate();
-                input.acquire();
+                input = evdev_input::Input::open(device)?;
                 repeater.clear();
                 app.launch_finished(result);
             }
