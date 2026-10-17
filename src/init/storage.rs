@@ -10,7 +10,7 @@ use std::{
     process::Command,
 };
 
-const DATA_START: u32 = 2_392_064;
+const DATA_START: u32 = 5_017_600;
 const FACTORY: &str = "/var/lib/ghazal/factory-data";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,6 +62,7 @@ impl FactoryLayout {
             (0, 32768, Some(262144), 0x0c),
             (1, 294912, Some(2097152), 0x83),
             (2, DATA_START, None, 0x07),
+            (3, 2_392_064, Some(2_625_536), 0x05),
         ] {
             let entry = &mbr[446 + index * 16..][..16];
             let actual_start = u32::from_le_bytes(entry[8..12].try_into()?);
@@ -73,9 +74,6 @@ impl FactoryLayout {
             {
                 bail!("TF1 is not an ghazal factory partition layout");
             }
-        }
-        if mbr[494..510].iter().any(|&byte| byte != 0) {
-            bail!("unexpected fourth partition");
         }
         Ok(Self { mbr })
     }
@@ -329,6 +327,7 @@ mod tests {
             (0, 32768u32, 262144u32, 0x0c),
             (1, 294912, 2097152, 0x83),
             (2, DATA_START, 262144, 0x07),
+            (3, 2_392_064, 2_625_536, 0x05),
         ] {
             let entry = &mut mbr[446 + index * 16..][..16];
             entry[4] = kind;
@@ -391,7 +390,7 @@ mod tests {
             .write(true)
             .create_new(true)
             .open(&image)?;
-        let disk_size = 2u64 * 1024 * 1024 * 1024;
+        let disk_size = 4u64 * 1024 * 1024 * 1024;
         file.set_len(disk_size)?;
         let original = factory();
         file.write_all(&original)?;

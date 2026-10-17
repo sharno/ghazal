@@ -15,6 +15,7 @@ jobs:
           cargo clippy --locked --features desktop --all-targets -- -D warnings
           cargo clippy --locked --manifest-path tools/image-builder/Cargo.toml -- -D warnings
           cargo clippy --locked --manifest-path tools/data-migration/Cargo.toml -- -D warnings
+          cargo clippy --locked --manifest-path tools/update-lab/Cargo.toml -- -D warnings
       - name: Run unit tests
         run: |
           cargo test --locked
@@ -30,6 +31,10 @@ jobs:
         uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify signed update bundles using real RAUC
+        run: |
+          cargo build --locked --manifest-path tools/update-lab/Cargo.toml
+          nix shell --inputs-from . nixpkgs#rauc nixpkgs#openssl nixpkgs#squashfsTools nixpkgs#dbus nixpkgs#ubootTools -c bash -c 'sudo env PATH="$PATH" "$PWD/tools/update-lab/target/debug/ghazal-update-lab" --install'
       - name: Verify storage transactions with the pinned formatter
         run: |
           sudo apt-get update -qq

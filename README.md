@@ -19,6 +19,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   ten rolling numbered states, separate from the automatic resume state.
 - Change brightness, volume and persistent RetroArch settings from Configuration.
 - Use one SD card for everything, or separate OS and games/data cards.
+- Install signed system updates from GitHub through Configuration → System update
+  on A/B installations; see [updates and migration](docs/updates.md).
 - Connect over Wi-Fi and SSH, sync files with Syncthing, and recover from failed boots.
 
 ## What we care about

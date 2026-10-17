@@ -62,9 +62,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Updates and build independence
 
-- OS updates currently require reflashing. Design a recoverable update path
-  that preserves user data and settings, including one-card installations;
-  automatic updates and in-place OS upgrades are not implemented.
+- RAUC A/B updates are implemented; see docs/updates.md. Validate the new layout
+  on spare hardware: first boot, both slot boots, confirmation, interrupted install,
+  repeated failed trials, Reset/power-loss recovery and retained identities/data.
+  Beta 4 and earlier need a one-time reflash; do not repartition a live user's card.
+- Complete bootloader watchdog handover so a kernel hang before the userspace
+  watchdog starts also resets automatically. Preserve fast boot and measure it.
+- Keep shared settings migrations compatible with the previous OS slot. Keep
+  update dependencies in their own Nix closure; mixing their ELF interpreter or
+  libraries with the emulator runtime can silently select an incompatible glibc.
+- The Allwinner SPL at 8 KiB overlaps a conventional primary GPT entry array.
+  Preserve the MBR/extended layout unless bootloader placement is redesigned.
 - Further build independence means packaging emulators and runtime libraries
   from pinned sources rather than extracting the binary bundle. Preserve firmware
   provenance and licensing, and validate performance before replacing working binaries.

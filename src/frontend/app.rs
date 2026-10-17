@@ -40,6 +40,7 @@ enum View {
     Applications,
     Configuration,
     Information,
+    Updates,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -97,6 +98,7 @@ enum MenuItem {
     Volume,
     Startup,
     RetroArchSettings,
+    SystemUpdate,
 }
 
 impl MenuItem {
@@ -119,6 +121,7 @@ impl MenuItem {
                 StartupMode::LastGame => "Startup: Last Game",
             },
             Self::RetroArchSettings => "RetroArch settings",
+            Self::SystemUpdate => "System update",
         }
     }
 }
@@ -173,6 +176,7 @@ pub struct App {
     home_cursor: usize,
     application_cursor: usize,
     configuration_cursor: usize,
+    updater: crate::update::Menu,
     information_cursor: usize,
     information_rows: Vec<Row>,
     settings: Settings,
@@ -241,6 +245,7 @@ impl App {
             home_cursor: 0,
             application_cursor: 0,
             configuration_cursor: 0,
+            updater: crate::update::Menu::default(),
             information_cursor: 0,
             information_rows: Vec::new(),
             settings,
@@ -325,6 +330,8 @@ impl App {
     }
 
     fn handle(&mut self, button: Button) -> Option<Effect> {
+        if self.view == View::Updates && self.updater.working() { return None; }
+        if crate::update::busy() { return None; }
         if let Some(MenuState { page, cursor }) = self.menu {
             let items = self.page_items(page);
             match button {
@@ -374,11 +381,21 @@ impl App {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
+                        MenuItem::SystemUpdate if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         _ => {},
                     }
                 }
                 button => self.configuration_cursor = navigate(self.configuration_cursor, self.configuration_items().len(), button),
+            },
+            View::Updates => match button {
+                Button::B => self.view = View::Configuration,
+                Button::A => match self.updater.activate() {
+                    Ok(true) => return self.power("reboot"),
+                    Ok(false) => self.rows_for = None,
+                    Err(error) => self.error(format!("{error:#}")),
+                },
+                button => self.updater.cursor = navigate(self.updater.cursor, 4, button),
             },
             View::Information => match button {
                 Button::B => self.view = View::Home,
@@ -463,6 +480,7 @@ impl App {
         self.receive_scan();
         self.receive_art();
         self.receive_download();
+        if self.updater.poll() { self.rows_for = None; }
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -589,6 +607,7 @@ impl App {
 
     fn configuration_items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
+        if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items
     }
@@ -666,6 +685,10 @@ impl App {
             self.menu = None;
         }
         match item {
+            MenuItem::SystemUpdate => {
+                match self.updater.open() { Ok(()) => self.view = View::Updates, Err(error) => self.error(format!("{error:#}")) }
+                None
+            },
             MenuItem::RetroArchSettings => match LaunchSpec::retroarch_settings(&self.config) {
                 Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
                 Err(error) => { self.error(format!("RetroArch settings: {error:#}")); None }
@@ -790,6 +813,7 @@ impl App {
                 };
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
             }
+            View::Updates => { let (label, detail) = self.updater.row(index); Row { label: label.into(), detail: detail.into(), glyph: "".into() } },
             View::Information => self.information_rows.get(index)?.clone(),
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
@@ -815,6 +839,7 @@ impl App {
             (None, View::Home) => HOME_HINTS,
             (None, View::Applications) => SYSTEM_HINTS,
             (None, View::Configuration) => CONFIGURATION_HINTS,
+            (None, View::Updates) => OPTIONS_HINTS,
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -829,6 +854,7 @@ impl App {
             View::Games(list) => (self.cursor(list), self.game_count(list)),
             View::Applications => (self.application_cursor, APPLICATION_ITEMS.len()),
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
+            View::Updates => (self.updater.cursor, 4),
             View::Information => (self.information_cursor, self.information_rows.len()),
         };
 
@@ -857,6 +883,7 @@ impl App {
             View::Games(list) => self.list_title(list),
             View::Applications => "Applications",
             View::Configuration => "Configuration",
+            View::Updates => "System update",
             View::Information => "Information",
         }.into());
         ui.set_position(if total > 0 { format!("{} / {total}", cursor + 1) } else { String::new() }.into());

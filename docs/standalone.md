@@ -13,13 +13,14 @@ Release images cover the device catalog with separate DDR3 and DDR4 bootloaders.
 Choose the image matching the board, panel and RAM revision; see
 [installation](installation.md) and the [device catalog](../config/h700/devices.toml).
 
-The boot partition contains the kernel, the board device tree and
-`extlinux/extlinux.conf`. Every driver the handheld uses is built into the
+Each A/B root filesystem contains its own kernel and board device tree under
+`/boot`. U-Boot selects a slot using redundant environment state; the FAT
+partition holds provisioning files. See [system updates](updates.md). Every driver the handheld uses is built into the
 kernel, so there is no initramfs and no module loading: the kernel mounts the
-ext4 root filesystem and runs `/sbin/init`, which is ghazal. Games, BIOS, saves
+read-only ext4 root filesystem and runs `/sbin/init`, which is ghazal. Games, BIOS, saves
 and data-card settings live on TF2 when present, otherwise on TF1's data
-partition. System logs, SSH host keys and OS settings persist on TF1's root
-partition. See [the storage layout](storage-layout.md).
+partition. System logs, SSH host keys and OS settings persist on TF1's separate
+state partition mounted at `/var`. See [the storage layout](storage-layout.md).
 
 ## Boot time
 
@@ -64,7 +65,8 @@ nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/ghazal-rg40xxv.img"
 The builder refuses to overwrite an existing output. It verifies the upstream
 SHA-256 and embedded source revision, resolves the recursive AArch64 ELF library
 closure, and writes an MBR image with a 128 MiB boot partition, a 1 GiB ext4
-root and a reserved 128 MiB data partition. First boot initializes and grows
+root per A/B slot, a 256 MiB persistent state partition and a reserved 128 MiB
+data partition (logical system partitions use an MBR extended container). First boot initializes and grows
 the data partition to use the remaining card space. Only regular output files
 are opened; flashing is a separate operation. The provisioned image is private
 because it contains Wi-Fi credentials. Host SSH keys are generated on first boot,

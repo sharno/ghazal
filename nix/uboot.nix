@@ -21,12 +21,10 @@ let
   package = "${rocknix}/projects/ROCKNIX/devices/H700/packages/u-boot-${memory}";
   defconfig = "anbernic_rg35xx_h700_${if memory == "DDR3" then "lpddr3" else "lpddr4"}_defconfig";
   # Compressed-kernel buffer: above the kernel (0x40080000), below the FDT (0x4fa00000).
-  bootcommand = lib.concatStringsSep "; " [
-    "env set kernel_comp_addr_r 0x46000000"
-    "env set kernel_comp_size 0x4000000"
-    "env set boot_targets mmc0"
-    "run distro_bootcmd"
-  ];
+  bootcommand = lib.replaceStrings [ "\"" ] [ "\\\"" ] (lib.concatMapStrings
+    (line: line + (if lib.hasSuffix "then" line || lib.hasSuffix "do" line || line == "else" then " " else "; "))
+    (builtins.filter (line: line != "" && !lib.hasPrefix "#" line)
+      (map lib.trim (lib.splitString "\n" (builtins.readFile ../config/updates/boot.cmd)))));
 in
 assert builtins.elem memory [ "DDR3" "DDR4" ];
 buildUBoot {
@@ -48,6 +46,18 @@ buildUBoot {
   inherit defconfig;
   extraConfig = ''
     CONFIG_LZ4=y
+    CONFIG_ENV_IS_IN_MMC=y
+    # CONFIG_ENV_IS_IN_FAT is not set
+    # CONFIG_ENV_IS_NOWHERE is not set
+    CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+    CONFIG_ENV_SIZE=0x20000
+    CONFIG_ENV_OFFSET=0x400000
+    CONFIG_ENV_OFFSET_REDUND=0x420000
+    CONFIG_SYS_MMC_ENV_DEV=0
+    CONFIG_CMD_SAVEENV=y
+    CONFIG_CMD_SETEXPR=y
+    CONFIG_CMD_EXT4=y
+    CONFIG_DOS_PARTITION=y
     CONFIG_USE_BOOTCOMMAND=y
     CONFIG_BOOTCOMMAND="${bootcommand}"
   '';

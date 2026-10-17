@@ -1,3 +1,10 @@
+# A/B update development
+
+Current source adds RAUC updates and a new disk layout. Beta 4 and earlier
+require a one-time backup and reflash. Hardware acceptance of this new layout
+is pending; earlier RG40XX-V validation does not cover A/B boot or power-loss
+recovery. See [system updates](updates.md) for installation and validation details.
+
 # Ghazal H700 beta
 
 Configuration → RetroArch settings opens the native emulator settings menu.
@@ -35,8 +42,8 @@ filesystems and verifies the complete artifact inventory before publication.
 A disposable loop-device test grows p3 while p1/p2 are mounted, kills a
 formatter after its first write, recovers that transaction, checks save retention
 and proves unknown data is refused. Provisioning errors are reported on the
-boot volume and the device can continue offline; a retry-boot request lets
-users leave recovery without SSH.
+boot volume and the device can continue offline. New A/B images use RAUC
+for signed updates and slot rollback; see [updates and migration](updates.md).
 Kernel/U-Boot and the emulator runtime reuse the pinned ROCKNIX source/bundle;
 their source provenance is recorded in hardware.lock and image.json.
 

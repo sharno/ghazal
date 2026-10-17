@@ -27,13 +27,25 @@
           uboot-ddr3 = cross.callPackage ./nix/uboot.nix { memory = "DDR3"; };
           h700-kernel = cross.callPackage ./nix/h700-kernel.nix { };
           h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { debug = true; };
+          fw-env = pkgs.runCommand "ghazal-fw-env" {} ''
+            mkdir -p $out/bin
+            cp ${target.ubootTools}/bin/fw_printenv $out/bin/
+            ln -s fw_printenv $out/bin/fw_setenv
+          '';
+          update-runtime = pkgs.closureInfo {
+            rootPaths = [ target.rauc fw-env target.curl ];
+          };
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
             inherit ghazal uboot uboot-ddr3;
             kernel = h700-kernel;
             src = ./.;
             busybox = target.pkgsStatic.busybox;
+            inherit update-runtime;
+            rauc = target.rauc;
+            curl = target.curl;
+            ubootTools = fw-env;
             tools = with pkgs; [ util-linux e2fsprogs jq mtools dosfstools
-              squashfsTools binutils cpio gzip curl coreutils findutils fakeroot ];
+              squashfsTools binutils cpio gzip curl coreutils findutils fakeroot rauc ];
           };
 
           # QEMU "virt" test machine: stock kernel, ghazal as PID 1 from an initramfs.

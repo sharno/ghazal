@@ -16,6 +16,7 @@ mod profile;
 mod supervisor;
 mod sys;
 mod system;
+mod update;
 
 mod ui {
     slint::include_modules!();
@@ -84,6 +85,7 @@ fn run() -> Result<()> {
     let rest = args.get(1..).unwrap_or(&[]);
 
     match command.as_str() {
+        "update" => update::run(rest),
         "ssh-key" => debug::ssh_key(),
         "kernel-log" => debug::kernel_log(),
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
@@ -166,6 +168,11 @@ fn run_init(profile: &Profile) -> Result<()> {
         Err(_) => anyhow!("panicked"),
     };
     eprintln!("ghazal init failed: {err:#}");
+    if std::process::id() == 1 && std::fs::read_to_string("/proc/cmdline").is_ok_and(|line| line.split_whitespace().any(|word| matches!(word, "rauc.slot=A" | "rauc.slot=B"))) {
+        eprintln!("ghazal: failed A/B boot; rebooting to retry or roll back");
+        sys::sync();
+        return sys::reboot(libc::RB_AUTOBOOT);
+    }
     if std::process::id() == 1 && std::path::Path::new("/etc/ghazal/hardware.lock").exists() {
         return init::rescue().context("standalone recovery failed");
     }

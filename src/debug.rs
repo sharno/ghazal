@@ -34,7 +34,7 @@ pub fn kernel_log() -> Result<()> {
 }
 
 pub fn ssh_key() -> Result<()> {
-    let key = Path::new("/etc/ssh/ssh_host_ed25519_key");
+    let key = Path::new("/var/lib/ghazal/ssh/ssh_host_ed25519_key");
     if key.is_file() {
         return Ok(());
     }
@@ -75,7 +75,7 @@ pub fn resolvconf() -> Result<()> {
     let mut entries: Vec<_> = std::fs::read_dir(records)?.collect::<std::io::Result<_>>()?;
     entries.sort_by_key(|entry| entry.file_name());
     let contents = entries.iter().map(|entry| std::fs::read_to_string(entry.path())).collect::<std::io::Result<Vec<_>>>()?;
-    crate::sys::write_atomic(Path::new("/etc/resolv.conf"), resolv_conf(&contents).as_bytes())
+    crate::sys::write_atomic(Path::new("/run/ghazal/resolv.conf"), resolv_conf(&contents).as_bytes())
 }
 
 fn record_name(name: &str) -> Result<&str> {

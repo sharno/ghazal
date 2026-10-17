@@ -73,7 +73,18 @@ jobs:
       - name: Import the identical checked runtime
         run: gzip -dc build/release-tools/runtime.nar.gz | nix-store --import
       - name: Build and verify every H700 device image
+        env:
+          RAUC_SIGNING_KEY: ${{ secrets.RAUC_SIGNING_KEY }}
         run: |
+          if test -n "$RAUC_SIGNING_KEY"; then
+            umask 077
+            printf '%s\n' "$RAUC_SIGNING_KEY" > "$RUNNER_TEMP/rauc-release.key"
+            export GHAZAL_UPDATE_KEY="$RUNNER_TEMP/rauc-release.key"
+            trap 'rm -f "$RUNNER_TEMP/rauc-release.key"' EXIT
+          elif [[ "$GITHUB_REF" == refs/tags/* || "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo 'RAUC_SIGNING_KEY is required for a release' >&2
+            exit 1
+          fi
           builder=$(cat build/release-tools/store-path.txt)
           "$builder/bin/ghazal-image-builder" --all --memory '${{ matrix.memory }}' --version "$VERSION" "$PWD" "$PWD/dist"
           cd dist
@@ -81,6 +92,10 @@ jobs:
           expected=$(jq '.include | map(select(.memory == "${{ matrix.memory }}")) | length' ../build/release-tools/devices.json)
           actual=$(find . -maxdepth 1 -name '*.img.gz' | wc -l)
           test "$actual" -eq "$expected"
+          if test -n "$RAUC_SIGNING_KEY"; then
+            bundles=$(find . -maxdepth 1 -name '*.raucb' | wc -l)
+            test "$bundles" -eq "$expected"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: images-${{ matrix.memory }}
@@ -111,5 +126,5 @@ jobs:
           cat ./*.sha256 > SHA256SUMS
           cd ..
           gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
-          gh release upload "$TAG" dist/*.img.gz dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
+          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md config/h700/devices.toml
           gh release edit "$TAG" --draft=false

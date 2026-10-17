@@ -1,7 +1,4 @@
-[init.rescue]
-counter = "/var/lib/ghazal/boot-attempts"
-max_attempts = 3
-exec = ["/opt/ghazal/ghazal", "rescue"]
+# A/B boot attempts are owned by U-Boot/RAUC, independently for each slot.
 
 [[init.step]]
 mount = { source = "proc", target = "/proc", fstype = "proc", options = "nosuid,nodev,noexec" }
@@ -16,13 +13,13 @@ mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid
 [[init.step]]
 mount = { source = "tmpfs", target = "/tmp", fstype = "tmpfs", options = "nosuid,nodev" }
 [[init.step]]
-mount = { source = "none", target = "/", fstype = "none", options = "remount,rw,noatime" }
+mount = { source = "none", target = "/", fstype = "none", options = "remount,ro,noatime" }
+[[init.step]]
+mount = { source = "/dev/mmcblk0p6", target = "/var", fstype = "ext4", options = "rw,noatime", wait = 3 }
 [[init.step]]
 hostname = "ghazal"
 [[init.step]]
 mount = { source = "/dev/mmcblk0p1", target = "/mnt/boot", fstype = "vfat", options = "rw,noatime", optional = true }
-[[init.step]]
-retry-boot = "/mnt/boot/retry-boot"
 [[init.step]]
 provision = "/mnt/boot/provision.toml"
 [[init.step]]
@@ -73,6 +70,17 @@ action = "brightness-down"
 
 [supervisor]
 log_dir = "/var/log/ghazal"
+[[supervisor.service]]
+name = "update-health"
+exec = ["/opt/ghazal/ghazal", "update", "health"]
+wait_for = ["/dev/watchdog0"]
+restart = "always"
+[[supervisor.service]]
+name = "rauc"
+exec = ["/usr/bin/rauc", "service"]
+after = ["dbus"]
+wait_for = ["/run/dbus/system_bus_socket", "/run/ghazal/update-requested"]
+restart = "always"
 # The boot critical path is audio -> daemon -> frontend. They use kernel device
 # nodes directly, so none of them waits for udev; udev only serves RetroArch.
 # Background work waits for the first menu frame so it can't slow it down.

@@ -271,6 +271,7 @@ impl Daemon<'_> {
     }
 
     fn check_idle(&mut self, now: Instant) {
+        if crate::update::busy() { self.activity(); return; }
         let emulator = match crate::emulator::active() {
             Ok(active) => active,
             Err(error) => { eprintln!("ghazal-daemon: emulator activity: {error:#}"); return; },
@@ -379,6 +380,7 @@ impl Daemon<'_> {
     /// Mirrors muOS's suspend.sh: LED off, mute, backlight off, panel blank, hooks, then
     /// sleep; an RTC alarm wakes us to power off after a long sleep.
     fn suspend(&mut self) {
+        if crate::update::busy() { return; }
         if self.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
             eprintln!("ghazal-daemon: suspend disabled until native wake is validated");
             return;
@@ -427,6 +429,7 @@ impl Daemon<'_> {
     }
 
     fn power(&mut self, method: &PowerMethod, signal: i32) {
+        if crate::update::busy() { eprintln!("ghazal: update in progress; power action deferred"); return; }
         self.save();
         hw::set_led(&self.hw.leds.power, false);
         crate::sys::sync();

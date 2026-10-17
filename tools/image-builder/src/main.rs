@@ -410,6 +410,8 @@ fn main() -> Result<()> {
     if !release.lines().any(|line| line == expected_revision) {
         return Err("hardware source revision disagrees with hardware.lock".into());
     }
+    fs::remove_file(&raw)?;
+    fs::remove_file(work.join("SYSTEM"))?;
     let root = work.join("root");
     fs::create_dir_all(&root)?;
     for dir in [
@@ -688,7 +690,7 @@ fn main() -> Result<()> {
     )?;
     write(&root, "etc/machine-id", "")?;
     write(&root, "var/lib/ghazal/factory-data", "ghazal-factory-v1\n")?;
-    write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /etc/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile .ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
+    write(&root, "etc/ssh/sshd_config", "Port 22\nHostKey /var/lib/ghazal/ssh/ssh_host_ed25519_key\nPermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile /var/lib/ghazal/ssh/authorized_keys\nSubsystem sftp internal-sftp\n")?;
     if let Some(secrets) = &secrets {
         copy(
             &secrets.join("authorized_keys"),
@@ -787,8 +789,64 @@ fn main() -> Result<()> {
     {
         return Err("public image contains credentials or a shared machine identity".into());
     }
+    // Preserve the complete Nix closure: its ELF interpreters and RPATHs must not
+    // accidentally bind to the emulator runtime's different glibc.
+    for store in fs::read_to_string(std::env::var("GHAZAL_UPDATE_CLOSURE")?)?.lines() {
+        if !store.starts_with("/nix/store/") {
+            return Err("invalid update closure".into());
+        }
+        copy_tree(Path::new(store), &root.join(store.trim_start_matches('/')))?;
+    }
+    for (name, variable) in [
+        ("rauc", "GHAZAL_RAUC"),
+        ("curl", "GHAZAL_CURL"),
+        ("fw_printenv", "GHAZAL_FW_PRINTENV"),
+        ("fw_setenv", "GHAZAL_FW_SETENV"),
+    ] {
+        symlink(std::env::var(variable)?, root.join("usr/bin").join(name))?;
+    }
+    copy(
+        Path::new(&std::env::var("GHAZAL_CA_CERT")?),
+        &root.join("etc/ssl/certs/ca-certificates.crt"),
+    )?;
+    copy(
+        &repo.join("config/updates/release.pem"),
+        &root.join("etc/rauc/release.pem"),
+    )?;
+    copy(
+        &repo.join("config/updates/fw_env.config"),
+        &root.join("etc/fw_env.config"),
+    )?;
+    let state = work.join("state");
+    fs::rename(root.join("var"), &state)?;
+    fs::create_dir(root.join("var"))?;
+    fs::create_dir_all(state.join("lib/ghazal/ssh"))?;
+    fs::rename(
+        root.join("root/.ssh/authorized_keys"),
+        state.join("lib/ghazal/ssh/authorized_keys"),
+    )?;
+    fs::rename(
+        root.join("etc/machine-id"),
+        state.join("lib/ghazal/machine-id"),
+    )?;
+    symlink("/var/lib/ghazal/machine-id", root.join("etc/machine-id"))?;
+    fs::remove_file(root.join("etc/resolv.conf"))?;
+    symlink("/run/ghazal/resolv.conf", root.join("etc/resolv.conf"))?;
+    let state_image = work.join("state.ext4");
+    File::create(&state_image)?.set_len(256 * 1024 * 1024)?;
+    run(Command::new("fakeroot")
+        .args([
+            builder_shell.as_str(),
+            "-ec",
+            "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L GHAZALSTATE -d \"$1\" \"$2\"",
+            "state-builder",
+        ])
+        .arg(&state)
+        .arg(&state_image))?;
     let device_template = fs::read_to_string(root.join("etc/ghazal/device.toml"))?;
     let frontend_template = fs::read_to_string(root.join("etc/ghazal/frontend.toml"))?;
+    fs::remove_dir_all(&upstream)?;
+    copy(&kernel.join("boot/KERNEL"), &root.join("boot/KERNEL"))?;
     for device in devices {
         let image = if options.all {
             image.join(format!(
@@ -845,49 +903,71 @@ fn main() -> Result<()> {
                 "data_policy":"TF2 if present, otherwise TF1 data partition", "hardware_revision":value("source_revision")?
             }))?,
         )?;
-        let root_image = work.join("root.ext4");
+        // FAT is a provisioning volume; boot-critical files belong to each OS slot.
+        let boot = work.join(format!("boot-{}", device.id));
+        write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\n# auto selects TF2 when inserted; tf1 and tf2 require that chosen card.\ndata_card = \"auto\"\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
+        // `quiet`: printing the boot log over the 115200-baud serial console alone
+        // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
+        // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
+        if root.join("boot/dtb.img").exists() {
+            fs::remove_file(root.join("boot/dtb.img"))?;
+        }
+        copy(
+            &kernel
+                .join("boot/device_trees")
+                .join(format!("{}.dtb", device.dtb)),
+            &root.join("boot/dtb.img"),
+        )?;
+        let compatible = format!("ghazal-{}-{}-ab1", device.id, options.memory);
+        write(
+            &root,
+            "etc/rauc/system.conf",
+            include_str!("../../../config/updates/system.conf.in")
+                .replace("@COMPATIBLE@", &compatible),
+        )?;
+        let root_image = work.join(format!("root-{}.ext4", device.id));
         File::create(&root_image)?.set_len(1024 * 1024 * 1024)?;
         run(Command::new("fakeroot")
             .args([
                 builder_shell.as_str(),
                 "-ec",
                 "chown -R 0:0 \"$1\"; mkfs.ext4 -q -F -L GHAZALROOT -d \"$1\" \"$2\"",
-                "image-builder",
+                "root-builder",
             ])
             .arg(&root)
             .arg(&root_image))?;
-        // Nix inputs retain read-only modes. Give each variant its own boot tree
-        // instead of overwriting the previous variant's immutable kernel/DTBs.
-        let boot = work.join(format!("boot-{}", device.id));
-        fs::create_dir_all(boot.join("extlinux"))?;
-        copy(&kernel.join("boot/KERNEL"), &boot.join("KERNEL"))?;
-        copy(
-            &kernel
-                .join("boot/device_trees")
-                .join(format!("{}.dtb", device.dtb)),
-            &boot.join("dtb.img"),
-        )?;
-        copy_tree(
-            &kernel.join("boot/device_trees"),
-            &boot.join("device_trees"),
-        )?;
-        write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\n# auto selects TF2 when inserted; tf1 and tf2 require that chosen card.\ndata_card = \"auto\"\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
-        // `quiet`: printing the boot log over the 115200-baud serial console alone
-        // took ~2.5 s. Errors still reach both consoles; dmesg keeps everything.
-        // rtw88: the pinned firmware fails to acknowledge SDIO deep power-save transitions.
-        write(&boot, "extlinux/extlinux.conf", "DEFAULT ghazal\nTIMEOUT 0\nLABEL ghazal\n  LINUX /KERNEL\n  FDT /dtb.img\n  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait init=/sbin/init console=ttyS0,115200 console=tty0 quiet panic=0 rtw88_core.disable_lps_deep=Y\n")?;
+        if let Ok(key) = std::env::var("GHAZAL_UPDATE_KEY") {
+            let bundle = work.join(format!("bundle-{}", device.id));
+            fs::create_dir(&bundle)?;
+            fs::hard_link(&root_image, bundle.join("root.ext4"))?;
+            write(&bundle, "manifest.raucm", format!("[update]\ncompatible={compatible}\nversion={}\n[bundle]\nformat=verity\n[image.rootfs]\nfilename=root.ext4\n", options.version))?;
+            let destination = image
+                .parent()
+                .ok_or("missing image parent")?
+                .join(format!("ghazal-{}-{}.raucb", device.id, options.memory));
+            fs::create_dir_all(destination.parent().ok_or("missing bundle parent")?)?;
+            run(Command::new("rauc")
+                .args(["bundle", "--cert"])
+                .arg(repo.join("config/updates/release.pem"))
+                .arg("--key")
+                .arg(key)
+                .arg(&bundle)
+                .arg(&destination)
+                .env_remove("LD_LIBRARY_PATH"))?;
+            fs::remove_dir_all(&bundle)?;
+            run(Command::new("rauc")
+                .args(["info", "--keyring"])
+                .arg(repo.join("config/updates/release.pem"))
+                .arg(&destination)
+                .env_remove("LD_LIBRARY_PATH"))?;
+        }
         let boot_image = work.join("boot.fat");
         File::create(&boot_image)?.set_len(128 * 1024 * 1024)?;
         run(Command::new("mkfs.vfat")
             .args(["-F", "32", "-n", "GHAZALBOOT"])
             .arg(&boot_image))?;
-        for name in [
-            "KERNEL",
-            "dtb.img",
-            "extlinux",
-            "device_trees",
-            "provision.toml.example",
-        ] {
+        {
+            let name = "provision.toml.example";
             run(Command::new("mcopy")
                 .args(["-s", "-i"])
                 .arg(&boot_image)
@@ -900,7 +980,10 @@ fn main() -> Result<()> {
             .create_new(true)
             .open(&image)?;
         fs::set_permissions(&image, fs::Permissions::from_mode(0o600))?;
-        out.set_len((16 + 128 + 1024 + 128) * 1024 * 1024)?;
+        out.set_len((2450 + 128) * 1024 * 1024)?;
+        if fs::metadata(&uboot)?.len() + 8192 >= 0x400000 {
+            return Err("U-Boot overlaps redundant environment".into());
+        }
         // The Allwinner boot ROM loads the SPL from 8 KiB; the first partition starts at 16 MiB.
         splice(&uboot, &image, 8 * 1024)?;
         let mut disk = Command::new("sfdisk")
@@ -908,15 +991,18 @@ fn main() -> Result<()> {
             .arg(&image)
             .stdin(Stdio::piped())
             .spawn()?;
-        disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\nstart=2392064,size=262144,type=7\n")?;
+        disk.stdin.take().ok_or("sfdisk stdin")?.write_all(b"label: dos\nunit: sectors\n\nstart=32768,size=262144,type=c,bootable\nstart=294912,size=2097152,type=83\nstart=5017600,size=262144,type=7\nstart=2392064,size=2625536,type=5\nstart=2394112,size=2097152,type=83\nstart=4493312,size=524288,type=83\n")?;
         if !disk.wait()?.success() {
             return Err("partition creation failed".into());
         }
         splice(&boot_image, &image, 16 * 1024 * 1024)?;
         splice(&root_image, &image, 144 * 1024 * 1024)?;
+        splice(&root_image, &image, 1169 * 1024 * 1024)?;
+        splice(&state_image, &image, 2194 * 1024 * 1024)?;
         out.sync_all()?;
         run(Command::new("e2fsck").args(["-fn"]).arg(&root_image))?;
         run(Command::new("fsck.vfat").args(["-n"]).arg(&boot_image))?;
+        fs::remove_file(&root_image)?;
         let artifact = if options.all {
             run(Command::new("gzip").args(["-n", "-1"]).arg(&image))?;
             image.with_extension("img.gz")

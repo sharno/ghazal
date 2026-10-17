@@ -1,5 +1,8 @@
 # Installing the H700 beta
 
+For network updates after installation, see [System updates](updates.md).
+Beta 4 and earlier need the one-time A/B migration described there.
+
 Download images from [GitHub Releases](https://github.com/sharno/ghazal/releases).
 Every image supports **either one SD card or two SD cards**. Choose the device,
 panel revision and RAM variant; storage layout does not require another image.
@@ -61,7 +64,7 @@ password = "Your network password"
 Use a complete public key from your computer's `.pub` file, never its private
 key. Omit `[wifi]` or the key list if not needed. The image contains no personal
 credentials and has no default SSH password. On boot these settings are stored
-on the OS filesystem and the provisioning file is removed from the boot volume.
+on the persistent system-state filesystem and the provisioning file is removed from the boot volume.
 You can create a new `provision.toml` on a later boot to replace these settings.
 Invalid input is preserved as `provision.rejected-*.toml`; `provision.error.txt`
 on the boot partition explains the error, and the device still boots offline.
@@ -131,16 +134,13 @@ Keep a backup before testing a new beta. Reflashing TF1 erases **all** of TF1,
 including its games in a one-card setup. A two-card setup preserves TF2 when
 only TF1 is reflashed; re-provision Wi-Fi/SSH on the new OS card.
 
-Three boots that never reach the menu enter recovery. SSH and Wi-Fi remain
-available when provisioned. Logs are in `/var/log/ghazal/`; use `kernel-log.log`,
-`wifi.log`, `frontend.log` and the emulator log to report a failure. Include
-the filename, board/panel revision and `/etc/ghazal/image.json` in a bug report.
-Native suspend remains disabled. Use Shutdown before removing a card.
+A/B installations try the previous OS slot after three unconfirmed boots; see
+[update recovery](updates.md#layout-and-recovery). A kernel hang before the
+userspace watchdog starts can require Reset. If neither slot boots, back up
+the data partition from a computer and reflash TF1.
 
-To leave recovery without SSH: hold Power to shut down, mount `GHAZALBOOT` on
-the computer, create an empty file named **retry-boot** (no `.txt` extension),
-and safely eject. The next boot clears the counter, removes the request and
-restarts into a normal boot attempt. You can also correct provision.toml while
-in recovery. A broken boot volume needs repair on the computer.
+Logs persist in `/var/log/ghazal/`; include the image filename, board/panel
+revision and `/etc/ghazal/image.json` in a bug report. Native suspend remains
+disabled. Use Shutdown before removing a card.
 
 See [storage layout](storage-layout.md) and [beta limitations](beta-release.md).

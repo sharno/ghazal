@@ -2,18 +2,22 @@
 
 ## Physical partitions
 
-Every beta OS image uses the same MBR layout on TF1:
+A/B images built from current source use this MBR layout on TF1. Beta 4 and
+earlier use the previous single-slot layout; see [updates and migration](updates.md).
 
 | Partition | Label / format | Purpose |
 |---|---|---|
-| TF1 p1 | `GHAZALBOOT`, FAT32, 128 MiB | Kernel, device trees, boot settings and optional provisioning |
-| TF1 p2 | `GHAZALROOT`, ext4, 1 GiB | OS, emulators, configuration and logs |
+| TF1 p1 | `GHAZALBOOT`, FAT32, 128 MiB | Optional provisioning |
+| TF1 p2 | `GHAZALROOT`, ext4, 1 GiB | Read-only OS slot A, including kernel and device tree |
 | TF1 p3 | `GHAZALDATA`, exFAT | Games and user data; first boot uses the remaining card space |
+| TF1 p4 | Extended container | Holds logical p5 and p6; not a filesystem |
+| TF1 p5 | `GHAZALROOT`, ext4, 1 GiB | Read-only OS slot B, including kernel and device tree |
+| TF1 p6 | `GHAZALSTATE`, ext4, 256 MiB | Persistent settings, identities, Wi-Fi and logs, mounted at `/var` |
 | TF2 p1, when inserted | exFAT, FAT32 or ext4 | Preferred games and user data |
 
 The first 16 MiB contains the MBR and the RAM-specific U-Boot/SPL. It is not a
 filesystem. Do not move the boot or root partitions. The factory data partition
-starts at sector 2392064 (512-byte sectors). First boot validates the complete
+starts at sector 5017600 (512-byte sectors). First boot validates the complete
 factory layout before altering that third partition; it never touches TF2.
 
 ## Data volume
@@ -63,13 +67,12 @@ running Syncthing identity to two handhelds; create a separate identity on each.
 
 ```text
 GHAZALBOOT/
-├── KERNEL
-├── dtb.img               # already selected for the downloaded device image
-├── device_trees/         # all supported H700 device trees
-├── extlinux/extlinux.conf
 └── provision.toml.example
 
-GHAZALROOT/
+GHAZALROOT/                # either OS slot; matching boot files update together
+├── boot/
+│   ├── KERNEL
+│   └── dtb.img
 ├── opt/ghazal/ghazal        # static runtime: init, supervisor, daemon and menu
 ├── etc/ghazal/
 │   ├── device.toml
@@ -79,14 +82,17 @@ GHAZALROOT/
 │   ├── gamepad.cfg
 │   ├── image.json        # device, RAM, release and hardware-source identity
 │   └── hardware.lock
-├── var/lib/ghazal/
-│   ├── settings.toml     # brightness and volume
-│   ├── frontend-settings.toml
-│   ├── data-card          # auto / tf1 / tf2 preference
-│   └── boot-attempts
-├── var/lib/iwd/           # provisioned Wi-Fi credentials
-├── root/.ssh/authorized_keys
-└── var/log/ghazal/         # bounded service and emulator logs
+└── var/                   # separate GHAZALSTATE filesystem mounted here
+    ├── lib/ghazal/
+    │   ├── settings.toml     # brightness and volume
+    │   ├── frontend-settings.toml
+    │   ├── data-card         # auto / tf1 / tf2 preference
+    │   ├── machine-id
+    │   ├── ssh/              # authorized_keys and SSH host identity
+    │   └── update-channel
+    ├── lib/iwd/              # provisioned Wi-Fi credentials
+    ├── lib/rauc/             # update status
+    └── log/ghazal/           # bounded service and emulator logs
 ```
 
 `/run` and `/tmp` are RAM filesystems. The active data-card record, live level snapshot, control socket
@@ -94,8 +100,9 @@ and emulator session record live there and disappear on reboot. The factory
 storage marker has Fresh and Formatting ownership states. It is durably
 changed before the formatter writes, allowing an interrupted initial format
 to resume. It is removed before the volume is ever mounted for user data.
-Wi-Fi credentials, SSH keys and frontend settings are on the OS card; saves
-and history are on the selected data card. A TF1 reflash resets the former.
+Wi-Fi credentials, SSH keys and frontend settings are in TF1's persistent state
+partition; saves and history are on the selected data card. OTA preserves both.
+A whole-card TF1 reflash resets its state and data; back them up first.
 
 `frontend-settings.toml` stores `startup = "menu"` (default) or `"last-game"`,
 selected through Configuration → Startup. The last game comes from the active

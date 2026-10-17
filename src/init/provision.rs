@@ -66,7 +66,7 @@ pub fn apply(path: &Path) -> Result<()> {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        crate::sys::write_atomic(Path::new("/etc/machine-id"), format!("{text}\n").as_bytes())?;
+        crate::sys::write_atomic(Path::new("/var/lib/ghazal/machine-id"), format!("{text}\n").as_bytes())?;
     }
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -119,7 +119,7 @@ pub fn apply(path: &Path) -> Result<()> {
         fs::set_permissions(destination, fs::Permissions::from_mode(0o600))?;
     }
     if !config.ssh_authorized_keys.is_empty() {
-        let destination = Path::new("/root/.ssh/authorized_keys");
+        let destination = Path::new("/var/lib/ghazal/ssh/authorized_keys");
         crate::sys::write_atomic(
             destination,
             format!("{}\n", config.ssh_authorized_keys.join("\n")).as_bytes(),
