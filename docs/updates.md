@@ -104,6 +104,13 @@ Local signing uses `GHAZAL_UPDATE_KEY=/private/path/release.key` when invoking
 `ghazal-image-builder`. The private key is read by the host RAUC bundle tool,
 not by Nix derivations or the target image.
 
+If only publication fails, manually run **H700 images** on `main` with the
+existing beta `tag` and its build's `artifact_run` ID. This reuses unexpired
+artifacts only after checking that their source commit matches the tag and
+the runtime, checks and both image jobs passed. Uploads can resume on a draft;
+CI refuses to overwrite a published release. No rebuild or tag replacement
+is needed for a publication-only failure.
+
 ## Repeatable observations
 
 `tools/update-lab` uses disposable keys, bundles, file slots and a private D-Bus.
@@ -118,9 +125,11 @@ mocked load/boot commands to observe trial exhaustion and fallback. This models
 script decisions; it does not emulate U-Boot MMC/environment drivers or prove
 H700 watchdog, panel or power-loss behavior.
 
-Physical RG40XX-V v2 / DDR4 checks cover both slot boots, signed installation
-from TF2 ext4 and TF1 exFAT, retained settings/SSH identities/saves, a missing
+Physical RG40XX-V v2 / DDR4 checks cover both slot boots, GitHub discovery,
+download and signed installation, installation from TF2 ext4 and TF1 exFAT,
+retained settings/SSH identities/saves, a missing
 inactive kernel, and three failed frontend starts followed by automatic watchdog
-resets and fallback. The data volume recovered after those resets. Deliberate
+resets and fallback. Shared data-card faults retain SSH recovery without
+repeatedly consuming boot attempts. The data volume recovered after those resets. Deliberate
 power removal during installation or an environment write, early kernel hangs,
 and other hardware variants still need physical validation.
