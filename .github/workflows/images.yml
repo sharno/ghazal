@@ -125,6 +125,12 @@ jobs:
           sha256sum -c ./*.sha256
           sha256sum ./*.img.gz ./*.raucb > SHA256SUMS
           cd ..
-          gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
-          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md docs/updates.md config/h700/devices.toml
+          # Tags are created before release builds. Omitting target_commitish avoids
+          # requiring workflow-write permission when main has since advanced.
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft); then
+            test "$draft" = true
+          else
+            gh release create "$TAG" --verify-tag --draft --prerelease --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
+          fi
+          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md docs/updates.md config/h700/devices.toml --clobber
           gh release edit "$TAG" --draft=false

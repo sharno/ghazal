@@ -67,6 +67,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   during installation/environment writes and other boards. A controlled SSH
   migration requires a verified raw backup and a compatible actual disk layout;
   it must never become a blind automatic repartitioning step.
+- Publish existing release tags with `gh release create --verify-tag`, without
+  `--target`: a stale target that differs from main's workflows can require
+  workflow-write permission unavailable to GITHUB_TOKEN. Resume asset uploads
+  only on drafts; never overwrite an already published release in CI.
 - Classify user-volume failures separately from OS faults. A missing/full data
   card is shared by both slots: retain Wi-Fi/SSH recovery instead of exhausting
   both boot budgets. Keep this distinction through anyhow boot-step context.
