@@ -1,0 +1,2 @@
+# Unified diff context contains a prefix space before kernel indentation tabs.
+*.patch -whitespace
