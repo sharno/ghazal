@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       artifact_run:
-        description: 'Optional successful build run to resume publication without rebuilding'
+        description: 'Optional successful tag build run to resume publication without rebuilding'
         required: false
         type: string
 permissions:
@@ -132,7 +132,7 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
           tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN" > build-run.json
-          jq -e --arg sha "$tag_sha" '.head_sha == $sha and .path == ".github/workflows/images.yml" and .status == "completed"' build-run.json
+          jq -e --arg sha "$tag_sha" --arg tag "$TAG" '.head_sha == $sha and .head_branch == $tag and .event == "push" and .path == ".github/workflows/images.yml" and .status == "completed"' build-run.json
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN/jobs?per_page=100" --jq '.jobs[]' | jq -s -e '
             . as $jobs |
             ["runtime", "checks / check", "images (ddr3)", "images (ddr4)"] as $required |

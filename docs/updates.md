@@ -105,8 +105,8 @@ Local signing uses `GHAZAL_UPDATE_KEY=/private/path/release.key` when invoking
 not by Nix derivations or the target image.
 
 If only publication fails, manually run **H700 images** on `main` with the
-existing beta `tag` and its build's `artifact_run` ID. This reuses unexpired
-artifacts only after checking that their source commit matches the tag and
+existing beta `tag` and its tag build's `artifact_run` ID. This reuses unexpired
+artifacts only after checking that the build ran for that exact tag, its source commit matches, and
 the runtime, checks and both image jobs passed. Uploads can resume on a draft;
 CI refuses to overwrite a published release. No rebuild or tag replacement
 is needed for a publication-only failure.
