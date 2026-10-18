@@ -12,8 +12,10 @@ nix build .#h700-debug-kernel
 
 It is the normal kernel recipe (`nix/h700-kernel.nix`) with PM debugging,
 dynamic debug, function tracing and ramoops console storage added. Its v2-panel
-device tree reserves 1 MiB at `0x7fb00000` for ramoops, before Linux allocates
-normal memory or CMA. It does not change the normal image or installed handheld.
+device tree reserves 1 MiB at `0x5f000000` for ramoops, before Linux allocates
+normal memory or CMA. This is also outside U-Boot's allocator near the top of
+RAM. It enables 64-byte Reed–Solomon error correction for memory errors across
+reset. It does not change the normal image or installed handheld.
 
 The package contains `boot/KERNEL` and `boot/dtb.img`. Like
 the normal kernel, every driver is built in, so no modules need to match it.
@@ -38,8 +40,13 @@ mount -t pstore pstore /sys/fs/pstore
 ls /sys/fs/pstore
 ```
 
-Copy records before clearing them. RAM retention through this board's Reset
-and successful diagnostic boot still require hardware acceptance. Do not infer
+Copy records before clearing them. Validate retention with a unique high-priority
+message written to `/dev/kmsg`, then restart and read it from the saved console.
+Check the ECC report for unrecoverable blocks. The `quiet` boot argument can
+suppress ordinary messages from the persistent console; use a `<0>` priority
+prefix for the marker and `loglevel=8 ignore_loglevel` for diagnostic boots.
+Physical Reset retention and successful diagnostic boot require separate
+hardware acceptance. Do not infer
 a successful Linux resume from firmware scratch registers without an attempt
 identifier; earlier markers may survive from another boot.
 

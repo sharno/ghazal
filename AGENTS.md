@@ -31,6 +31,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Implement and validate lid behavior for clamshell models before offering lid sleep.
 - Use docs/kernel-debugging.md for diagnostics. Keep suspend disabled until wake
   and restored device functionality are demonstrated.
+- A Linux RAM reservation does not protect logs from U-Boot's allocator. Keep
+  persistent logs outside bootloader working memory, enable error correction,
+  and verify a readable marker after restart; driver registration alone is
+  insufficient. Validate physical Reset separately from a software restart.
 
 ### Hardware coverage and optional device features
 

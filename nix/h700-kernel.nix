@@ -121,11 +121,12 @@ stdenv.mkDerivation {
         #address-cells = <2>;
         #size-cells = <2>;
         ranges;
-        ramoops@7fb00000 {
+        ramoops@5f000000 {
           compatible = "ramoops";
-          reg = <0 0x7fb00000 0 0x100000>;
+          reg = <0 0x5f000000 0 0x100000>;
           record-size = <0x80000>;
           console-size = <0x80000>;
+          ecc-size = <64>;
         };
       };
     };
