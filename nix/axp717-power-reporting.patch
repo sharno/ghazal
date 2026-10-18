@@ -1,0 +1,43 @@
+AXP717: read the fault register and keep the hardware-owned input limit volatile
+
+The VBUS fault mask is BIT(5), not a register address. Using it as an address
+reads/writes the power-on status register (0x20) instead of PMU_FAULT (0x08).
+
+The input-current limit can revert when VBUS is removed. Caching it reports a
+stale limit and can cause regmap_update_bits to skip a needed hardware write.
+Keep only that additional register volatile; other configuration stays cached.
+
+These fixes correct reporting and register writes; they do not establish
+stable charging on an unvalidated board.
+
+--- a/drivers/mfd/axp20x.c
++++ b/drivers/mfd/axp20x.c
+@@ -235,6 +235,8 @@
+ 
+ static const struct regmap_range axp717_volatile_ranges[] = {
+ 	regmap_reg_range(AXP717_ON_INDICATE, AXP717_PMU_FAULT),
++	regmap_reg_range(AXP717_INPUT_CUR_LIMIT_CTRL,
++			 AXP717_INPUT_CUR_LIMIT_CTRL),
+ 	regmap_reg_range(AXP717_IRQ0_STATE, AXP717_IRQ4_STATE),
+ 	regmap_reg_range(AXP717_BATT_PERCENT_DATA, AXP717_BATT_PERCENT_DATA),
+ 	regmap_reg_range(AXP717_BATT_V_H, AXP717_BATT_CHRG_I_L),
+--- a/drivers/power/supply/axp20x_usb_power.c
++++ b/drivers/power/supply/axp20x_usb_power.c
+@@ -332,7 +332,7 @@
+ 		if (!(v & AXP717_PWR_STATUS_VBUS_GOOD))
+ 			val->intval = POWER_SUPPLY_HEALTH_UNKNOWN;
+ 
+-		ret = regmap_read(power->regmap, AXP717_PMU_FAULT_VBUS, &v);
++		ret = regmap_read(power->regmap, AXP717_PMU_FAULT, &v);
+ 		if (ret)
+ 			return ret;
+ 
+@@ -339,7 +339,7 @@
+ 		v &= (AXP717_PMU_FAULT_VBUS | AXP717_PMU_FAULT_VSYS);
+ 		if (v) {
+ 			val->intval = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+-			regmap_write(power->regmap, AXP717_PMU_FAULT_VBUS, v);
++			regmap_write(power->regmap, AXP717_PMU_FAULT, v);
+ 		}
+ 
+ 		break;

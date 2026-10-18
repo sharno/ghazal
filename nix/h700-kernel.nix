@@ -102,7 +102,8 @@ stdenv.mkDerivation {
       "$base"/packages/linux/patches/rocknix-joypad/*.patch \
       "$base"/packages/linux/patches/7.2/*.patch \
       "$base"/devices/H700/patches/linux/*.patch \
-      ${./sun8i-opaque-bottom-plane.patch}; do
+      ${./sun8i-opaque-bottom-plane.patch} \
+      ${./axp717-power-reporting.patch}; do
       patch -p1 < "$patch"
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/

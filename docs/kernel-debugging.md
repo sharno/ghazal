@@ -63,3 +63,9 @@ against the driver cache: the AXP717 input-current register can change when VBUS
 is removed, so a cached current-limit readback alone does not establish the
 actual hardware limit. Keep register experiments out of production startup
 until the resulting charging behavior is verified.
+
+`nix/axp717-power-reporting.patch` keeps that input-current register volatile
+and corrects the USB health driver's fault-register address. Preserve these
+fixes when rebasing until the upstream kernel includes them. They correct
+diagnostic readings and register writes; stable charging still needs separate
+hardware validation.
