@@ -60,6 +60,9 @@ successful CI build does not prove their display, controls, sound or Wi-Fi.
 Test on a spare card and report the exact image and hardware revision.
 
 Native suspend/wake remains disabled. Clamshell lid suspend is not implemented.
+Charging stability is unresolved on RG40XX-V v2: USB power detection can cycle
+and the battery can continue discharging while connected. The lightning-bolt
+indicator does not fix this driver issue. Charging is not hardware-accepted yet.
 Some systems require user-supplied BIOS files and stay hidden until available.
 RG28XX uses rotated menu output and the libretro PSP core; art previews are
 hidden on its compact screen. RG28XX and RG35XX 2024 have no built-in Wi-Fi.

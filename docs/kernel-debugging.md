@@ -46,3 +46,20 @@ identifier; earlier markers may survive from another boot.
 The H700 deep-suspend firmware disables the watchdog around WFI, so a
 watchdog cannot be assumed to recover every deep-sleep failure. Establish
 a recovery route before attempting PM tests.
+
+## Remote kernel trials
+
+An inactive A/B slot protects the installed files, but fallback still requires
+a reset. Userspace boot-health checks cannot recover a kernel that hangs before
+PID 1. A PMIC watchdog reset in a running OS proves only that reset mechanism:
+it does not establish watchdog handover across a normal reboot, firmware and
+the next kernel. Verify that full sequence with the known working kernel before
+trying a different kernel remotely. Keep physical Reset access available until
+that recovery sequence has been demonstrated.
+
+For charging diagnostics, observe USB presence and battery voltage/capacity over
+time rather than relying on a single indicator reading. Compare PMIC registers
+against the driver cache: the AXP717 input-current register can change when VBUS
+is removed, so a cached current-limit readback alone does not establish the
+actual hardware limit. Keep register experiments out of production startup
+until the resulting charging behavior is verified.

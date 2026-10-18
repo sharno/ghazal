@@ -34,6 +34,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Hardware coverage and optional device features
 
+- Charging stability is unresolved on the mainline RG40XX-V v2 configuration.
+  Compare the stock PMIC/USB initialization and verify sustained USB presence
+  and battery recovery; an icon or a brief `Charging` reading is insufficient.
+  Do not present the charging indicator as a charging-driver fix.
 - CI builds all 19 catalog variants with both RAM bootloaders, but physical
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
@@ -79,6 +83,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   both boot budgets. Keep this distinction through anyhow boot-step context.
 - Complete bootloader watchdog handover so a kernel hang before the userspace
   watchdog starts also resets automatically. Preserve fast boot and measure it.
+  A PMIC watchdog expiring successfully in a running OS does not prove it
+  remains armed across reboot and bootloader/kernel startup. Prove that path
+  with a known working kernel before relying on it for remote kernel trials.
 - Keep shared settings migrations compatible with the previous OS slot. Keep
   update dependencies in their own Nix closure; mixing their ELF interpreter or
   libraries with the emulator runtime can silently select an incompatible glibc.
