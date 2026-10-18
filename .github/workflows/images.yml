@@ -10,6 +10,10 @@ on:
         description: 'Beta release tag, e.g. v0.1.0-beta.1'
         required: true
         type: string
+      artifact_run:
+        description: 'Optional successful build run to resume publication without rebuilding'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -17,8 +21,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   checks:
+    if: inputs.artifact_run == ''
     uses: ./.github/workflows/check.yml
   runtime:
+    if: inputs.artifact_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -103,21 +109,41 @@ jobs:
           retention-days: 7
           compression-level: 0
   publish:
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: >-
+      always() && !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') &&
+      (inputs.artifact_run != '' || (needs.checks.result == 'success' && needs.images.result == 'success'))
     needs: [checks, images]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate reused build provenance
+        if: inputs.artifact_run != ''
+        env:
+          ARTIFACT_RUN: ${{ inputs.artifact_run }}
+        run: |
+          [[ "$ARTIFACT_RUN" =~ ^[0-9]+$ ]]
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN" > build-run.json
+          jq -e --arg sha "$tag_sha" '.head_sha == $sha and .path == ".github/workflows/images.yml" and .status == "completed"' build-run.json
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN/jobs?per_page=100" --jq '.jobs[]' | jq -s -e '
+            . as $jobs |
+            ["runtime", "checks / check", "images (ddr3)", "images (ddr4)"] as $required |
+            all($required[]; . as $name | any($jobs[]; .name == $name and .conclusion == "success"))' >/dev/null
       - uses: actions/download-artifact@v4
         with:
           pattern: images-*
           path: dist
           merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run || github.run_id }}
       - name: Verify and publish the complete beta
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
