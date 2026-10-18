@@ -68,7 +68,16 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         eprintln!("ghazal: would start last game {} {:?}", spec.program.display(), spec.args);
     }
     let mut frame = 0;
-    let mut save = |screen: &mut Screen| -> Result<()> {
+    let mut save = |screen: &mut Screen, app: &App| -> Result<()> {
+        match std::env::var("GHAZAL_SNAPSHOT_POWER") {
+            Ok(power) => app.snapshot_battery(match power.as_str() {
+                "charging" => true,
+                "discharging" => false,
+                _ => bail!("snapshot power must be charging or discharging"),
+            }),
+            Err(std::env::VarError::NotPresent) => {},
+            Err(error) => return Err(error.into()),
+        }
         screen.fast_forward(Duration::from_secs(1));
         screen.render();
         let path = dir.join(format!("{frame:02}.png"));
@@ -79,14 +88,14 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         frame += 1;
         Ok(())
     };
-    save(&mut screen)?;
+    save(&mut screen, &app)?;
     for name in buttons.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
         if let Some(Effect::Launch { spec, .. }) = app.update(button) {
             eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
         }
         app.tick(Instant::now());
-        save(&mut screen)?;
+        save(&mut screen, &app)?;
     }
     Ok(())
 }

@@ -53,6 +53,17 @@ then measure idle sleep battery drain on the actual board.
 
 ## Build
 
+For menu layout checks without a handheld, use the desktop snapshot renderer:
+
+```sh
+GHAZAL_SNAPSHOT_POWER=charging cargo sim --snapshot /tmp/ghazal-menu ""
+GHAZAL_SNAPSHOT_POWER=discharging GHAZAL_SNAPSHOT_SIZE=480x640 cargo sim --snapshot /tmp/ghazal-portrait ""
+```
+
+Snapshots use a fixed 50% battery when the power override is supplied. The override
+is desktop-only and accepts `charging` or `discharging`; it never changes hardware
+readings, daemon policy or update safety checks. Omit it to observe host status.
+
 Create a private `secrets/` directory containing `ssid`, `passphrase` and
 `authorized_keys` (one SSH public key per line). SSID and passphrase files each
 hold one plain UTF-8 line; WPA-Personal networks are supported. Keep the directory

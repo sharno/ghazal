@@ -1,5 +1,7 @@
 # Ghazal H700 beta
 
+The menu battery indicator shows a green lightning bolt while connected to power.
+
 This release adds signed RAUC system updates from GitHub Releases through
 **Configuration → System update**. Updates install to the inactive OS slot;
 failed starts fall back to the previous slot. Games, saves, settings and SSH

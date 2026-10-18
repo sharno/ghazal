@@ -76,11 +76,23 @@ component ListRow {
 component BatteryIcon {
     in property <int> percent;
     in property <bool> charging;
-    width: 31px;
+    width: charging ? 45px : 31px;
     height: 14px;
+    property <length> battery-x: charging ? 14px : 0px;
+
+    if charging: Text {
+        x: 0;
+        width: 12px;
+        height: 14px;
+        text: "⚡";
+        font-size: 17px;
+        font-weight: 700;
+        vertical-alignment: center;
+        color: Theme.ok;
+    }
 
     Rectangle {
-        x: 0;
+        x: battery-x;
         width: 28px;
         border-radius: 3px;
         border-width: 1.5px;
@@ -95,7 +107,7 @@ component BatteryIcon {
         }
     }
     Rectangle {
-        x: 28px;
+        x: battery-x + 28px;
         y: 4px;
         width: 3px;
         height: 6px;

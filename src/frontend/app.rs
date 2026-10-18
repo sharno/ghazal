@@ -591,6 +591,12 @@ impl App {
         }
     }
 
+    #[cfg(feature = "desktop")]
+    pub(crate) fn snapshot_battery(&self, charging: bool) {
+        self.ui.set_battery_percent(50);
+        self.ui.set_battery_charging(charging);
+    }
+
     fn refresh_status(&mut self, now: Instant) {
         self.status_checked = now;
         let (h, m) = battery::local_time();

@@ -59,6 +59,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   audio and save/resume. Use the desktop simulator and `ghazal observe` for fast
   iteration, then confirm on-device behavior. QEMU cannot prove H700 driver or
   suspend correctness. Document benchmark conditions instead of universal speed claims.
+- Check status icons with the desktop snapshot power override at normal and
+  compact sizes (docs/standalone.md). The software renderer has no Path support
+  unless explicitly enabled; embedded-font symbols avoid adding that dependency.
 
 ### Updates and build independence
 
