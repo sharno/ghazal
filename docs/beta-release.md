@@ -57,8 +57,8 @@ formatter after its first write, recovers that transaction, checks save retentio
 and proves unknown data is refused. Provisioning errors are reported on the
 boot volume and the device can continue offline. New A/B images use RAUC
 for signed updates and slot rollback.
-Kernel/U-Boot and the emulator runtime reuse the pinned ROCKNIX source/bundle;
-their source provenance is recorded in hardware.lock and image.json.
+Kernel, U-Boot and the emulator runtime are built from pinned nixpkgs and
+ROCKNIX sources; `image.json` records both revisions.
 
 **Hardware acceptance:** RG40XX-V v2 with DDR4 has been exercised on a physical
 device, including both OS slots, signed installations from ext4/exFAT data

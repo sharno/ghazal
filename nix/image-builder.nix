@@ -1,5 +1,5 @@
-{ lib, rustPlatform, writeShellApplication, bash, ghazal, kernel, uboot, uboot-ddr3, busybox, tools, src, cacert,
-  update-runtime, rauc, curl, ubootTools }:
+{ lib, rustPlatform, writeShellApplication, bash, ghazal, kernel, uboot, uboot-ddr3, busybox, tools, src,
+  runtime, sources }:
 let
   builder = rustPlatform.buildRustPackage {
     pname = "ghazal-image-builder";
@@ -19,12 +19,10 @@ in writeShellApplication {
     export GHAZAL_UBOOT=${uboot}/u-boot-sunxi-with-spl.bin
     export GHAZAL_UBOOT_DDR3=${uboot-ddr3}/u-boot-sunxi-with-spl.bin
     export GHAZAL_BUILDER_SHELL=${bash}/bin/bash
-    export GHAZAL_UPDATE_CLOSURE=${update-runtime}/store-paths
-    export GHAZAL_RAUC=${rauc}/bin/rauc
-    export GHAZAL_CURL=${curl}/bin/curl
-    export GHAZAL_FW_PRINTENV=${ubootTools}/bin/fw_printenv
-    export GHAZAL_FW_SETENV=${ubootTools}/bin/fw_setenv
-    export GHAZAL_CA_CERT=${cacert}/etc/ssl/certs/ca-bundle.crt
+    export GHAZAL_RUNTIME=${runtime.tree}
+    export GHAZAL_RUNTIME_CLOSURE=${runtime.closure}/store-paths
+    export GHAZAL_PPSSPP_DEFAULTS=${runtime.ppsspp-defaults}
+    export GHAZAL_SOURCES='${builtins.toJSON sources}'
     exec ${builder}/bin/ghazal-image-builder "$@"
   '';
 }

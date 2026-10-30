@@ -181,7 +181,8 @@ fn run_init(profile: &Profile) -> Result<()> {
         sys::sync();
         return sys::reboot(libc::RB_AUTOBOOT);
     }
-    if std::process::id() == 1 && std::path::Path::new("/etc/ghazal/hardware.lock").exists() {
+    // Only standalone images record how they were built.
+    if std::process::id() == 1 && std::path::Path::new("/etc/ghazal/image.json").exists() {
         return init::rescue().context("standalone recovery failed");
     }
     let fallbacks = ["/init.muos", "/opt/muos/script/init/sysinit.ghazal-orig"];

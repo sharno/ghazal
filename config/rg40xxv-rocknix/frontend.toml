@@ -1,4 +1,4 @@
-# Independent rootfs paths; cores come from the pinned ROCKNIX bundle.
+# Independent rootfs paths; RetroArch, cores and PPSSPP come from nix/runtime.
 
 # Games live on SD2.
 rom_roots = ["/mnt/games/ROMS"]
@@ -147,10 +147,11 @@ name = "PSP"
 dirs = ["PSP", "Sony PSP"]
 extensions = ["iso", "cso", "pbp", "chd"]
 # Standalone PPSSPP runs heavier games (e.g. God of War) better than the
-# libretro core. It shares game saves with the core through /storage links
-# (see the image builder); the pause menu's Exit or Menu + Start quits.
+# libretro core, and shares its game saves (nix/runtime/ppsspp.nix sets the
+# paths); the pause menu's Exit or Menu + Start quits. SDL maps the H700 pad
+# from this line; the cache holds Mesa's compiled shaders.
 command = ["/usr/bin/ppsspp", "--pause-menu-exit", "{rom}"]
-env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
+env = { HOME = "/root", XDG_RUNTIME_DIR = "/run", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache", SDL_GAMECONTROLLERCONFIG = "1900f6a24b480000df14000000010000,H700 Gamepad,platform:Linux,x:b3,a:b1,b:b0,y:b2,back:b8,guide:b10,start:b9,dpleft:b15,dpdown:b14,dpright:b16,dpup:b13,leftshoulder:b4,lefttrigger:b6,rightshoulder:b5,righttrigger:b7,leftstick:b11,rightstick:b12,leftx:a0,lefty:a1,rightx:a2,righty:a3," }
 log = "/var/log/ghazal/ppsspp.log"
 art = { libretro = "Sony - PlayStation Portable", muos = "Sony PlayStation Portable" }
 

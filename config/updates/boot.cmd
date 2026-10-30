@@ -17,6 +17,10 @@ for slot in ${BOOT_ORDER}; do
         setexpr left ${left} - 1
         if test "${slot}" = "A"; then setenv BOOT_A_LEFT ${left}; else setenv BOOT_B_LEFT ${left}; fi
         if saveenv; then
+            # quiet: printing the boot log over the 115200-baud serial console
+            # took ~2.5 s; errors still reach both consoles, dmesg keeps all.
+            # rtw88: the RTL8821CS firmware fails to acknowledge SDIO deep
+            # power-save transitions.
             setenv bootargs "root=/dev/mmcblk0p${rootpart} rootfstype=ext4 rootwait ro init=/sbin/init rauc.slot=${slot} console=ttyS0,115200 console=tty0 quiet panic=10 rtw88_core.disable_lps_deep=Y"
             if load mmc 0:${rootpart} ${kernel_addr_r} /boot/KERNEL; then
                 if load mmc 0:${rootpart} ${fdt_addr_r} /boot/dtb.img; then

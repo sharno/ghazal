@@ -82,8 +82,9 @@ GHAZALROOT/                # either OS slot; matching boot files update together
 │   ├── frontend.toml
 │   ├── retroarch.cfg
 │   ├── gamepad.cfg
-│   ├── image.json        # device, RAM, release and hardware-source identity
-│   └── hardware.lock
+│   └── image.json        # device, RAM, release and source revisions
+├── nix/store/             # the runtime's packages (nix/runtime)
+├── usr/                   # links into nix/store: retroarch, cores, ppsspp, daemons
 └── var/                   # separate GHAZALSTATE filesystem mounted here
     ├── lib/ghazal/
     │   ├── settings.toml     # brightness and volume

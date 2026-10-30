@@ -17,35 +17,31 @@
       forSystem = system:
         let
           pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
-          # Target-architecture packages come straight from cache.nixos.org's aarch64 builds.
-          target = nixpkgs.legacyPackages.aarch64-linux;
+          # Target-architecture packages, native aarch64 builds. Stock packages
+          # come from cache.nixos.org; those it cannot have are built: the
+          # runtime's slimmed graphics stack and these non-commercial cores.
+          target = import nixpkgs {
+            system = "aarch64-linux";
+            config.allowUnfreePredicate = pkg: builtins.elem (nixpkgs.lib.getName pkg)
+              (map (core: "libretro-${core}") [ "snes9x" "genesis-plus-gx" "picodrive" "fbneo" "mame2003-plus" ]);
+          };
+          rocknix = pkgs.callPackage ./nix/rocknix.nix { };
+          runtime = import ./nix/runtime { pkgs = target; inherit rocknix; profile = ./config/rg40xxv-rocknix; };
 
           ghazal = pkgs.callPackage ./nix/ghazal.nix { src = ./.; };
           # Cross toolchain for the bootloader and kernel; native on aarch64 hosts.
           cross = if system == "aarch64-linux" then pkgs else pkgs.pkgsCross.aarch64-multiplatform;
-          uboot = cross.callPackage ./nix/uboot.nix { };
-          uboot-ddr3 = cross.callPackage ./nix/uboot.nix { memory = "DDR3"; };
-          h700-kernel = cross.callPackage ./nix/h700-kernel.nix { };
-          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { debug = true; };
-          fw-env = pkgs.runCommand "ghazal-fw-env" {} ''
-            mkdir -p $out/bin
-            cp ${target.ubootTools}/bin/fw_printenv $out/bin/
-            ln -s fw_printenv $out/bin/fw_setenv
-          '';
-          update-runtime = pkgs.closureInfo {
-            rootPaths = [ target.rauc fw-env target.curl ];
-          };
+          uboot = cross.callPackage ./nix/uboot.nix { inherit rocknix; };
+          uboot-ddr3 = cross.callPackage ./nix/uboot.nix { inherit rocknix; memory = "DDR3"; };
+          h700-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; };
+          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; debug = true; };
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
-            inherit ghazal uboot uboot-ddr3;
+            inherit ghazal uboot uboot-ddr3 runtime;
             kernel = h700-kernel;
             src = ./.;
             busybox = target.pkgsStatic.busybox;
-            inherit update-runtime;
-            rauc = target.rauc;
-            curl = target.curl;
-            ubootTools = fw-env;
-            tools = with pkgs; [ util-linux e2fsprogs jq mtools dosfstools
-              squashfsTools binutils cpio gzip curl coreutils findutils fakeroot rauc ];
+            sources = { nixpkgs = nixpkgs.rev; rocknix = rocknix.revision; };
+            tools = with pkgs; [ util-linux e2fsprogs mtools dosfstools gzip coreutils fakeroot rauc ];
           };
 
           # QEMU "virt" test machine: stock kernel, ghazal as PID 1 from an initramfs.
@@ -62,6 +58,8 @@
         {
           packages = {
             inherit ghazal uboot uboot-ddr3 image-builder h700-kernel h700-debug-kernel;
+            runtime = runtime.tree;
+            inherit (runtime) mesa retroarch ppsspp;
             vm-initrd = vm.initrd;
             vm = vm.runner;
             default = vm.runner;

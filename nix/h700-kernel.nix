@@ -8,43 +8,25 @@
 #
 # `debug = true` adds PM/tracing/ramoops for suspend diagnostics; see
 # docs/kernel-debugging.md.
-{ lib, stdenv, fetchurl, fetchzip, buildPackages, debug ? false }:
+{ lib, stdenv, fetchurl, buildPackages, rocknix, debug ? false }:
 let
-  revision = "7cffc96617df2a051af091182e8a3d270fd794a4";
-  hardware = builtins.listToAttrs (map (line:
-    let fields = builtins.match "([^=]+)=(.*)" line;
-    in { name = builtins.elemAt fields 0; value = builtins.elemAt fields 1; }
-  ) (builtins.filter (line: line != "" && !lib.hasPrefix "#" line) (lib.splitString "\n" (builtins.readFile ../hardware.lock))));
-  bundle = fetchurl { inherit (hardware) url sha256; };
-  # Wi-Fi and the panel driver are built in and request firmware before the
-  # root filesystem exists, so their firmware is embedded in the kernel.
+  # Wi-Fi, cfg80211 and the panel driver are built in and request firmware
+  # before the root filesystem exists, so their firmware is embedded in the
+  # kernel. Without its regulatory database cfg80211 falls back to the
+  # restrictive world domain.
   devices = (lib.importTOML ../config/h700/devices.toml).devices;
-  # cfg80211 is built in too: without its regulatory database it falls back to
-  # the restrictive world domain.
-  firmware = [ "rtw88/rtw8821c_fw.bin" "regulatory.db" "regulatory.db.p7s" ] ++ map (name: "panels/anbernic,${name}-panel.panel") [
+  panels = map (name: "panels/anbernic,${name}-panel.panel") [
     "rg28xx" "rg34xx" "rg34xx-sp" "rg34xx-sp-v2" "rg35xx-plus"
     "rg35xx-plus-rev6" "rg35xx-sp-v2" "rg40xx" "rg40xx-v2" "rgcubexx"
   ];
-  earlyFirmware = buildPackages.runCommand "ghazal-h700-early-firmware" {
-    nativeBuildInputs = with buildPackages; [ gzip mtools squashfsTools ];
-  } ''
-    gzip -dc ${bundle} > hardware.img
-    # Match the image builder's verified 16 MiB bootloader layout.
-    start=$(od -An -tu4 -j454 -N4 hardware.img)
-    test "$((start * 512))" -eq 16777216
-    mcopy -i hardware.img@@16777216 ::/SYSTEM SYSTEM
-    prefix=usr/lib/kernel-overlays/base/lib/firmware
-    unsquashfs -no-progress -d extracted SYSTEM ${lib.concatMapStringsSep " " (f: "\"$prefix/${f}\"") firmware}
-    for file in ${lib.concatStringsSep " " firmware}; do
-      test -s "extracted/$prefix/$file"
-      mkdir -p "$out/$(dirname "$file")"
-      cp "extracted/$prefix/$file" "$out/$file"
+  firmware = [ "rtw88/rtw8821c_fw.bin" "regulatory.db" "regulatory.db.p7s" ] ++ panels;
+  earlyFirmware = buildPackages.runCommand "ghazal-h700-early-firmware" { } ''
+    install -Dm644 ${buildPackages.linux-firmware}/lib/firmware/rtw88/rtw8821c_fw.bin -t $out/rtw88
+    install -Dm644 ${buildPackages.wireless-regdb}/lib/firmware/regulatory.db{,.p7s} -t $out
+    for panel in ${lib.concatStringsSep " " panels}; do
+      install -Dm644 "${rocknix}/projects/ROCKNIX/packages/linux-firmware/kernel-firmware/extra-firmware/$panel" "$out/$panel"
     done
   '';
-  rocknix = fetchzip {
-    url = "https://github.com/ROCKNIX/distribution/archive/${revision}.tar.gz";
-    sha256 = "1irc0blrc42d7x9asshsdm7g2vrjn76lf07xwjx8yqxgv74xfnag";
-  };
   joypad = fetchurl {
     url = "https://github.com/ROCKNIX/rocknix-joypad/archive/d02ed13aae08113f6f9e0e9d699cb29bb3450fa2.tar.gz";
     sha256 = "89ade1769d6eb7b4f37265f26407a422cdbcf517487f80eb1c29964904ca138e";
@@ -138,7 +120,6 @@ let
   ];
   flags = prefix: names: lib.concatMapStringsSep " " (name: "${prefix} ${name}") names;
 in
-assert hardware.source_revision == revision;
 stdenv.mkDerivation {
   pname = "ghazal-h700-kernel" + lib.optionalString debug "-debug";
   version = "7.2";

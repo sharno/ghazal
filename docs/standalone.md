@@ -4,11 +4,12 @@ Ghazal owns PID 1, the service supervisor, frontend and power policy. The root
 filesystem is assembled explicitly; neither muOS nor ROCKNIX's init, systemd manager,
 EmulationStation or shell service framework runs.
 
-The repository builds the bootloader and kernel from pinned sources:
+The repository builds everything the handheld runs from pinned sources:
 `nix/uboot.nix` (mainline U-Boot with ROCKNIX's H700 DRAM patches and
-defconfig) and `nix/h700-kernel.nix` (Linux with ROCKNIX's patch set and H700
-config). A pinned ROCKNIX image supplies firmware, emulator binaries and their
-library dependencies. `hardware.lock` records its digest and source revision.
+defconfig), `nix/h700-kernel.nix` (Linux with ROCKNIX's patch set and H700
+config) and `nix/runtime` (the userspace; see [Runtime](#runtime)). ROCKNIX
+contributes only its source tree at one commit (`nix/rocknix.nix`);
+`/etc/ghazal/image.json` records it and the nixpkgs revision.
 Release images cover the device catalog with separate DDR3 and DDR4 bootloaders.
 Choose the image matching the board, panel and RAM revision; see
 [installation](installation.md) and the [device catalog](../config/h700/devices.toml).
@@ -97,9 +98,8 @@ mode 0700 and files mode 0600.
 nix run .#image -- "$PWD" "$PWD/secrets" "$PWD/build/ghazal-rg40xxv.img"
 ```
 
-The builder refuses to overwrite an existing output. It verifies the upstream
-SHA-256 and embedded source revision, resolves the recursive AArch64 ELF library
-closure, and writes an MBR image with a 128 MiB boot partition, a 1 GiB ext4
+The builder refuses to overwrite an existing output. It copies the runtime's
+Nix closure and links onto the root filesystem and writes an MBR image with a 128 MiB boot partition, a 1 GiB ext4
 root per A/B slot, a 256 MiB persistent state partition and a reserved 128 MiB
 data partition (logical system partitions use an MBR extended container). First boot initializes and grows
 the data partition to use the remaining card space. Only regular output files
@@ -110,6 +110,36 @@ so they are never shared between separately provisioned devices.
 The recipe and dependency inputs are pinned. Images are not yet byte-for-byte
 deterministic: filesystem UUIDs and creation timestamps vary. Machine IDs and
 SSH host keys are generated per device on first boot.
+
+## Runtime
+
+`nix/runtime` builds the device userspace from the flake's nixpkgs for
+aarch64-linux. A process cannot load two glibcs, so Mesa, SDL2, RetroArch,
+PPSSPP and every core come from that one package set; the system daemons
+(udev, D-Bus, iwd, OpenSSH, Syncthing, ALSA tools, RAUC) come from it too.
+Stock nixpkgs closures do not fit a 1 GiB slot (Mesa alone is ~1.1 GB with
+LLVM), so the graphics stack is rebuilt for this device only:
+
+- Mesa: panfrost, EGL, GBM and GLES on DRM; no LLVM, glvnd, X11, Wayland or
+  Vulkan. Panfrost's precompiled kernels use the same Mesa version's tools.
+- SDL2 2.32 (as ROCKNIX): KMSDRM, GLES, ALSA, udev.
+- RetroArch: KMS/EGL with GLES 3.1, ALSA, udev and RGUI.
+- PPSSPP and its libretro core: GLES with ROCKNIX's H700 flags.
+- Cores: `nix/runtime/cores.nix` maps each `core =` in `frontend.toml` to a
+  nixpkgs core rebuilt without its RetroArch wrapper; GL cores target GLES 3.
+  Yabasanshiro, absent from nixpkgs, is built from libretro's fork. Evaluation
+  fails if `frontend.toml` names a core the table lacks.
+
+The image builder copies the runtime's store closure to `/nix/store` on the
+root filesystem and the `tree` output's links (`/usr/bin/retroarch`,
+`/usr/lib/libretro/*.so`, daemons) beside it. Programs find libraries through
+their store RPATHs; nothing is installed in `/usr/lib`. udev applies only
+Ghazal's own rules: the stock systemd rules are masked.
+
+These packages are not in cache.nixos.org, so building them needs an aarch64
+Linux machine: CI uses `ubuntu-24.04-arm` and caches the closure; locally use
+an aarch64 Linux container or a remote builder. The first full build takes
+hours; later builds reuse the cache.
 
 ## Data and debugging
 
@@ -303,13 +333,13 @@ firmware names. `ROMS/MAME` uses MAME 2003 Plus; `ROMS/FBNEO` uses FBNeo. Keep R
 sets matched to the selected core. Dreamcast and Naomi are separate systems;
 Naomi needs its own BIOS even when Dreamcast games load without one.
 
-PSP games run in standalone PPSSPP from the pinned bundle: a system in
-`frontend.toml` sets either a RetroArch `core` or a standalone `command`
-(`{rom}` is the game path). ROCKNIX's PPSSPP has `/storage` paths compiled
-in; the image links them to `/var/lib/ghazal/ppsspp` (settings, seeded with
-ROCKNIX's H700 defaults) and to the SD card. Game saves live in
-`SAVES/file/PPSSPP/PSP/SAVEDATA`, shared with the libretro core; PPSSPP's own
-states go to `SAVES/state/PPSSPP-standalone`. Standalone PPSSPP has no
+PSP games run in standalone PPSSPP: a system in `frontend.toml` sets either a
+RetroArch `core` or a standalone `command` (`{rom}` is the game path).
+`nix/runtime/ppsspp.nix` compiles its directories in: settings and cheats in
+`/var/lib/ghazal/ppsspp/PSP` (seeded with ROCKNIX's H700 defaults), the memory
+stick at `SAVES/file/PPSSPP` so game saves in `PSP/SAVEDATA` are shared with the
+libretro core, states in `SAVES/state/PPSSPP-standalone` and screenshots in
+`SAVES/screenshots`. SDL maps the pad from the mapping in `frontend.toml`. Standalone PPSSPP has no
 automatic state on quit. PPSSPP scans out ARGB8888 buffers whose alpha holds
 rendering data; a kernel patch makes the bottom display plane ignore it. Its pad
 mapping (`config/rg40xxv-rocknix/ppsspp/controls.ini`) matches RetroArch's
@@ -347,7 +377,7 @@ refuses an already converted destination.
 
 ## Syncthing
 
-The image includes Syncthing from the pinned hardware bundle. Its supervised
+The image includes Syncthing from nixpkgs. Its supervised
 service waits for `/mnt/games/ROMS` on the prepared data card. Device identity,
 configuration and database live at `/mnt/games/.ghazal/syncthing`, so an OS-card
 reflash preserves pairing. Without SD2 it stays pending.

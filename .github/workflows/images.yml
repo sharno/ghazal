@@ -23,10 +23,12 @@ jobs:
   checks:
     if: inputs.artifact_run == ''
     uses: ./.github/workflows/check.yml
+  # The device runtime (nix/runtime) is rebuilt from source where nixpkgs'
+  # cache cannot help, so the store is built natively on aarch64.
   runtime:
     if: inputs.artifact_run == ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
@@ -38,8 +40,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/release-tools/runtime.nar.gz
-          key: h700-runtime-${{ runner.os }}-${{ hashFiles('flake.lock', 'nix/**', 'hardware.lock', 'Cargo.lock', 'tools/image-builder/Cargo.lock', 'config/**', 'src/**', 'ui/**', 'assets/**', 'tools/image-builder/src/**') }}
-          restore-keys: h700-runtime-${{ runner.os }}-
+          key: h700-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nix/**', 'Cargo.lock', 'tools/image-builder/Cargo.lock', 'config/**', 'src/**', 'ui/**', 'assets/**', 'tools/image-builder/src/**') }}
+          restore-keys: h700-runtime-${{ runner.os }}-${{ runner.arch }}-
       - name: Build shared runtime, all device trees and both bootloaders
         run: |
           nix flake check --no-build
@@ -61,7 +63,7 @@ jobs:
           compression-level: 0
   images:
     needs: runtime
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     strategy:
       fail-fast: false

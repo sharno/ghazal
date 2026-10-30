@@ -2,13 +2,14 @@
 
 ## Direction and current architecture
 
-Ghazal is already standalone: it assembles its own root filesystem and owns
-PID 1, service supervision, the menu, input handling and power policy. The
-repository builds U-Boot and the kernel from pinned sources. Firmware,
-emulators and runtime libraries currently come from the checksum-pinned
-ROCKNIX bundle recorded in `hardware.lock`; its operating-system service
-framework does not run. Reusing those components does not make Ghazal a
-frontend that needs another installed OS.
+Ghazal is standalone: it assembles its own root filesystem and owns PID 1,
+service supervision, the menu, input handling and power policy. Everything on
+the device is built from pinned sources: U-Boot and the kernel
+(`nix/uboot.nix`, `nix/h700-kernel.nix`) and the userspace runtime of Mesa,
+RetroArch, cores, PPSSPP and system daemons (`nix/runtime`) from the flake's
+nixpkgs. ROCKNIX's source tree (`nix/rocknix.nix`) supplies kernel and U-Boot
+patches, panel descriptions and PPSSPP's H700 defaults; no ROCKNIX binaries
+are used.
 
 Prioritize fast boot, responsive menus, emulator performance and reliable saves.
 Keep the code lean and configuration ownership explicit. Measure changes rather
@@ -112,9 +113,12 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   if userspace never opens it within a minute; this was proven on hardware.
   U-Boot still leaves it off, so hangs before the probe need Reset. Arming it
   in U-Boot is a bootloader change: test it on a spare card first.
-- Keep shared settings migrations compatible with the previous OS slot. Keep
-  update dependencies in their own Nix closure; mixing their ELF interpreter or
-  libraries with the emulator runtime can silently select an incompatible glibc.
+- Keep shared settings migrations compatible with the previous OS slot.
+- A process cannot mix two glibcs: Mesa, SDL2, RetroArch, PPSSPP and every
+  core must come from the one nixpkgs in `nix/runtime`, and programs must find
+  libraries through their store RPATHs, never `/usr/lib`. Stock nixpkgs
+  graphics closures do not fit the 1 GiB slot; keep overrides free of X11,
+  Wayland, LLVM, Vulkan and FFmpeg, and check the root's size after bumps.
 - Exercise application writes with the root mounted read-only. RetroArch core
   options, its home and caches belong on the selected data card; `/root` must
   not be assumed writable just because launching and saving a game succeeded.
@@ -124,10 +128,6 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   U-Boot 2026 uses `ENV_REDUNDANT`; the old `SYS_REDUNDAND_ENVIRONMENT` fragment
   is silently ignored and produces a different environment header. Both the
   bootloader derivation and image builder must reject mismatched bank settings.
-- Further build independence means packaging emulators and runtime libraries
-  from pinned sources rather than extracting the binary bundle. Preserve firmware
-  provenance and licensing, and validate performance before replacing working binaries.
-  This is future supply-chain work, not a missing standalone boot stage.
 - Make image packaging byte-reproducible if required: filesystem UUIDs and
   timestamps currently vary despite pinned inputs. Keep machine identity and
   SSH host keys generated per device on first boot.

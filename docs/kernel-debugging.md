@@ -23,8 +23,9 @@ Keep the normal boot artifacts for recovery. Add `no_console_suspend` and
 `initcall_debug` to its diagnostic boot arguments.
 
 Wi-Fi and the panel driver are built in and request firmware before the root
-filesystem is mounted. The recipe embeds their firmware, extracted from the
-exact checksum-pinned hardware bundle. Runtime firmware files cannot repair an
+filesystem is mounted. The recipe embeds their firmware: rtw88 and the regulatory
+database from nixpkgs' `linux-firmware` and `wireless-regdb`, panel descriptions
+from the pinned ROCKNIX source. Runtime firmware files cannot repair an
 early probe that already failed.
 
 After a diagnostic boot, first confirm the expected kernel release, panel,
