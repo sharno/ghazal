@@ -128,6 +128,14 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   from pinned sources rather than extracting the binary bundle. Preserve firmware
   provenance and licensing, and validate performance before replacing working binaries.
   This is future supply-chain work, not a missing standalone boot stage.
+  Stock nixpkgs closures do not fit a 1 GiB slot (Mesa ~1.1 GB, RetroArch
+  ~1.3 GB, both with LLVM, X11 and Wayland), and the snes9x, genesis-plus-gx,
+  fbneo, mame2003-plus and picodrive cores are unfree there, so not cached.
+  Expect trimmed overrides built on aarch64 runners. Mesa, RetroArch and
+  every core must come from one source: a process cannot mix two glibcs.
+- ROCKNIX deletes nightlies after about two weeks, so `hardware.lock` points
+  at a byte-identical copy on this repo's `hardware-rocknix-*` release. Upload
+  any new pin there before using it.
 - Make image packaging byte-reproducible if required: filesystem UUIDs and
   timestamps currently vary despite pinned inputs. Keep machine identity and
   SSH host keys generated per device on first boot.
