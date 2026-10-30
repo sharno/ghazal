@@ -89,6 +89,7 @@ GHAZALROOT/                # either OS slot; matching boot files update together
     │   ├── settings.toml     # brightness and volume
     │   ├── frontend-settings.toml
     │   ├── data-card         # auto / tf1 / tf2 preference
+    │   ├── last-data-card    # card used last boot; only then is TF2 awaited
     │   ├── machine-id
     │   ├── ssh/              # authorized_keys and SSH host identity
     │   └── update-channel

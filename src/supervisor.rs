@@ -50,6 +50,35 @@ pub struct ServiceConfig {
     /// A missing executable is logged and skipped instead of blocking dependents.
     #[serde(default)]
     pub optional: bool,
+    #[serde(default)]
+    pub start: Phase,
+    /// Created once this oneshot has finished, so programs outside the
+    /// supervisor can wait for it (emulators for udev's device database). A
+    /// failure marks it too: `udevadm settle` times out on a slow device, and
+    /// waiters must not stall on every launch.
+    pub marks: Option<PathBuf>,
+}
+
+/// When a service may start, besides its dependencies and `wait_for` paths.
+#[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Phase {
+    /// As soon as possible.
+    #[default]
+    Boot,
+    /// Once [`SupervisorConfig::boot`] is complete, so it can't compete with the
+    /// path to the menu for CPU and the SD card.
+    Background,
+}
+
+/// The boot counts as complete once `marker` exists (the menu's first frame) or
+/// `deadline` seconds after the supervisor started, so background services such
+/// as SSH still start when the menu never appears.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct BootComplete {
+    pub marker: PathBuf,
+    pub deadline: u64,
 }
 #[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -81,6 +110,7 @@ pub struct SupervisorConfig {
     pub replaces: Vec<String>,
     #[serde(rename = "service", default)]
     pub services: Vec<ServiceConfig>,
+    pub boot: Option<BootComplete>,
 }
 
 fn default_log_dir() -> PathBuf {
@@ -148,6 +178,13 @@ pub struct Supervisor {
     /// When PID 1, reap every orphan, not just our children.
     pid1: bool,
     created: Instant,
+    boot: BootProgress,
+}
+
+/// Background services wait for the boot to complete; it never goes back.
+enum BootProgress {
+    Waiting(BootComplete),
+    Complete,
 }
 
 impl SupervisorConfig {
@@ -163,6 +200,12 @@ impl SupervisorConfig {
             }
             if s.fallback.as_ref().is_some_and(|command| command.is_empty()) {
                 bail!("service {:?} has an empty fallback", s.name);
+            }
+            if s.marks.is_some() && s.kind != Kind::Oneshot {
+                bail!("service {:?} marks completion but is not a oneshot", s.name);
+            }
+            if s.start == Phase::Background && cfg.boot.is_none() {
+                bail!("background service {:?} needs [supervisor.boot]", s.name);
             }
         }
         for service in &cfg.services {
@@ -205,6 +248,7 @@ impl Supervisor {
             signals: sys::SignalFd::new()?,
             pid1,
             created: Instant::now(),
+            boot: cfg.boot.clone().map_or(BootProgress::Complete, BootProgress::Waiting),
         })
     }
 
@@ -232,6 +276,13 @@ impl Supervisor {
 
     fn start_ready(&mut self) {
         let now = Instant::now();
+        if let BootProgress::Waiting(boot) = &self.boot {
+            if boot.marker.exists() || now.duration_since(self.created) >= Duration::from_secs(boot.deadline) {
+                self.boot = BootProgress::Complete;
+                log(format_args!("boot complete; starting background services"));
+            }
+        }
+        let booted = matches!(self.boot, BootProgress::Complete);
         loop {
             let mut changed = false;
             for index in 0..self.services.len() {
@@ -245,7 +296,8 @@ impl Supervisor {
             }
             for i in 0..self.services.len() {
                 let ready = match &self.services[i].state {
-                    State::Pending => self.deps_met(i) && self.services[i].cfg.wait_for.iter().all(|p| p.exists()),
+                    State::Pending => (booted || self.services[i].cfg.start == Phase::Boot)
+                        && self.deps_met(i) && self.services[i].cfg.wait_for.iter().all(|p| p.exists()),
                     State::Backoff { until } => now >= *until && self.deps_met(i),
                     _ => false,
                 };
@@ -329,6 +381,9 @@ impl Supervisor {
             sys::kill(-pid, libc::SIGKILL);
             let ok = status == 0;
             log(format_args!("{} exited with status {status}", svc.cfg.name));
+            if let Some(marker) = svc.cfg.marks.as_ref().filter(|_| svc.cfg.kind == Kind::Oneshot) {
+                if let Err(error) = sys::write_atomic(marker, b"") { log(format_args!("{}: marking completion: {error:#}", svc.cfg.name)); }
+            }
             match exit_decision(svc.cfg.kind, svc.cfg.restart, ok) {
                 ExitDecision::Complete => svc.state = State::Done,
                 ExitDecision::Dead => svc.state = State::Dead,
@@ -430,7 +485,9 @@ impl Drop for Supervisor {
 }
 
 fn log(args: std::fmt::Arguments) {
-    eprintln!("ghazal-supervisor: {args}");
+    if std::process::id() != 1 { eprintln!("ghazal-supervisor: {args}"); }
+    // Timestamped service starts and exits explain the boot timeline afterwards.
+    sys::kmsg(format_args!("ghazal-supervisor: {args}"));
 }
 
 #[cfg(test)]
@@ -441,7 +498,7 @@ mod tests {
         Service {
             cfg: ServiceConfig { name: name.into(), exec: vec!["/bin/true".into()], kind: Kind::Simple,
                 restart: Restart::Always, after: Vec::new(), wait_for: Vec::new(), env: BTreeMap::new(),
-                fallback: None, log: None, optional: false },
+                fallback: None, log: None, optional: false, start: Phase::Boot, marks: None },
             state: State::Pending, crashes: Vec::new(), command: CommandChoice::Primary,
         }
     }
@@ -506,7 +563,17 @@ mod tests {
         let mut b = service("b").cfg;
         a.after = vec!["b".into()];
         b.after = vec!["a".into()];
-        let cfg = SupervisorConfig { log_dir: "/unused".into(), replaces: Vec::new(), services: vec![a, b] };
+        let cfg = SupervisorConfig { log_dir: "/unused".into(), replaces: Vec::new(), services: vec![a, b], boot: None };
         assert!(Supervisor::new(&cfg, false).is_err());
+    }
+
+    #[test]
+    fn background_services_need_a_boot_marker() {
+        let mut background = service("sshd").cfg;
+        background.start = Phase::Background;
+        let mut cfg = SupervisorConfig { log_dir: "/unused".into(), replaces: Vec::new(), services: vec![background], boot: None };
+        assert!(cfg.validate().is_err());
+        cfg.boot = Some(BootComplete { marker: "/run/ready".into(), deadline: 5 });
+        cfg.validate().unwrap();
     }
 }

@@ -1,0 +1,24 @@
+sun4i: set the panel orientation before registering the RGB connector
+
+The panel-mipi driver sets it from get_modes(), which first runs after the
+DRM device is registered (fbdev setup) and warns twice on every boot.
+
+--- a/drivers/gpu/drm/sun4i/sun4i_rgb.c
++++ b/drivers/gpu/drm/sun4i/sun4i_rgb.c
+@@ -230,6 +230,16 @@
+ 
+ 		drm_connector_attach_encoder(&rgb->connector,
+ 						  &rgb->encoder);
++
++		/*
++		 * Create the orientation property before the device is
++		 * registered; panels that set it from get_modes() later
++		 * trigger a drm_mode_object_add() warning.
++		 */
++		ret = drm_connector_set_orientation_from_panel(&rgb->connector,
++							       rgb->panel);
++		if (ret)
++			goto err_cleanup_connector;
+ 	}
+ 
+ 	if (rgb->bridge) {

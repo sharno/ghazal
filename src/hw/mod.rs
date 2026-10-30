@@ -3,6 +3,7 @@
 
 pub mod alsa;
 pub mod battery;
+pub mod lights;
 
 use std::path::Path;
 use std::time::Duration;
@@ -170,6 +171,8 @@ pub fn suspend(mem_sleep: Option<&str>, checkpoint: Option<&Path>) -> Result<()>
 pub struct Hardware {
     pub backlight: Option<Backlight>,
     pub volume: Option<Volume>,
+    pub speaker: Option<alsa::Switch>,
+    pub lights: Option<lights::Lights>,
     pub battery: Option<device::Battery>,
     pub leds: device::Leds,
     pub rumble: Option<device::Rumble>,
@@ -180,9 +183,17 @@ impl Hardware {
         let volume = dev.audio.as_ref().and_then(|a| {
             Volume::open(a).map_err(|e| eprintln!("ghazal: volume unavailable: {e:#}")).ok()
         });
+        let speaker = dev.audio.as_ref().and_then(|audio| audio.speaker.as_ref().map(|name| (audio.card, name))).and_then(|(card, name)| {
+            alsa::Switch::open(card, name).map_err(|e| eprintln!("ghazal: speaker switch unavailable: {e:#}")).ok()
+        });
         Self {
             backlight: dev.backlight.clone().and_then(|cfg| Backlight::new(cfg).map_err(|error| eprintln!("ghazal: backlight unavailable: {error:#}")).ok()),
             volume,
+            speaker,
+            // Most boards have no stick lights: only a present controller's errors matter.
+            lights: dev.lights.as_ref().filter(|cfg| cfg.power.exists()).and_then(|cfg| {
+                lights::Lights::open(cfg).map_err(|e| eprintln!("ghazal: stick lights unavailable: {e:#}")).ok()
+            }),
             battery: dev.battery.clone(),
             leds: dev.leds.clone(),
             rumble: dev.rumble.clone(),

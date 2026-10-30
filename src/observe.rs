@@ -24,13 +24,34 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
         }
         Some("frame") if args.len() == 2 => capture(&device.display.card, Path::new(&args[1])),
         Some("boot") if args.len() == 1 => {
-            print!("{}", fs::read_to_string("/run/ghazal/first-frame-ready")?);
+            let frame = fs::read_to_string("/run/ghazal/first-frame-ready")?;
+            print!("{frame}");
+            let firmware = firmware_seconds()?;
+            println!("firmware_seconds = {firmware:.3}");
+            let kernel: f64 = frame.split('=').nth(1).context("malformed first-frame record")?.trim().parse()?;
+            println!("power_on_to_first_frame_seconds = {:.3}", firmware + kernel);
             Ok(())
         }
         Some("press") if args.len() == 2 => press(device, &args[1]),
         _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | press BUTTON[+BUTTON...]"),
     }
 }
+
+/// Reset to kernel start: the generic timer counts from reset, CLOCK_BOOTTIME
+/// from kernel start (assuming firmware leaves the virtual offset at zero).
+#[cfg(target_arch = "aarch64")]
+fn firmware_seconds() -> Result<f64> {
+    let (count, frequency): (u64, u64);
+    // SAFETY: Linux enables EL0 reads of the virtual counter and its frequency.
+    unsafe { std::arch::asm!("isb", "mrs {c}, cntvct_el0", "mrs {f}, cntfrq_el0", c = out(reg) count, f = out(reg) frequency) };
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: valid timespec pointer.
+    if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) } != 0 { return Err(std::io::Error::last_os_error().into()); }
+    Ok(count as f64 / frequency as f64 - (now.tv_sec as f64 + now.tv_nsec as f64 / 1e9))
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn firmware_seconds() -> Result<f64> { bail!("firmware time needs the AArch64 generic timer") }
 
 struct Card(File);
 impl AsFd for Card { fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() } }

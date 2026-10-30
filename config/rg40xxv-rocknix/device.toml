@@ -46,8 +46,9 @@ route = [
   { switch = { control = "DAC Playback Switch", enabled = true } },
   { volume = { control = "Line Out Playback Volume", percent = 100 } },
   { switch = { control = "Line Out Playback Switch", enabled = true } },
-  { switch = { control = "Speaker Switch", enabled = true } },
 ]
+# Off while headphones are plugged in; PipeWire's UCM does this on ROCKNIX.
+speaker = "Speaker Switch"
 
 [battery]
 path = "/sys/class/power_supply/battery"
@@ -58,3 +59,16 @@ wakealarm = "/sys/class/rtc/rtc1/wakealarm"
 
 [leds]
 power = "/sys/class/leds/green:power/brightness"
+# The red LED beside it, as muOS uses it.
+low_battery = "/sys/class/leds/red:status/brightness"
+
+[lights]
+# RG40XX H/V and RG CubeXX stick rings; other boards lack this LED.
+power = "/sys/class/leds/rgb:kbd_backlight/brightness"
+uart = "5001400.serial"
+
+[cpu]
+# muOS's policy: schedutil in the menu, full speed while a game runs.
+governor = "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor"
+menu = "schedutil"
+game = "performance"

@@ -17,11 +17,16 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 - Start at the menu or resume the last game on boot.
 - Automatically save and resume supported RetroArch games. Manual saves retain
   ten rolling numbered states, separate from the automatic resume state.
-- Change brightness, volume and persistent RetroArch settings from Configuration.
+- Change brightness, volume, stick lights (RG40XX H/V, RG CubeXX) and persistent
+  RetroArch settings from Configuration.
+- Mute the speaker while headphones are plugged in, and run the CPU at full speed
+  only while a game runs.
 - Use one SD card for everything, or separate OS and games/data cards.
 - Install signed system updates from GitHub through Configuration → System update
   on A/B installations; see [updates and migration](docs/updates.md).
 - Connect over Wi-Fi and SSH, sync files with Syncthing, and recover from failed boots.
+  The watchdog also resets a kernel that hangs after its first 0.2 s, so the
+  other OS slot takes over.
 
 ## What we care about
 

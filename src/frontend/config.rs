@@ -26,6 +26,10 @@ pub struct FrontendConfig {
     /// Socket of `ghazal daemon`; enables the Sleep/Restart/Power off menu entries.
     #[serde(default = "default_socket")]
     pub daemon_socket: PathBuf,
+    /// Every emulator launch first waits (at most 10 s) for these paths, e.g.
+    /// udev's database, which RetroArch and SDL need to find the gamepad.
+    #[serde(default)]
+    pub launch_after: Vec<PathBuf>,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }

@@ -41,15 +41,29 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Charging stability is unresolved on the mainline RG40XX-V v2 configuration.
   Compare the stock PMIC/USB initialization and verify sustained USB presence
   and battery recovery; an icon or a brief `Charging` reading is insufficient.
-  Do not present the charging indicator as a charging-driver fix.
+  Do not present the charging indicator as a charging-driver fix. Collect a
+  continuous sample over SSH (USB online, VBUS, status, capacity every 20 s).
+  A 30-minute sample with the AXP717 fixes stayed online and charging
+  (63→80% over 70 minutes, constant-voltage taper from ~69%); an overnight
+  run then reached full and held it while on. The charge current now matches
+  the vendor's 1.5 A; its 4.1 V target is not copied (mainline charges to
+  4.2 V). The AXP717's Type-C logic is off in mainline (vendor: DRP); USB-C
+  to USB-C chargers that need Rd are untested. A full AXP717 reports
+  `Not charging` (never `Full`), so external power comes from the USB
+  supply's `online`; `daemon.log` records when it comes and goes.
 - CI builds all 19 catalog variants with both RAM bootloaders, but physical
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
   game launch/exit, save retention and clean shutdown.
-- Bluetooth pairing/audio, HDMI hotplug with display/audio switching, USB gadget
-  modes and model-specific RGB LED control have no standalone integration yet.
-  Bluetooth is also trimmed from the production kernel; adding it needs an
-  explicit kernel and userspace plan that preserves startup performance.
+- Bluetooth pairing/audio, HDMI hotplug with display/audio switching and USB
+  gadget modes have no standalone integration yet. Bluetooth is also trimmed
+  from the production kernel; adding it needs an explicit kernel and userspace
+  plan that preserves startup performance. HDMI audio needs the disabled H616
+  AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
+  probe in a host-only MUSB build, which also loses USB host.
+- Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
+  and menu path is verified, the visible colours are not yet confirmed on a
+  device. Headphone switching was verified with a virtual jack device only.
 - Validate charge-only startup on hardware. U-Boot already includes the AXP717
   charge-only patch (`nix/uboot.nix`); do not describe it as wholly unimplemented.
 - There is no user-facing factory-reset flow. If added, define which OS settings
@@ -57,12 +71,21 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Boot time and game performance
 
-- Track power-on to first usable menu separately from kernel uptime to first
-  frame. Existing instrumentation writes `/run/ghazal/first-frame-ready`; see
-  docs/standalone.md for the boot breakdown and measurement method.
-- Reduce bootloader/kernel loading and probing costs using measured results.
-  Preserve recovery and keep library scanning and background services from
-  delaying usable navigation.
+- `ghazal observe boot` reports firmware, kernel-to-frame and total time; the
+  kernel log holds each service's start. See docs/standalone.md for the
+  breakdown. Measure on a boot whose previous shutdown was clean: a journal
+  replay on `/var` or the root adds ~100 ms.
+- Firmware time is mostly U-Boot reading the kernel; size it with object sizes
+  from a kept build tree (`ar t built-in.a | xargs size`), not thin archives.
+  U-Boot's own ~1.4 s (SPL, DRAM, environment) and its slow decompression look
+  like caches being off; changing U-Boot needs a spare card.
+- Root mounting waits for every probe: keep sleeps out of probe paths.
+  Userspace time is mostly paging in the ghazal binary (~6.5 MB of 10.6);
+  shrinking it or improving code locality is the next lever. Read-ahead tuning
+  did not help.
+- Anything not needed for the first frame belongs in the supervisor's
+  background phase. Emulators must wait for what they need through
+  `launch_after` rather than assume boot ordering.
 - Build repeatable observations for menu latency, game launch/exit, frame pacing,
   audio and save/resume. Use the desktop simulator and `ghazal observe` for fast
   iteration, then confirm on-device behavior. QEMU cannot prove H700 driver or
@@ -85,11 +108,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Classify user-volume failures separately from OS faults. A missing/full data
   card is shared by both slots: retain Wi-Fi/SSH recovery instead of exhausting
   both boot budgets. Keep this distinction through anyhow boot-step context.
-- Complete bootloader watchdog handover so a kernel hang before the userspace
-  watchdog starts also resets automatically. Preserve fast boot and measure it.
-  A PMIC watchdog expiring successfully in a running OS does not prove it
-  remains armed across reboot and bootloader/kernel startup. Prove that path
-  with a known working kernel before relying on it for remote kernel trials.
+- The kernel starts the watchdog at driver probe (~0.2 s) and resets the board
+  if userspace never opens it within a minute; this was proven on hardware.
+  U-Boot still leaves it off, so hangs before the probe need Reset. Arming it
+  in U-Boot is a bootloader change: test it on a spare card first.
 - Keep shared settings migrations compatible with the previous OS slot. Keep
   update dependencies in their own Nix closure; mixing their ELF interpreter or
   libraries with the emulator runtime can silently select an incompatible glibc.
@@ -109,6 +131,18 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Make image packaging byte-reproducible if required: filesystem UUIDs and
   timestamps currently vary despite pinned inputs. Keep machine identity and
   SSH host keys generated per device on first boot.
+
+### Development loop on a handheld
+
+- Build the static binary on any host with `cargo build --release --target
+  aarch64-unknown-linux-musl` (rust-lld; see .cargo/config.toml). Unit tests and
+  the desktop build need Linux.
+- Test on the inactive slot: mount it (or remount the booted B root
+  read-write and rename files into place), then `fw_setenv BOOT_ORDER "B A"`.
+  Keep slot A as the known-good fallback and use `BOOT_B_LEFT=1` for kernels.
+- An open SSH session postpones idle poweroff, so keep one open during long
+  unattended work. BusyBox lacks many applet links (`sed`, `pidof`,
+  `readlink`, `od`): use `busybox <applet>`.
 
 ## Keeping this backlog accurate
 

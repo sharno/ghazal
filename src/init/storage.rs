@@ -141,6 +141,9 @@ fn prepare_partition(
     partition.read_exact(&mut boot)?;
     drop(partition);
     let already_formatted = if boot[3..11] == *b"EXFAT   " {
+        // Checking or formatting a large card can outlast the watchdog's
+        // one-minute grace; `update health` re-arms it after the boot plan.
+        crate::update::disarm_watchdog();
         let label = Command::new(tools.labeler)
             .args(["-s", "LABEL", "-o", "value"])
             .arg(data_path)
@@ -211,6 +214,7 @@ fn prepare_partition(
         // Ownership is durable before mkfs can write a partial boot record.
         // Data is never mounted or handed to the user until this transaction ends.
         transaction.begin_format()?;
+        crate::update::disarm_watchdog();
         let status = Command::new(tools.formatter)
             .args(["-K", "-L", "GHAZALDATA"])
             .arg(data_path)
@@ -223,10 +227,8 @@ fn prepare_partition(
     Ok(())
 }
 
+/// Creates the data card's standard folders, including one per system.
 pub fn directories() -> Result<()> {
-    directories_inner().map_err(|error| DataUnavailable(error).into())
-}
-fn directories_inner() -> Result<()> {
     if !crate::sys::is_mounted(Path::new("/mnt/games")) {
         bail!("data directory is not mounted");
     }
@@ -270,6 +272,31 @@ impl std::fmt::Display for DataUnavailable {
 impl std::error::Error for DataUnavailable {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
 }
+/// The data volume's filesystem, recognized from its superblock: each failed
+/// trial mount costs ~10 ms of boot and logs kernel errors.
+#[derive(Debug, PartialEq)]
+enum DataFilesystem { Exfat { dirty: bool }, Ext4, Fat }
+
+impl DataFilesystem {
+    fn detect(head: &[u8; 2048]) -> Result<Self> {
+        if head[3..11] == *b"EXFAT   " {
+            // VolumeFlags bit 1: VolumeDirty.
+            return Ok(Self::Exfat { dirty: u16::from_le_bytes([head[106], head[107]]) & 2 != 0 });
+        }
+        // ext2/3/4 superblock magic at 1024 + 56; the ext4 driver mounts all three.
+        if head[1080..1082] == [0x53, 0xef] { return Ok(Self::Ext4); }
+        if head[510..512] == [0x55, 0xaa] { return Ok(Self::Fat); }
+        bail!("data partition has no exFAT, FAT or ext4 filesystem")
+    }
+
+    fn fstype(&self) -> &'static str {
+        match self { Self::Exfat { .. } => "exfat", Self::Ext4 => "ext4", Self::Fat => "vfat" }
+    }
+}
+
+/// The card that held the data last boot (`tf1`/`tf2`), on persistent /var.
+const LAST_CARD: &str = "/var/lib/ghazal/last-data-card";
+
 pub fn mount_data() -> Result<()> {
     mount_data_inner().map_err(|error| DataUnavailable(error).into())
 }
@@ -285,8 +312,13 @@ fn mount_data_inner() -> Result<()> {
         "tf1" => false,
         "tf2" | "auto" => {
             // A bounded enumeration window precedes the decision, rather than
-            // waiting only after a potentially wrong card has already been selected.
-            let deadline = Instant::now() + Duration::from_secs(2);
+            // waiting only after a potentially wrong card has already been
+            // selected. Only when TF2 is required or held the data last boot:
+            // a one-card handheld would otherwise wait 2 s on every boot. A
+            // newly inserted TF2 has usually enumerated before init runs.
+            // With no record yet (first boot, or after an update), wait once.
+            let expected = mode.trim() == "tf2" || fs::read_to_string(LAST_CARD).map_or(true, |card| card.trim() == "tf2");
+            let deadline = Instant::now() + Duration::from_secs(if expected { 2 } else { 0 });
             while !external.exists() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(25));
             }
@@ -312,9 +344,12 @@ fn mount_data_inner() -> Result<()> {
     } else {
         "/dev/mmcblk0p3"
     };
-    let mut boot = [0; 512];
-    fs::File::open(source)?.read_exact(&mut boot)?;
-    if boot[3..11] == *b"EXFAT   " && u16::from_le_bytes(boot[106..108].try_into()?) & 2 != 0 {
+    let mut head = [0; 2048];
+    fs::File::open(source)?.read_exact(&mut head)?;
+    let filesystem = DataFilesystem::detect(&head)?;
+    if filesystem == (DataFilesystem::Exfat { dirty: true }) {
+        // A large dirty card can take longer than the watchdog's grace.
+        crate::update::disarm_watchdog();
         let status = Command::new("/usr/sbin/fsck.exfat")
             .arg("-p")
             .arg(source)
@@ -327,7 +362,7 @@ fn mount_data_inner() -> Result<()> {
         source: source.into(),
         prefer: None,
         target: "/mnt/games".into(),
-        fstype: "exfat,vfat,ext4".into(),
+        fstype: filesystem.fstype().into(),
         options: "rw,noatime".into(),
         wait: 3,
         optional: false,
@@ -336,7 +371,11 @@ fn mount_data_inner() -> Result<()> {
         Path::new("/run/ghazal/data-source"),
         if use_external { b"TF2" } else { b"TF1" },
     )?;
-    eprintln!("ghazal: data mounted from {source}");
+    let card = if use_external { "tf2" } else { "tf1" };
+    if fs::read_to_string(LAST_CARD).map_or(true, |last| last.trim() != card) {
+        crate::sys::write_atomic(Path::new(LAST_CARD), card.as_bytes())?;
+    }
+    crate::sys::log(format_args!("ghazal: data mounted from {source}"));
     Ok(())
 }
 
@@ -349,6 +388,20 @@ mod tests {
             .context("required data-mount boot step");
         assert!(crate::init::data_unavailable(&fault));
         assert!(!crate::init::data_unavailable(&anyhow::anyhow!("invalid OS profile")));
+    }
+    #[test]
+    fn data_filesystems_are_recognized_from_their_superblocks() {
+        let mut head = [0; 2048];
+        assert!(DataFilesystem::detect(&head).is_err());
+        head[1080..1082].copy_from_slice(&[0x53, 0xef]);
+        assert_eq!(DataFilesystem::detect(&head).unwrap(), DataFilesystem::Ext4);
+        let mut head = [0; 2048];
+        head[510..512].copy_from_slice(&[0x55, 0xaa]);
+        assert_eq!(DataFilesystem::detect(&head).unwrap(), DataFilesystem::Fat);
+        head[3..11].copy_from_slice(b"EXFAT   ");
+        assert_eq!(DataFilesystem::detect(&head).unwrap(), DataFilesystem::Exfat { dirty: false });
+        head[106] = 2;
+        assert_eq!(DataFilesystem::detect(&head).unwrap(), DataFilesystem::Exfat { dirty: true });
     }
     fn factory() -> [u8; 512] {
         let mut mbr = [0; 512];

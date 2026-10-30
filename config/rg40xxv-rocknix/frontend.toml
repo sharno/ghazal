@@ -9,6 +9,10 @@ thumbnail_cache = "/mnt/games/.ghazal/thumbnails"
 muos_catalogue = "/mnt/games/MUOS/info/catalogue"
 activity_file = "/mnt/games/.ghazal/activity.toml"
 
+# udev starts with the background services after the menu's first frame; a
+# Last Game startup must not launch before it has catalogued the gamepad.
+launch_after = ["/run/ghazal/udev-settled"]
+
 [retroarch]
 bin = "/usr/bin/retroarch"
 # Our own RetroArch configuration.

@@ -1,0 +1,23 @@
+mmc: sunxi: power up hosts with a power sequence from the rescan work
+
+The H700 handhelds' SDIO Wi-Fi power sequence waits 200 ms after reset.
+mmc_start_host() runs it inside probe, and root mounting waits for all
+probes, so it delayed every boot by ~0.1 s after the root card was ready.
+
+--- a/drivers/mmc/host/sunxi-mmc.c
++++ b/drivers/mmc/host/sunxi-mmc.c
+@@ -1464,6 +1464,14 @@
+ 
+ 	/* TODO: This driver doesn't support HS400 mode yet */
+ 	mmc->caps2 &= ~MMC_CAP2_HS400;
++
++	/*
++	 * A power sequence (SDIO Wi-Fi) can sleep for hundreds of
++	 * milliseconds. Power up from the rescan work rather than probe:
++	 * the kernel waits for every probe before mounting root.
++	 */
++	if (mmc->pwrseq)
++		mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+ 
+ 	ret = sunxi_mmc_init_host(host);
+ 	if (ret)

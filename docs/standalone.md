@@ -24,21 +24,45 @@ state partition mounted at `/var`. See [the storage layout](storage-layout.md).
 
 ## Boot time
 
-Power-on to the menu's first frame takes about 4.2 s on the RG40XX-V (it was
-10.7 s with the ROCKNIX kernel, initramfs and udev-ordered services). It is
-the sum of:
+Power-on to the menu's first frame takes about 2.9 s on the RG40XX-V v2
+(4.4 s before the October 2026 boot work; 10.7 s with the ROCKNIX kernel,
+initramfs and udev-ordered services). It is the sum of:
 
-- SPL and U-Boot: about 2.5 s, including reading the 22 MB kernel from the
-  card at ~21 MB/s. A smaller kernel shortens this.
-- Kernel: about 0.9 s, dominated by panel and SD/Wi-Fi probing. `quiet` keeps
-  the boot log off the 115200-baud serial console; printing it took ~2.5 s.
-- ghazal: mounts, then `audio -> daemon -> frontend`. None of these wait for
-  udev, which only serves RetroArch. The frontend draws before scanning the
-  library. Syncthing waits for the first frame.
+- SPL and U-Boot: about 2.1 s, mostly reading the 15.6 MB kernel from the card
+  at ~21 MB/s. Every MB removed from the kernel saves ~50 ms; options the
+  handheld never uses are disabled in `nix/h700-kernel.nix`. An LZ4 kernel
+  boots but is 0.14 s slower: U-Boot decompresses at only ~32 MB/s.
+- Kernel: about 0.35 s to mounting root. Root waits for every driver probe, so
+  slow probes are kept out of it: fbcon takes over the display only when the
+  console is first written (the menu powers the panel on instead), the Wi-Fi
+  SDIO power sequence runs from the MMC rescan work, and the H616 UARTs skip
+  the 8250 core's 20 ms FIFO count. `quiet` keeps the boot log off the
+  115200-baud serial console; printing it took ~2.5 s.
+- ghazal: about 0.45 s. Mounts, then the daemon, frontend and audio-init in
+  parallel; PID 1 logs to the kernel log, since a console write would make
+  fbcon take over and wait for the panel. Everything else starts with `start = "background"` once the first
+  frame is drawn (or after `[supervisor] boot.deadline`, so SSH still comes up
+  if the menu never does): udev, D-Bus, Wi-Fi, SSH, kernel logging, Syncthing
+  and folder creation on the data card. Started earlier, they read ~10 MB of
+  libraries while the menu's own code is still being paged in from the card,
+  which cost ~0.45 s. The frontend draws before scanning the library.
 
-The frontend records the kernel uptime of its first frame in
-`/run/ghazal/first-frame-ready` and the kernel log. Pre-kernel time is the
-generic timer counter (which starts at reset) minus `CLOCK_BOOTTIME`.
+`ghazal observe boot` prints the first frame's kernel uptime (also in
+`/run/ghazal/first-frame-ready` and the kernel log), the firmware time
+(the generic timer counts from reset; `CLOCK_BOOTTIME` from kernel start) and
+their sum. The supervisor logs every service start and exit to the kernel log,
+so `/var/log/ghazal/kernel-log.log` holds each boot's timeline. For per-driver
+kernel timings, boot a test kernel built with `CMDLINE_FORCE` and
+`initcall_debug` (arm64 cannot append to the bootloader's arguments) on the
+inactive slot; KALLSYMS is off, so decode addresses with the build's
+`System.map`. Most remaining
+userspace time is reading ~6.5 MB of the ghazal binary from the card;
+read-ahead sizes from 32 KiB to 1 MiB did not shorten it.
+
+Emulators wait (at most 10 s) for the paths in `frontend.toml`'s
+`launch_after`: udev's `udev-settle` oneshot `marks` `/run/ghazal/udev-settled`,
+so a Last Game startup cannot launch RetroArch before udev has catalogued the
+gamepad.
 
 SSH and kernel logging start independently of the frontend. A frontend crash
 must leave remote access alive. BusyBox supplies the shell and diagnostic
@@ -139,6 +163,27 @@ tail -n 100 /var/log/ghazal/kernel-log.log
 /opt/ghazal/ghazal ctl poweroff
 ```
 
+The CPU runs `schedutil` in the menu and `performance` while a game runs,
+as on muOS (`[cpu]` in `device.toml`); boot keeps the kernel's `performance`
+default until the first frame. The red LED lights at low battery.
+
+The RG40XX-V's stock firmware charges every H700 model at 1.5 A while
+running; the device tree now does too (it was 1.024 A). The daemon logs each
+change between charging and battery power, with the level, to `daemon.log`.
+
+The codec drives the speaker amplifier and the headphone jack from one
+output. The daemon reads the jack switch and turns `Speaker Switch` off while
+headphones are plugged in (ROCKNIX leaves this to PipeWire's UCM), so
+`audio-init` no longer sets it.
+
+On the RG40XX H/V and RG CubeXX, Configuration → Stick lights sets the analog
+stick RGB rings: off (the controller is unpowered), a solid colour, breathing
+or rainbow. The daemon keeps the choice in `settings.toml` and turns enabled
+rings red at low battery. The rings' microcontroller sits behind UART5
+(`[lights].uart`) and is powered through the `rgb:kbd_backlight` GPIO; frames
+follow muOS's serial protocol. `ghazal ctl lights next|prev|<preset>` changes
+it over SSH.
+
 Native suspend is disabled in this profile: both deep and s2idle trials have
 failed to restore a usable device. Automatic sleep is off, the menu hides Sleep,
 and a brief Power press leaves the device awake. Instead, 30 minutes without a
@@ -150,21 +195,32 @@ Physical wake, display/audio/input recovery and battery drain require acceptance
 before enabling suspend. Initial scope is RetroArch
 games; existing PortMaster applications, standalone emulators and muOS themes
 are not launch targets. Current frontend/daemon controls do not yet expose
-Bluetooth pairing, HDMI switching or RGB effects.
+Bluetooth pairing or HDMI switching.
 
 ## Recovery and logs
 
-Three boots that fail to draw the frontend enter a compiled recovery profile
-with Wi-Fi and SSH. Configuration/startup failures also enter recovery directly;
-the recovery profile does not depend on the editable SD-card configuration.
-BusyBox provides an emergency console if recovery itself fails. After repairing
-the configuration over SSH, write `0` to `/var/lib/ghazal/boot-attempts` and reboot.
+A/B boots that fail before the menu reports healthy are retried and then
+rolled back to the other OS slot (see [system updates](updates.md)). A missing,
+invalid or full data card instead enters a compiled recovery profile with
+Wi-Fi and SSH, which does not depend on the editable configuration. Recovery
+marks its OS slot good and stops the watchdog: the other slot shares the card
+and could not repair it. BusyBox provides an emergency console if recovery
+itself fails. Provisioning errors are logged and the boot continues offline.
 
 The supervisor owns service output pipes and rotates logs at 4 MiB, keeping one
 previous file per service. Kernel-log restarts skip the already captured boot
 backlog. Shutdown stops services and the emulator, normally unmounts data
 filesystems, and remounts root read-only. Failed unmounts are reported and their
-filesystems are remounted read-only when possible.
+filesystems are remounted read-only when possible. The shutdown trace in
+`/var/log/ghazal/shutdown.log` closes itself before `/var` is unmounted; while
+it stayed open, `/var` was never unmounted and every boot replayed its journal.
+
+The kernel starts the hardware watchdog when its driver probes (~0.2 s into
+boot) and pets it until `ghazal update health` opens it, for at most 60 s
+(`CONFIG_WATCHDOG_OPEN_TIMEOUT`). A kernel or init hang therefore resets the
+board and counts as a failed A/B attempt. Recovery mode and the emergency
+console stop the watchdog, since nothing pets it there. `update health` stops
+it on SIGTERM so a slow shutdown cannot turn a power-off into a reset.
 
 ## Options and thumbnails
 

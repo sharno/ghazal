@@ -1,0 +1,73 @@
+serial: 8250: skip the 20 ms FIFO count when firmware gives fifo-size
+
+Allwinner H616 UARTs lack the DesignWare CPR register, so every port goes
+through autoconfig, whose U6 16550A check busy-waits 20 ms in size_fifo().
+Three ports cost ~60 ms of each H700 boot. The detected type is unchanged:
+autoconfig() still sets fifosize from the port type afterwards. The H616
+UARTs have 64-byte FIFOs.
+
+--- a/drivers/tty/serial/8250/8250_port.c
++++ b/drivers/tty/serial/8250/8250_port.c
+@@ -1052,9 +1052,10 @@
+ 
+ 	/*
+ 	 * We distinguish between 16550A and U6 16550A by counting
+-	 * how many bytes are in the FIFO.
++	 * how many bytes are in the FIFO. Counting busy-waits 20 ms, so a
++	 * firmware-described fifo-size skips it.
+ 	 */
+-	if (up->port.type == PORT_16550A && size_fifo(up) == 64) {
++	if (up->port.type == PORT_16550A && !up->port.fifosize && size_fifo(up) == 64) {
+ 		up->port.type = PORT_U6_16550A;
+ 		up->capabilities |= UART_CAP_AFE;
+ 	}
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
+@@ -709,6 +709,7 @@
+ 
+ 		uart0: serial@5000000 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05000000 0x400>;
+ 			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;
+@@ -722,6 +723,7 @@
+ 
+ 		uart1: serial@5000400 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05000400 0x400>;
+ 			interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;
+@@ -735,6 +737,7 @@
+ 
+ 		uart2: serial@5000800 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05000800 0x400>;
+ 			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;
+@@ -748,6 +751,7 @@
+ 
+ 		uart3: serial@5000c00 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05000c00 0x400>;
+ 			interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;
+@@ -761,6 +765,7 @@
+ 
+ 		uart4: serial@5001000 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05001000 0x400>;
+ 			interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;
+@@ -774,6 +779,7 @@
+ 
+ 		uart5: serial@5001400 {
+ 			compatible = "snps,dw-apb-uart";
++			fifo-size = <64>;
+ 			reg = <0x05001400 0x400>;
+ 			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+ 			reg-shift = <2>;

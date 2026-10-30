@@ -61,8 +61,12 @@ pub struct EmulatorReport {
 }
 
 impl LogPump {
+    /// A log that can't be opened or written (a full /var) is dropped, never
+    /// the pipe: the program writing to it would die of EPIPE or SIGPIPE.
     pub fn open(path: &Path) -> Result<(std::os::fd::OwnedFd, Self)> {
-        let mut log = RollingLog::open(path)?;
+        let mut log = RollingLog::open(path)
+            .inspect_err(|error| crate::sys::log(format_args!("ghazal: discarding output for {}: {error:#}", path.display())))
+            .ok();
         let (mut reader, writer) = UnixStream::pair()?;
         reader.set_read_timeout(Some(Duration::from_millis(100)))?;
         let stopping = Arc::new(AtomicBool::new(false));
@@ -81,7 +85,10 @@ impl LogPump {
                         Ok(0) => return Ok(()),
                         Ok(size) => {
                             diagnostic.feed(&bytes[..size]);
-                            log.append(&bytes[..size])?;
+                            if let Some(Err(error)) = log.as_mut().map(|log| log.append(&bytes[..size])) {
+                                crate::sys::log(format_args!("ghazal: log writer failed, discarding further output: {error:#}"));
+                                log = None;
+                            }
                         }
                         Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
                             if requested.load(Ordering::Acquire) { return Ok(()); }
@@ -91,7 +98,7 @@ impl LogPump {
                     }
                 }
             })();
-            if let Err(error) = result { eprintln!("ghazal: log writer failed: {error:#}"); }
+            if let Err(error) = result { crate::sys::log(format_args!("ghazal: log writer failed: {error:#}")); }
             EmulatorReport { save_warning: diagnostic.save_warning.take(), error: diagnostic.finish() }
         })?;
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))

@@ -34,7 +34,7 @@ impl SystemConfig {
 
 impl Default for SupervisorConfig {
     fn default() -> Self {
-        Self { log_dir: "/run/ghazal/log".into(), replaces: Vec::new(), services: Vec::new() }
+        Self { log_dir: "/run/ghazal/log".into(), replaces: Vec::new(), services: Vec::new(), boot: None }
     }
 }
 

@@ -88,7 +88,6 @@ pub fn apply(path: &Path) -> Result<()> {
         Ok(config) => config,
         Err(error) => return reject(path, &error.to_string()),
     };
-    use std::os::unix::fs::PermissionsExt;
     if let Some(card) = config.data_card {
         crate::sys::write_atomic(
             Path::new("/var/lib/ghazal/data-card"),
@@ -108,7 +107,7 @@ pub fn apply(path: &Path) -> Result<()> {
                 .collect::<String>()
         );
         let destination = Path::new("/var/lib/iwd").join(format!("{name}.psk"));
-        crate::sys::write_atomic(
+        crate::sys::write_atomic_private(
             &destination,
             format!(
                 "[Security]\nPassphrase={}\n[Settings]\nAutoConnect=true\n",
@@ -116,15 +115,13 @@ pub fn apply(path: &Path) -> Result<()> {
             )
             .as_bytes(),
         )?;
-        fs::set_permissions(destination, fs::Permissions::from_mode(0o600))?;
     }
     if !config.ssh_authorized_keys.is_empty() {
         let destination = Path::new("/var/lib/ghazal/ssh/authorized_keys");
-        crate::sys::write_atomic(
+        crate::sys::write_atomic_private(
             destination,
             format!("{}\n", config.ssh_authorized_keys.join("\n")).as_bytes(),
         )?;
-        fs::set_permissions(destination, fs::Permissions::from_mode(0o600))?;
     }
     fs::remove_file(path)?;
     fs::File::open(
@@ -132,7 +129,7 @@ pub fn apply(path: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("provisioning has no parent"))?,
     )?
     .sync_all()?;
-    eprintln!("ghazal: first-boot network and SSH provisioning applied");
+    crate::sys::log(format_args!("ghazal: first-boot network and SSH provisioning applied"));
     Ok(())
 }
 
@@ -156,7 +153,7 @@ fn reject(path: &Path, reason: &str) -> Result<()> {
         Path::new("/run/ghazal/provision-warning"),
         b"Provisioning rejected; see GHAZALBOOT/provision.error.txt",
     )?;
-    eprintln!("ghazal: provisioning rejected; continuing offline: {reason}");
+    crate::sys::log(format_args!("ghazal: provisioning rejected; continuing offline: {reason}"));
     Ok(())
 }
 
@@ -179,7 +176,7 @@ pub fn retry_boot(request: &Path) -> Result<()> {
         libc::MS_REMOUNT | libc::MS_RDONLY,
         "",
     )?;
-    eprintln!("ghazal: boot counter reset by the boot-partition retry request");
+    crate::sys::log(format_args!("ghazal: boot counter reset by the boot-partition retry request"));
     crate::sys::reboot(libc::RB_AUTOBOOT)
 }
 #[cfg(test)]

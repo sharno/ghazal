@@ -124,14 +124,14 @@ fn read_element(file: &File, id: ElemId, channels: usize) -> Result<Vec<i64>> {
     Ok(value.value[..channels].to_vec())
 }
 
-struct Switch { file: File, id: ElemId, channels: usize }
+pub struct Switch { file: File, id: ElemId, channels: usize }
 
 impl Switch {
-    fn open(card: u32, name: &str) -> Result<Self> {
+    pub fn open(card: u32, name: &str) -> Result<Self> {
         let (file, info) = open_element(card, name, TYPE_BOOLEAN)?;
         Ok(Self { file, id: info.id, channels: info.count as usize })
     }
-    fn set(&self, enabled: bool) -> Result<()> { write_element(&self.file, self.id, self.channels, i64::from(enabled)) }
+    pub fn set(&self, enabled: bool) -> Result<()> { write_element(&self.file, self.id, self.channels, i64::from(enabled)) }
 }
 
 enum PreparedSetting { Switch(Switch, bool), Volume(Control, u8) }

@@ -34,15 +34,31 @@ pub fn kernel_log() -> Result<()> {
 }
 
 pub fn ssh_key() -> Result<()> {
-    let key = Path::new("/var/lib/ghazal/ssh/ssh_host_ed25519_key");
+    let directory = Path::new("/var/lib/ghazal/ssh");
+    let key = directory.join("ssh_host_ed25519_key");
     if key.is_file() {
         return Ok(());
     }
+    // ssh-keygen writes in place: a power cut could leave a truncated key that
+    // sshd rejects on every start. Generate beside it, then rename the public
+    // half and finally the private key, whose presence means "done".
+    let pending = directory.join(".ssh_host_ed25519_key.new");
+    let pending_public = directory.join(".ssh_host_ed25519_key.new.pub");
+    for stale in [&pending, &pending_public] {
+        match std::fs::remove_file(stale) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+    }
     let status = std::process::Command::new("/usr/bin/ssh-keygen")
         .args(["-q", "-t", "ed25519", "-N", "", "-f"])
-        .arg(key)
+        .arg(&pending)
         .status()?;
     if !status.success() { bail!("SSH host key generation failed: {status}"); }
+    for file in [&pending_public, &pending] { std::fs::File::open(file)?.sync_all()?; }
+    std::fs::rename(&pending_public, directory.join("ssh_host_ed25519_key.pub"))?;
+    std::fs::rename(&pending, &key)?;
+    std::fs::File::open(directory)?.sync_all()?;
     Ok(())
 }
 
@@ -72,7 +88,8 @@ pub fn resolvconf() -> Result<()> {
         },
         _ => return Ok(()),
     }
-    let mut entries: Vec<_> = std::fs::read_dir(records)?.collect::<std::io::Result<_>>()?;
+    let mut entries: Vec<_> = std::fs::read_dir(records)?.collect::<std::io::Result<Vec<_>>>()?
+        .into_iter().filter(|entry| !entry.file_name().to_string_lossy().starts_with('.')).collect();
     entries.sort_by_key(|entry| entry.file_name());
     let contents = entries.iter().map(|entry| std::fs::read_to_string(entry.path())).collect::<std::io::Result<Vec<_>>>()?;
     crate::sys::write_atomic(Path::new("/run/ghazal/resolv.conf"), resolv_conf(&contents).as_bytes())

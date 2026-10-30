@@ -4,13 +4,13 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use super::activity::{Activity, Catalog, Collection, GameId};
+use super::activity::{Activity, Catalog, Collection, GameId, LoadError};
 use super::config::FrontendConfig;
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
 use super::settings::{Settings, StartupMode};
-use super::thumbnails::{self, Loader, Progress};
+use super::thumbnails::{self, Art, Loader, Progress};
 use crate::daemon::ctl;
 use crate::hw::battery;
 use crate::ui::{AppWindow, Hint, Row};
@@ -99,6 +99,8 @@ enum MenuItem {
     Startup,
     RetroArchSettings,
     SystemUpdate,
+    /// Shown with the daemon's current preset.
+    Lights(crate::hw::lights::Preset),
 }
 
 impl MenuItem {
@@ -122,6 +124,7 @@ impl MenuItem {
             },
             Self::RetroArchSettings => "RetroArch settings",
             Self::SystemUpdate => "System update",
+            Self::Lights(preset) => preset.menu_label(),
         }
     }
 }
@@ -198,6 +201,8 @@ pub struct App {
     download: Option<std::sync::mpsc::Receiver<Progress>>,
     toast: Option<Toast>,
     levels: Option<crate::levels::Levels>,
+    /// None on boards without stick lights.
+    lights: Option<crate::hw::lights::Preset>,
     levels_visible_until: Option<Instant>,
     status_checked: Instant,
     activity_reported: Option<Instant>,
@@ -212,10 +217,12 @@ impl App {
         // Damaged favorites/history must not keep the menu from starting.
         let (activity, activity_warning) = match Activity::load(&config.activity_file) {
             Ok(activity) => (activity, None),
-            Err(error) => {
+            // The supervisor restarts the menu; the next read usually succeeds.
+            Err(LoadError::Unreadable(error)) => return Err(error.context("reading favorites and history")),
+            Err(LoadError::Damaged(error)) => {
                 let aside = Activity::set_aside(&config.activity_file)?;
                 eprintln!("ghazal: {error:#}; moved it to {}", aside.display());
-                (Activity::load(&config.activity_file)?, Some(format!("Favorites and history were unreadable; kept them as {}", aside.display())))
+                (Activity::load(&config.activity_file).map_err(LoadError::into_error)?, Some(format!("Favorites and history were unreadable; kept them as {}", aside.display())))
             }
         };
         // Power entries need the daemon; Quit only makes sense when launched from muOS.
@@ -264,6 +271,7 @@ impl App {
             download: None,
             toast: None,
             levels: None,
+            lights: daemon_status.as_deref().and_then(ctl::lights),
             levels_visible_until: None,
             status_checked: Instant::now(),
             activity_reported: None,
@@ -379,6 +387,7 @@ impl App {
                     let item = self.configuration_items()[self.configuration_cursor];
                     match item {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
+                        MenuItem::Lights(_) => { self.step_lights(button != Button::Left); self.rows_for = None; }
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
                         MenuItem::SystemUpdate if button == Button::A => { self.activate(item); }
@@ -518,8 +527,19 @@ impl App {
     }
 
     fn receive_art(&mut self) {
-        let Some(loader) = &self.art else { return };
-        while let Some((id, image)) = loader.try_recv() {
+        loop {
+            let (id, image) = match self.art.as_ref().map(Loader::try_recv) {
+                None | Some(Art::Pending) => return,
+                Some(Art::Ready(id, image)) => (id, image),
+                Some(Art::Stopped) => {
+                    // Without this, the pending request would keep the menu waking.
+                    eprintln!("ghazal: box art loader stopped; art is off until restart");
+                    self.art = None;
+                    self.art_pending = None;
+                    self.ui.set_art_ready(false);
+                    return;
+                }
+            };
             if Some(id) != self.art_pending { continue; }
             self.art_pending = None;
             match image {
@@ -535,8 +555,18 @@ impl App {
     fn receive_download(&mut self) {
         let Some(progress) = &self.download else { return };
         let mut latest = None;
-        while let Ok(update) = progress.try_recv() { latest = Some(update); }
+        let stopped = loop {
+            match progress.try_recv() {
+                Ok(update) => latest = Some(update),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break false,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break true,
+            }
+        };
         match latest {
+            None if stopped => {
+                self.download = None;
+                self.error("Thumbnail download stopped unexpectedly".into());
+            }
             None => {}
             Some(Progress::Fetched { done, total }) => self.notice(&format!("Thumbnails {done}/{total}")),
             Some(Progress::Finished { found, total }) => {
@@ -615,7 +645,15 @@ impl App {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
+        items.extend(self.lights.map(MenuItem::Lights));
         items
+    }
+
+    fn step_lights(&mut self, forward: bool) {
+        match ctl::request(&self.config.daemon_socket, if forward { "lights next" } else { "lights prev" }) {
+            Ok(reply) => self.lights = ctl::lights(&reply),
+            Err(error) => self.error(format!("{error:#}")),
+        }
     }
 
     fn adjust_level(&mut self, item: MenuItem, up: bool) {
@@ -738,6 +776,7 @@ impl App {
             MenuItem::PowerOff => self.power("poweroff"),
             MenuItem::Quit => Some(Effect::Quit),
             MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
+            MenuItem::Lights(_) => { self.step_lights(true); None }
         }
     }
 

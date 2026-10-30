@@ -195,6 +195,13 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
     let mut input = evdev_input::Input::open(device)?;
     let (w, h) = display.size();
     let mut screen = Screen::install(w, h)?;
+    // Started alongside the daemon at boot: its status decides the power entries.
+    if std::env::var_os("GHAZAL_EMBEDDED").is_some() {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !config.daemon_socket.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
     let levels_watch = crate::levels::Watch::open(&config.daemon_socket)?;
     let mut app = build_app(config)?;
     if !claim_boot_startup()? { app.disable_startup(); }
@@ -209,6 +216,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
             if std::mem::take(&mut first_frame) {
                 // On screen: tell `ghazal init` this boot worked.
                 crate::init::mark_boot_ok();
+                if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Menu); }
             }
         }
 
@@ -240,7 +248,10 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 // Close the evdev clients entirely: gameplay must never enter a
                 // frontend queue (including SYN_DROPPED recovery batches).
                 drop(input);
-                let result = display.with_released(|| spec.run(|| app.session_started(purpose)))?;
+                if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Game); }
+                let result = display.with_released(|| spec.run(|| app.session_started(purpose)));
+                if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Menu); }
+                let result = result?;
                 screen.invalidate();
                 input = evdev_input::Input::open(device)?;
                 repeater.clear();

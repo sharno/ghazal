@@ -1,5 +1,15 @@
 # Ghazal H700 beta
 
+Power-on to the menu takes about 2.9 s on the RG40XX-V (4.4 s in beta 6): a
+smaller kernel that mounts root sooner, network, SSH and udev starting after
+the menu appears, and no `/var` journal replay after a clean shutdown. One-card
+setups wait for a second card only on their first boot. The handheld charges at the stock
+1.5 A instead of 1 A. The watchdog now runs from early
+kernel start, so a boot that hangs resets and falls back to the other OS slot.
+Plugging in headphones mutes the speaker. The CPU slows down in the menu and
+runs at full speed in games. RG40XX H/V and RG CubeXX owners can set the stick
+lights from Configuration; they turn red at low battery.
+
 The menu battery indicator shows a green lightning bolt while connected to power.
 
 This release adds signed RAUC system updates from GitHub Releases through

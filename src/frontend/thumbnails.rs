@@ -86,6 +86,13 @@ pub struct Loader {
     next: u64,
 }
 
+/// The worker's next result. `Stopped` means it died; nothing more will come.
+pub enum Art {
+    Ready(u64, Option<SharedPixelBuffer<Rgba8Pixel>>),
+    Pending,
+    Stopped,
+}
+
 impl Loader {
     pub fn new() -> Result<Self> {
         let (requests, jobs) = channel::<(u64, Vec<PathBuf>)>();
@@ -109,8 +116,12 @@ impl Loader {
         self.next
     }
 
-    pub fn try_recv(&self) -> Option<(u64, Option<SharedPixelBuffer<Rgba8Pixel>>)> {
-        self.results.try_recv().ok()
+    pub fn try_recv(&self) -> Art {
+        match self.results.try_recv() {
+            Ok((id, image)) => Art::Ready(id, image),
+            Err(std::sync::mpsc::TryRecvError::Empty) => Art::Pending,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Art::Stopped,
+        }
     }
 }
 
@@ -203,8 +214,11 @@ fn http_get(host: &str, path: &str) -> Result<Option<Vec<u8>>> {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(10))?;
     stream.set_read_timeout(Some(Duration::from_secs(20)))?;
     write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: ghazal\r\nConnection: close\r\n\r\n")?;
+    // Box art is well under a megabyte; refuse runaway responses.
+    const LIMIT: u64 = 16 * 1024 * 1024;
     let mut response = Vec::new();
-    stream.read_to_end(&mut response)?;
+    stream.take(LIMIT + 1).read_to_end(&mut response)?;
+    if response.len() as u64 > LIMIT { bail!("{host}{path}: response larger than {LIMIT} bytes"); }
     let split = response.windows(4).position(|w| w == b"\r\n\r\n").context("malformed HTTP response")?;
     let head = std::str::from_utf8(&response[..split])?;
     let status: u16 = head.split_whitespace().nth(1).context("missing HTTP status")?.parse()?;
@@ -225,7 +239,7 @@ fn dechunk(mut body: &[u8]) -> Result<Vec<u8>> {
         if size == 0 { return Ok(out); }
         let chunk = body.get(end + 2..end + 2 + size).context("truncated chunk")?;
         out.extend_from_slice(chunk);
-        body = &body[end + 4 + size..];
+        body = body.get(end + 4 + size..).context("truncated chunk")?;
     }
 }
 

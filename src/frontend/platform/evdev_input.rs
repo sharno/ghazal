@@ -135,9 +135,15 @@ impl Input {
             }
             return Err(err.into());
         }
-        if wake_fd.is_some() && fds.last().is_some_and(|fd| fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0) {
+        let hung = |fd: &libc::pollfd| fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0;
+        if wake_fd.is_some() && fds.last().is_some_and(hung) {
             bail!("levels notification descriptor failed");
         }
+        // The supervisor restarts the menu, which reopens the gamepad.
+        if fds[..self.pads.len()].iter().any(hung) { bail!("gamepad disconnected"); }
+        // A removed keyboard reports POLLHUP without POLLIN forever: drop it, or
+        // poll() would never sleep again.
+        let gone: Vec<bool> = fds[self.pads.len()..][..self.companions.len()].iter().map(hung).collect();
 
         for (device, fd) in self.companions.iter_mut().zip(&fds[self.pads.len()..]) {
             if fd.revents & libc::POLLIN == 0 {
@@ -152,6 +158,8 @@ impl Input {
                 emit(Key::Other(ev.code()), ev.value() == 1);
             }
         }
+        let mut index = 0;
+        self.companions.retain(|_| { index += 1; !gone[index - 1] });
         for (pad, fd) in self.pads.iter_mut().zip(&fds) {
             if fd.revents & libc::POLLIN == 0 {
                 continue;

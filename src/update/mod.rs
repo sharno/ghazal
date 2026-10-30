@@ -15,6 +15,32 @@ const IMAGE: &str = "/etc/ghazal/image.json";
 const RAUC: &str = "/usr/bin/rauc";
 const LOCK: &str = "/run/ghazal/update.lock";
 const CHANNEL: &str = "/var/lib/ghazal/update-channel";
+/// The kernel starts it at probe and pets it until userspace opens it.
+const WATCHDOG: &str = "/dev/watchdog0";
+
+/// The descriptor `health` pets, for its SIGTERM handler.
+static PETTED_WATCHDOG: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+/// Shutdown stops services first; stopping the watchdog (magic close) keeps a
+/// long emulator or unmount wait from resetting a board that should power off.
+extern "C" fn release_watchdog_and_exit(_: libc::c_int) {
+    let fd = PETTED_WATCHDOG.load(std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: write and _exit are async-signal-safe; the buffer is static.
+    unsafe {
+        if fd >= 0 { libc::write(fd, b"V".as_ptr().cast(), 1); }
+        libc::_exit(0);
+    }
+}
+
+/// Stops the watchdog for modes nothing pets it in: recovery and the emergency
+/// console stay reachable instead of resetting a minute after boot.
+pub fn disarm_watchdog() {
+    match fs::OpenOptions::new().write(true).open(WATCHDOG).and_then(|mut watchdog| watchdog.write_all(b"V")) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => eprintln!("ghazal: disarming {WATCHDOG}: {error}"),
+    }
+}
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub enum Channel {
@@ -123,6 +149,12 @@ fn curl() -> Command {
         "=https",
         "--connect-timeout",
         "20",
+        // A dropped Wi-Fi link would otherwise hold the update screen (and
+        // its blocked menu and power button) until the 30-minute limit.
+        "--speed-limit",
+        "1",
+        "--speed-time",
+        "60",
         "--retry",
         "2",
         "--user-agent",
@@ -248,11 +280,14 @@ impl Guard {
             .truncate(false)
             .write(true)
             .open(LOCK)?;
-        // SAFETY: flock only acts on this live file descriptor.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            bail!("another update is running");
+        // `busy()` holds the lock for an instant while probing it from the
+        // daemon and the menu; only a lock held longer is another update.
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            if lock_now(&file) { return Ok(Self(file)); }
+            if Instant::now() >= deadline { bail!("another update is running"); }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        Ok(Self(file))
     }
 }
 impl Drop for Guard {
@@ -260,11 +295,14 @@ impl Drop for Guard {
         let _ = self.0.sync_all();
     }
 }
+fn lock_now(file: &fs::File) -> bool {
+    // SAFETY: flock only acts on this live file descriptor.
+    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+}
+
+/// One instant probe; the lock is released when the file closes.
 pub fn busy() -> bool {
-    if !Path::new(LOCK).exists() {
-        return false;
-    }
-    Guard::acquire().is_err()
+    fs::OpenOptions::new().write(true).open(LOCK).is_ok_and(|file| !lock_now(&file))
 }
 fn install(candidate: Candidate, events: &Sender<Event>) -> Result<()> {
     let _guard = Guard::acquire()?;
@@ -380,45 +418,89 @@ fn spawn(
     Ok(receive)
 }
 
+/// The OS slot U-Boot booted, from `rauc.slot=` on the kernel command line.
+#[derive(Clone, Copy, Debug)]
+enum Slot { A, B }
+
+impl Slot {
+    fn booted() -> Result<Self> {
+        let cmdline = fs::read_to_string("/proc/cmdline")?;
+        match cmdline.split_whitespace().find_map(|word| word.strip_prefix("rauc.slot=")) {
+            Some("A") => Ok(Self::A),
+            Some("B") => Ok(Self::B),
+            Some(_) => bail!("invalid boot slot"),
+            None => bail!("not an A/B boot"),
+        }
+    }
+}
+
+impl std::fmt::Display for Slot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self { Self::A => "A", Self::B => "B" })
+    }
+}
+
+/// Recovery for a missing or full data card: the other slot shares that card,
+/// so these boots must not use up A/B attempts. This is what RAUC's mark-good
+/// does with the `boot-attempts` in config/updates/system.conf.in.
+pub fn keep_booted_slot() -> Result<()> {
+    let slot = Slot::booted()?;
+    let status = Command::new("/usr/bin/fw_setenv").arg(format!("BOOT_{slot}_LEFT")).arg("3").status()?;
+    if !status.success() { bail!("fw_setenv exited with {status}"); }
+    Ok(())
+}
+
 /// Boot deadline and hardware watchdog protect boots that never reach userspace health.
 /// Runs alongside the menu; it never delays the first frame or contacts GitHub.
 fn health() -> Result<()> {
-    let slot = fs::read_to_string("/proc/cmdline")?
-        .split_whitespace()
-        .find_map(|word| word.strip_prefix("rauc.slot=").map(str::to_owned))
-        .context("not an A/B boot")?;
-    if !matches!(slot.as_str(), "A" | "B") {
-        bail!("invalid boot slot");
-    }
-    let mut watchdog = fs::OpenOptions::new().write(true).open("/dev/watchdog0")?;
+    let slot = Slot::booted()?;
+    let mut watchdog = fs::OpenOptions::new().write(true).open(WATCHDOG)?;
+    PETTED_WATCHDOG.store(watchdog.as_raw_fd(), std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: installs a handler that only calls async-signal-safe functions.
+    unsafe { libc::signal(libc::SIGTERM, release_watchdog_and_exit as extern "C" fn(libc::c_int) as libc::sighandler_t) };
     let mut timeout: libc::c_int = 16;
     // SAFETY: WDIOC_SETTIMEOUT expects a pointer to an int, which lives through the call.
     if unsafe { libc::ioctl(watchdog.as_raw_fd(), 0xc004_5706u32 as _, &mut timeout) } < 0 {
         return Err(std::io::Error::last_os_error().into());
     }
     let deadline = Instant::now() + Duration::from_secs(60);
-    let mut confirmed = false;
+    let mut confirmation = Confirmation::Waiting;
     loop {
-        if !confirmed {
-            let healthy = Path::new("/run/ghazal/first-frame-ready").exists()
-                && Path::new("/run/ghazal/daemon.sock").exists()
-                && crate::sys::is_mounted(Path::new("/mnt/games"));
-            if healthy {
-                service()?;
-                rauc(&["status", "mark-good"])?;
-                confirmed = true;
-                eprintln!("ghazal: OS slot {slot} confirmed healthy");
-            } else if Instant::now() >= deadline {
+        confirmation = match confirmation {
+            Confirmation::Waiting if healthy() => {
+                // Starting RAUC can outlast the 16 s timeout: keep petting here.
+                Confirmation::Running(std::thread::spawn(|| { service()?; rauc(&["status", "mark-good"]) }))
+            }
+            Confirmation::Waiting if Instant::now() >= deadline => {
                 // Keep the descriptor open without petting; watchdog resets the board.
                 eprintln!("ghazal: boot health deadline missed; awaiting watchdog reset");
                 loop {
                     std::thread::sleep(Duration::from_secs(1));
                 }
             }
-        }
+            Confirmation::Running(marking) if marking.is_finished() => {
+                marking.join().map_err(|_| anyhow::anyhow!("marking the slot good panicked"))??;
+                eprintln!("ghazal: OS slot {slot} confirmed healthy");
+                Confirmation::Done
+            }
+            unchanged => unchanged,
+        };
         watchdog.write_all(b"K")?;
         std::thread::sleep(Duration::from_secs(3));
     }
+}
+
+/// Marking the booted slot good happens once, off the petting thread.
+enum Confirmation {
+    Waiting,
+    Running(std::thread::JoinHandle<Result<()>>),
+    Done,
+}
+
+fn healthy() -> bool {
+    Path::new("/run/ghazal/first-frame-ready").exists()
+        && Path::new("/run/ghazal/daemon.sock").exists()
+        && crate::sys::is_mounted(Path::new("/mnt/games"))
 }
 pub fn run(args: &[String]) -> Result<()> {
     match args

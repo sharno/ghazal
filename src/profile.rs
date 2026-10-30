@@ -72,18 +72,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn standalone_audio_route_includes_the_analog_output_before_daemon_start() {
+    fn standalone_audio_route_includes_the_analog_output_and_leaves_volume_to_the_daemon() {
         use crate::device::AudioSetting;
         let audio = Profile { dir: None }.device().unwrap().audio.unwrap();
+        // audio-init and the daemon run concurrently at boot: they must not share a control.
+        assert!(audio.route.iter().all(|setting| match setting {
+            AudioSetting::Switch { control, .. } | AudioSetting::Volume { control, .. } => *control != audio.control,
+        }));
         assert!(audio.route.iter().any(|setting| matches!(setting, AudioSetting::Volume { control, percent: 100 } if control == "Line Out Playback Volume")));
-        for required in ["DAC Playback Switch", "Line Out Playback Switch", "Speaker Switch"] {
+        // The daemon owns the speaker switch, following the headphone jack.
+        assert_eq!(audio.speaker.as_deref(), Some("Speaker Switch"));
+        assert!(audio.route.iter().all(|setting| !matches!(setting, AudioSetting::Switch { control, .. } if control == "Speaker Switch")));
+        for required in ["DAC Playback Switch", "Line Out Playback Switch"] {
             assert!(audio.route.iter().any(|setting| matches!(setting, AudioSetting::Switch { control, enabled: true } if control == required)), "{required}");
         }
         let system = Profile { dir: None }.system().unwrap();
         let audio = system.supervisor.services.iter().find(|service| service.name == "audio").unwrap();
         assert_eq!(audio.kind, crate::supervisor::Kind::Oneshot);
         assert_eq!(audio.exec, ["/opt/ghazal/ghazal", "audio-init"]);
-        assert!(system.supervisor.services.iter().find(|service| service.name == "daemon").unwrap().after.contains(&"audio".to_string()));
     }
 
     #[test]

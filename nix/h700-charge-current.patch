@@ -1,0 +1,17 @@
+arm64: dts: anbernic h700: charge at the stock 1.5 A
+
+The vendor device trees of every H700 model set pmu_runtime_chgcur to 1500 mA.
+At 1.024 A the handheld charges about a third slower.
+
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
+@@ -35,7 +35,8 @@
+ 
+ 	battery: battery {
+ 		compatible = "simple-battery";
+-		constant-charge-current-max-microamp = <1024000>;
++		/* Anbernic's firmware charges every H700 model at 1.5 A while running. */
++		constant-charge-current-max-microamp = <1500000>;
+ 		voltage-max-design-microvolt = <4200000>;
+ 	};
+ 

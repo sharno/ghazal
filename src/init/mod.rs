@@ -63,7 +63,6 @@ pub enum Step {
     /// Wait for a path (e.g. a device node) to appear.
     Wait(WaitStep),
     Storage(storage::Prepare),
-    DataDirectories(storage::Prepare),
     DataMount(storage::Prepare),
     Provision(PathBuf),
     RetryBoot(PathBuf),
@@ -194,7 +193,7 @@ fn run_pid1(system: &SystemConfig, device: &DeviceConfig) -> Result<()> {
 /// Unmounts everything we can (reverse mount order) after services have stopped.
 fn shutdown(stop: Stop, log_dir: &Path) {
     // The kernel log service is gone by now: keep a durable record of the last
-    // shutdown, closed just before the root filesystem becomes read-only.
+    // shutdown, closed just before its own filesystem is unmounted.
     let mut trace = ShutdownTrace::open(&log_dir.join("shutdown.log"));
     trace.note(format_args!("services stopped ({stop:?})"));
     match crate::emulator::active() {
@@ -215,6 +214,7 @@ fn shutdown(stop: Stop, log_dir: &Path) {
     let keep = ["/", "/proc", "/sys", "/dev", "/dev/pts", "/run"];
     for target in mounts.lines().rev().filter_map(|l| l.split(' ').nth(1)) {
         if !keep.contains(&target) {
+            trace.close_before_unmounting(Path::new(target));
             if let Err(error) = sys::umount(Path::new(target)) {
                 trace.note(format_args!("{error:#}; remounting {target} read-only"));
                 if let Err(error) = sys::mount("none", Path::new(target), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
@@ -224,7 +224,7 @@ fn shutdown(stop: Stop, log_dir: &Path) {
         }
     }
     trace.note(format_args!("remounting / read-only"));
-    drop(trace);
+    trace.close();
     sys::sync();
     if let Err(error) = sys::mount("none", Path::new("/"), "none", libc::MS_REMOUNT | libc::MS_RDONLY, "") {
         log(format_args!("could not remount root read-only: {error:#}"));
@@ -232,19 +232,32 @@ fn shutdown(stop: Stop, log_dir: &Path) {
 }
 
 /// Shutdown steps, logged and written durably to a file replaced on each shutdown.
-struct ShutdownTrace(Option<std::fs::File>);
+/// The open file is the last writer on its filesystem: it must be closed before
+/// that filesystem can be unmounted, or the journal is replayed on every boot.
+struct ShutdownTrace { path: PathBuf, file: Option<std::fs::File> }
 
 impl ShutdownTrace {
     fn open(path: &Path) -> Self {
-        Self(std::fs::File::create(path).inspect_err(|error| log(format_args!("opening {}: {error}", path.display()))).ok())
+        let file = std::fs::File::create(path).inspect_err(|error| log(format_args!("opening {}: {error}", path.display()))).ok();
+        Self { path: path.to_owned(), file }
     }
+
+    fn close_before_unmounting(&mut self, target: &Path) {
+        if self.file.is_some() && self.path.starts_with(target) {
+            self.note(format_args!("unmounting {}, which holds this trace", target.display()));
+            self.close();
+        }
+    }
+
+    /// Later notes only reach the kernel log.
+    fn close(&mut self) { self.file = None; }
 
     fn note(&mut self, args: std::fmt::Arguments) {
         use std::io::Write;
         log(args);
         let uptime = std::fs::read_to_string("/proc/uptime").unwrap_or_default();
         let uptime = uptime.split_whitespace().next().unwrap_or("?");
-        if let Some(file) = &mut self.0 {
+        if let Some(file) = &mut self.file {
             let _ = writeln!(file, "[{uptime}] {args}").and_then(|()| file.sync_data());
         }
     }
@@ -252,11 +265,17 @@ impl ShutdownTrace {
 
 /// Recovery uses the compiled standalone profile, independent of damaged SD config.
 pub fn rescue() -> Result<()> {
+    crate::update::disarm_watchdog();
+    if let Err(error) = crate::update::keep_booted_slot() {
+        log(format_args!("recovery could not keep its OS slot: {error:#}"));
+    }
     let system = recovery_config()?;
     let device: DeviceConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/device.toml"))?;
     log(format_args!("starting standalone recovery: Wi-Fi and SSH, without frontend or suspend"));
     run(system, &device)
 }
+
+pub use storage::directories as data_directories;
 
 pub fn data_unavailable(error: &anyhow::Error) -> bool {
     error.is::<storage::DataUnavailable>()
@@ -265,10 +284,12 @@ pub fn data_unavailable(error: &anyhow::Error) -> bool {
 fn recovery_config() -> Result<SystemConfig> {
     let mut system: SystemConfig = toml::from_str(include_str!("../../config/rg40xxv-rocknix/system.toml"))?;
     system.init.rescue = None;
-    system.init.steps.retain(|step| !matches!(step, Step::Storage(_) | Step::DataDirectories(_) | Step::DataMount(_))
+    system.init.steps.retain(|step| !matches!(step, Step::Storage(_) | Step::DataMount(_))
         && !matches!(step, Step::Mount(mount) if mount.target == Path::new("/mnt/games")));
     system.supervisor.services.retain(|service| matches!(service.name.as_str(),
         "kernel-log" | "udev" | "udev-trigger" | "udev-settle" | "dbus" | "wifi" | "ssh-host-key" | "sshd" | "daemon"));
+    // Without a menu there is no first frame to wait for: start SSH right away.
+    for service in &mut system.supervisor.services { service.start = crate::supervisor::Phase::Boot; }
     // Power-button shutdown must still work when the display or data volume is broken.
     if let Some(daemon) = system.supervisor.services.iter_mut().find(|service| service.name == "daemon") {
         daemon.after = vec!["udev".into()];
@@ -365,9 +386,13 @@ fn run_step(step: &Step) -> Result<()> {
         }
         Step::Hostname(h) => sys::sethostname(h),
         Step::Storage(_) => storage::prepare(),
-        Step::DataDirectories(_) => storage::directories(),
         Step::DataMount(_) => storage::mount_data(),
-        Step::Provision(path) => provision::apply(path),
+        // The device stays usable offline: a broken boot partition must not
+        // fail the boot (and use up A/B attempts).
+        Step::Provision(path) => {
+            if let Err(error) = provision::apply(path) { log(format_args!("provisioning failed; continuing: {error:#}")); }
+            Ok(())
+        }
         Step::RetryBoot(path) => provision::retry_boot(path),
         Step::Wait(w) => {
             if wait_for(&w.path, Duration::from_secs(w.timeout)) {
@@ -451,12 +476,9 @@ fn parse_mount_options(options: &str) -> (libc::c_ulong, String) {
 }
 
 fn log(args: std::fmt::Arguments) {
-    eprintln!("ghazal-init: {args}");
-    // Also reach the kernel log: during early boot stderr may go nowhere.
-    let _ = std::fs::OpenOptions::new()
-        .write(true)
-        .open("/dev/kmsg")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, format!("ghazal-init: {args}\n").as_bytes()));
+    // As busybox's sysinit (legacy stages), stderr is the console log too.
+    if std::process::id() != 1 { eprintln!("ghazal-init: {args}"); }
+    sys::kmsg(format_args!("ghazal-init: {args}"));
 }
 
 #[cfg(test)]
@@ -471,7 +493,7 @@ mod tests {
         assert!(system.init.steps.iter().any(|step| matches!(step, Step::Mount(mount) if mount.target == Path::new("/var"))));
         assert!(system.init.steps.iter().any(|step| matches!(step, Step::Provision(_))));
         assert!(!system.init.steps.iter().any(|step| matches!(step,
-            Step::Storage(_) | Step::DataDirectories(_) | Step::DataMount(_))));
+            Step::Storage(_) | Step::DataMount(_))));
         for name in ["daemon", "wifi", "sshd"] {
             assert!(system.supervisor.services.iter().any(|service| service.name == name));
         }

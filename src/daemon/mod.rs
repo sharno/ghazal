@@ -10,11 +10,11 @@ use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use evdev::{Device, EventType};
+use evdev::{Device, EventType, InputEventKind, SwitchType};
 use serde::{Deserialize, Serialize};
 
 use crate::device::DeviceConfig;
-use crate::hw::{self, battery, Hardware};
+use crate::hw::{self, battery, lights, Hardware};
 use crate::system::{Action, PowerMethod, SystemConfig};
 
 #[derive(Serialize, Deserialize)]
@@ -22,12 +22,22 @@ use crate::system::{Action, PowerMethod, SystemConfig};
 struct Settings {
     brightness: u8,
     volume: u8,
+    lights: lights::Preset,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { brightness: 70, volume: 60 }
+        Self { brightness: 70, volume: 60, lights: lights::Preset::Off }
     }
+}
+
+/// The stick-light controller is either unpowered, warming up after power-on
+/// (it drops frames for ~100 ms), or showing an effect.
+#[derive(Clone, Copy, PartialEq)]
+enum LightsState {
+    Unpowered,
+    WarmingUp { until: Instant, effect: lights::Effect },
+    Showing(lights::Effect),
 }
 
 pub struct Daemon<'a> {
@@ -50,11 +60,16 @@ pub struct Daemon<'a> {
     dimmed: bool,
     battery: Option<battery::Status>,
     battery_checked: Instant,
+    /// Consecutive critical readings; one bad sample must not power off.
+    critical_samples: u8,
+    /// The idle check scans /proc: at most once a second, not per input event.
+    idle_checked: Instant,
     low_led: bool,
     /// Ignore the power key right after resume (the wake press/release).
     ignore_power_until: Instant,
     muted_from: Option<u8>,
     settings_dirty: Option<Instant>,
+    lights: LightsState,
 }
 
 pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
@@ -85,11 +100,16 @@ pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
         dimmed: false,
         battery: None,
         battery_checked: Instant::now() - Duration::from_secs(3600),
+        critical_samples: 0,
+        idle_checked: Instant::now() - Duration::from_secs(1),
         low_led: false,
         ignore_power_until: Instant::now(),
         muted_from: None,
         settings_dirty: None,
+        lights: LightsState::Unpowered,
     };
+    // The speaker plays unless a jack reports headphones during the first scan.
+    d.follow_jack(false);
     d.rescan_inputs();
     d.apply_settings();
     hw::set_led(&d.hw.leds.power, true);
@@ -104,13 +124,19 @@ impl Daemon<'_> {
         loop {
             let now = Instant::now();
             self.check_battery(now);
-            self.check_idle(now);
+            if now >= self.idle_checked + Duration::from_secs(1) {
+                self.idle_checked = now;
+                self.check_idle(now);
+            }
             self.check_power_hold(now);
             if self.settings_dirty.is_some_and(|at| now >= at + Duration::from_millis(500)) {
                 self.save();
             }
             if now.duration_since(self.inputs_scanned) >= INPUT_RESCAN {
                 self.rescan_inputs();
+            }
+            if let LightsState::WarmingUp { until, effect } = self.lights {
+                if now >= until { self.show_lights(effect); }
             }
 
             let mut fds: Vec<libc::pollfd> = self
@@ -135,12 +161,16 @@ impl Daemon<'_> {
                     continue;
                 }
                 let events: Vec<_> = match self.inputs[i].1.fetch_events() {
-                    Ok(ev) => ev.filter(|e| e.event_type() == EventType::KEY).map(|e| (e.code(), e.value())).collect(),
+                    Ok(ev) => ev.map(|e| (e.kind(), e.value())).collect(),
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
                     Err(_) => { removed.push(i); continue; },
                 };
-                for (code, value) in events {
-                    self.on_key(code, value);
+                for (kind, value) in events {
+                    match kind {
+                        InputEventKind::Key(key) => self.on_key(key.code(), value),
+                        InputEventKind::Switch(SwitchType::SW_HEADPHONE_INSERT) => self.follow_jack(value != 0),
+                        _ => {}
+                    }
                 }
             }
             if !removed.is_empty() { self.clear_keys(); }
@@ -151,15 +181,23 @@ impl Daemon<'_> {
         }
     }
 
-    /// Opens every evdev device with keys (gamepad, power button, volume keys) that we
-    /// aren't reading yet, and drops ones that went away. Nothing is grabbed.
+    /// Opens every evdev device with keys (gamepad, power button, volume keys) or
+    /// switches (headphone jack) that we aren't reading yet, and drops ones that
+    /// went away. Nothing is grabbed.
     fn rescan_inputs(&mut self) {
         self.inputs_scanned = Instant::now();
         if self.inputs.iter().any(|(path, _)| !path.exists()) { self.clear_keys(); }
         self.inputs.retain(|(path, _)| path.exists());
         for (path, d) in evdev::enumerate() {
-            if self.inputs.iter().any(|(p, _)| *p == path) || !d.supported_events().contains(EventType::KEY) {
+            let events = d.supported_events();
+            if self.inputs.iter().any(|(p, _)| *p == path) || !(events.contains(EventType::KEY) || events.contains(EventType::SWITCH)) {
                 continue;
+            }
+            if d.supported_switches().is_some_and(|switches| switches.contains(SwitchType::SW_HEADPHONE_INSERT)) {
+                match d.get_switch_state() {
+                    Ok(state) => self.follow_jack(state.contains(SwitchType::SW_HEADPHONE_INSERT)),
+                    Err(error) => eprintln!("ghazal-daemon: reading headphone jack: {error}"),
+                }
             }
             let fd = d.as_raw_fd();
             // SAFETY: fcntl on an fd we own.
@@ -168,6 +206,13 @@ impl Daemon<'_> {
             }
             eprintln!("ghazal-daemon: input {} {:?}", path.display(), d.name().unwrap_or("?"));
             self.inputs.push((path, d));
+        }
+    }
+
+    /// The codec feeds the speaker amplifier and the jack from one output.
+    fn follow_jack(&self, headphones: bool) {
+        if let Some(speaker) = &self.hw.speaker {
+            if let Err(error) = speaker.set(!headphones) { eprintln!("ghazal-daemon: speaker switch: {error:#}"); }
         }
     }
 
@@ -182,14 +227,17 @@ impl Daemon<'_> {
         let mut t = self.battery_checked + Duration::from_secs(self.sys.daemon.battery.poll_secs.max(5));
         t = t.min(self.inputs_scanned + INPUT_RESCAN);
         if let Some(at) = self.settings_dirty { t = t.min(at + Duration::from_millis(500)); }
+        if let LightsState::WarmingUp { until, .. } = self.lights { t = t.min(until); }
+        // check_idle runs at most once a second; an earlier wake would spin until then.
+        let idle_due = |deadline: Instant| deadline.max(self.idle_checked + Duration::from_secs(1));
         if idle.dim_after > 0 && !self.dimmed {
-            t = t.min(self.last_presence + Duration::from_secs(idle.dim_after));
+            t = t.min(idle_due(self.last_presence + Duration::from_secs(idle.dim_after)));
         }
         if idle.sleep_after > 0 {
-            t = t.min(self.last_presence + Duration::from_secs(idle.sleep_after));
+            t = t.min(idle_due(self.last_presence + Duration::from_secs(idle.sleep_after)));
         }
         if idle.poweroff_after > 0 {
-            t = t.min(self.last_input + Duration::from_secs(idle.poweroff_after));
+            t = t.min(idle_due(self.last_input + Duration::from_secs(idle.poweroff_after)));
         }
         if let Some(down) = self.power_down_at {
             t = t.min(down + Duration::from_millis(self.sys.daemon.power_hold_ms));
@@ -329,14 +377,20 @@ impl Daemon<'_> {
             return;
         }
         self.battery_checked = now;
-        self.battery = battery::read(self.hw.battery.as_ref());
+        let previous = std::mem::replace(&mut self.battery, battery::read(self.hw.battery.as_ref()));
         let Some(b) = self.battery else { return };
+        // Evidence for intermittent charging: the log shows when power came and went.
+        if previous.is_some_and(|p| p.charging != b.charging) {
+            eprintln!("ghazal-daemon: {} at {}%", if b.charging { "charging" } else { "on battery" }, b.percent);
+        }
         let low = !b.charging && b.percent <= policy.low;
         if low != self.low_led {
             self.low_led = low;
             hw::set_led(&self.hw.leds.low_battery, low);
+            self.apply_lights();
         }
-        if !b.charging && b.percent <= policy.critical {
+        self.critical_samples = if !b.charging && b.percent <= policy.critical { self.critical_samples.saturating_add(1) } else { 0 };
+        if self.critical_samples >= 2 {
             eprintln!("ghazal-daemon: battery at {}%, powering off", b.percent);
             hw::rumble(&self.hw.rumble, Duration::from_millis(300));
             self.act(&Action::Poweroff);
@@ -370,8 +424,10 @@ impl Daemon<'_> {
             Action::Suspend => self.suspend(),
             Action::Poweroff => self.power(&self.sys.power.poweroff.clone(), libc::SIGUSR2),
             Action::Reboot => self.power(&self.sys.power.reboot.clone(), libc::SIGTERM),
+            // Stopping can wait 10 s for a hung emulator; hotkeys and the power
+            // button must keep working meanwhile.
             Action::StopEmulator => {
-                if let Err(error) = crate::emulator::stop() { eprintln!("ghazal-daemon: stop emulator: {error:#}"); }
+                std::thread::spawn(|| if let Err(error) = crate::emulator::stop() { eprintln!("ghazal-daemon: stop emulator: {error:#}"); });
             }
             Action::Exec(argv) => spawn_detached(argv),
         }
@@ -432,6 +488,7 @@ impl Daemon<'_> {
         if crate::update::busy() { eprintln!("ghazal: update in progress; power action deferred"); return; }
         self.save();
         hw::set_led(&self.hw.leds.power, false);
+        self.set_lights_power(false);
         crate::sys::sync();
         match method {
             PowerMethod::SignalInit => crate::sys::kill(1, signal),
@@ -444,6 +501,46 @@ impl Daemon<'_> {
     fn apply_settings(&mut self) {
         self.apply_brightness(self.settings.brightness);
         self.apply_volume(self.settings.volume);
+        self.apply_lights();
+    }
+
+    /// Low battery turns enabled rings red, as on muOS; Off cuts their power.
+    fn apply_lights(&mut self) {
+        if self.hw.lights.is_none() { return; }
+        let wanted = self.settings.lights.effect().map(|effect| if self.low_led { lights::LOW_BATTERY } else { effect });
+        match (wanted, self.lights) {
+            (None, LightsState::Unpowered) => {}
+            (None, _) => self.set_lights_power(false),
+            (Some(effect), LightsState::Unpowered) => {
+                self.set_lights_power(true);
+                self.lights = LightsState::WarmingUp { until: Instant::now() + Duration::from_millis(150), effect };
+            }
+            (Some(effect), LightsState::WarmingUp { until, .. }) => self.lights = LightsState::WarmingUp { until, effect },
+            (Some(effect), LightsState::Showing(shown)) if shown == effect => {}
+            (Some(effect), LightsState::Showing(_)) => self.show_lights(effect),
+        }
+    }
+
+    fn set_lights_power(&mut self, on: bool) {
+        let Some(lights) = &self.hw.lights else { return };
+        if let Err(error) = lights.power(on) { eprintln!("ghazal-daemon: stick lights: {error:#}"); }
+        if !on { self.lights = LightsState::Unpowered; }
+    }
+
+    fn show_lights(&mut self, effect: lights::Effect) {
+        let Some(lights) = &mut self.hw.lights else { return };
+        if let Err(error) = lights.show(effect) {
+            eprintln!("ghazal-daemon: stick lights: {error:#}");
+            self.set_lights_power(false);
+            return;
+        }
+        self.lights = LightsState::Showing(effect);
+    }
+
+    fn set_lights(&mut self, preset: lights::Preset) {
+        self.settings.lights = preset;
+        self.apply_lights();
+        self.settings_dirty = Some(Instant::now());
     }
 
     fn apply_brightness(&mut self, percent: u8) {
@@ -496,6 +593,7 @@ impl Daemon<'_> {
             battery: battery.map(|b| b.percent),
             charging: battery.is_some_and(|b| b.charging),
             suspend: self.sys.power.suspend == crate::system::SuspendPolicy::Enabled,
+            lights: self.hw.lights.as_ref().map(|_| self.settings.lights),
         }
     }
 

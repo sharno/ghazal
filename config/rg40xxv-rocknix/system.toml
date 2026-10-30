@@ -27,8 +27,6 @@ storage = {}
 [[init.step]]
 data-mount = {}
 [[init.step]]
-data-directories = {}
-[[init.step]]
 mkdir = "/run/dbus"
 [[init.step]]
 mkdir = "/run/sshd"
@@ -70,6 +68,11 @@ action = "brightness-down"
 
 [supervisor]
 log_dir = "/var/log/ghazal"
+# Background services start once the menu has drawn its first frame, or after
+# the deadline when it never does, so remote access survives a broken frontend.
+# Before that they would load ~10 MB of libraries from the SD card while the
+# menu's own code pages are still being read.
+boot = { marker = "/run/ghazal/first-frame-ready", deadline = 10 }
 [[supervisor.service]]
 name = "update-health"
 exec = ["/opt/ghazal/ghazal", "update", "health"]
@@ -81,54 +84,73 @@ exec = ["/usr/bin/rauc", "service"]
 after = ["dbus"]
 wait_for = ["/run/dbus/system_bus_socket", "/run/ghazal/update-requested"]
 restart = "always"
-# The boot critical path is audio -> daemon -> frontend. They use kernel device
-# nodes directly, so none of them waits for udev; udev only serves RetroArch.
-# Background work waits for the first menu frame so it can't slow it down.
+start = "background"
+# The boot critical path is daemon -> frontend, with audio alongside. They use
+# kernel device nodes directly, so none of them waits for udev; udev only
+# serves RetroArch.
 [[supervisor.service]]
 name = "kernel-log"
 exec = ["/opt/ghazal/ghazal", "kernel-log"]
 restart = "always"
+start = "background"
 [[supervisor.service]]
 name = "udev"
 exec = ["/usr/lib/systemd/systemd-udevd"]
 restart = "always"
+start = "background"
 [[supervisor.service]]
 name = "udev-trigger"
 kind = "oneshot"
 exec = ["/usr/bin/udevadm", "trigger", "--action=add"]
 after = ["udev"]
+start = "background"
 wait_for = ["/run/udev/control"]
 [[supervisor.service]]
 name = "udev-settle"
 kind = "oneshot"
 exec = ["/usr/bin/udevadm", "settle", "--timeout=10"]
 after = ["udev-trigger"]
+marks = "/run/ghazal/udev-settled"
+start = "background"
 [[supervisor.service]]
 name = "dbus"
 exec = ["/usr/bin/dbus-daemon", "--config-file=/etc/dbus-1/system.conf", "--nofork", "--nopidfile"]
 restart = "always"
+start = "background"
 [[supervisor.service]]
 name = "wifi"
 exec = ["/usr/lib/iwd"]
 after = ["dbus"]
 wait_for = ["/run/dbus/system_bus_socket"]
 restart = "always"
+start = "background"
 [[supervisor.service]]
 name = "ssh-host-key"
 kind = "oneshot"
 exec = ["/opt/ghazal/ghazal", "ssh-key"]
+start = "background"
 [[supervisor.service]]
 name = "sshd"
 exec = ["/usr/sbin/sshd", "-D", "-e"]
 after = ["ssh-host-key"]
 restart = "always"
+start = "background"
+# Creating folders on a cold data card is ~45 ms of SD reads; nothing needs
+# them before the first game launch or Syncthing.
+[[supervisor.service]]
+name = "data-directories"
+kind = "oneshot"
+exec = ["/opt/ghazal/ghazal", "data-directories"]
+start = "background"
 [[supervisor.service]]
 name = "syncthing"
 exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.ghazal/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
 # ROMS exists only on the prepared data card; never write identity/database to
 # the empty mount point on the OS card when SD2 is absent.
-wait_for = ["/mnt/games/ROMS", "/run/ghazal/first-frame-ready"]
+after = ["data-directories"]
+wait_for = ["/mnt/games/ROMS"]
 restart = "always"
+start = "background"
 env = { HOME = "/root", GOMAXPROCS = "2" }
 [[supervisor.service]]
 name = "audio"
@@ -138,12 +160,12 @@ wait_for = ["/dev/snd/controlC0"]
 [[supervisor.service]]
 name = "daemon"
 exec = ["/opt/ghazal/ghazal", "daemon"]
-after = ["audio"]
 restart = "always"
+# The frontend opens the display and input while the daemon starts, then waits
+# for its socket before building the menu.
 [[supervisor.service]]
 name = "frontend"
 exec = ["/opt/ghazal/ghazal", "frontend"]
-after = ["daemon"]
-wait_for = ["/dev/dri", "/run/ghazal/daemon.sock"]
+wait_for = ["/dev/dri"]
 restart = "always"
 env = { GHAZAL_EMBEDDED = "1", HOME = "/root", XDG_RUNTIME_DIR = "/run" }

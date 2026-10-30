@@ -13,14 +13,17 @@ pub struct LaunchSpec {
     pub args: Vec<OsString>,
     pub log: Option<PathBuf>,
     pub env: Vec<(String, String)>,
+    /// From [`FrontendConfig::launch_after`].
+    pub after: Vec<PathBuf>,
 }
 
 impl LaunchSpec {
     pub fn new(config: &FrontendConfig, system: &System, game: &Game) -> Result<Self> {
-        match &system.launch {
-            Launch::Core(core) => Self::retroarch(config, core, game),
-            Launch::Standalone(standalone) => Ok(Self::standalone(standalone, game)),
-        }
+        let spec = match &system.launch {
+            Launch::Core(core) => Self::retroarch(config, core, game)?,
+            Launch::Standalone(standalone) => Self::standalone(standalone, game),
+        };
+        Ok(Self { after: config.launch_after.clone(), ..spec })
     }
 
     fn retroarch(config: &FrontendConfig, core: &str, game: &Game) -> Result<Self> {
@@ -37,7 +40,7 @@ impl LaunchSpec {
         args.extend(["-L".into(), core.into(), game.path.clone().into()]);
 
         let env = ra.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env })
+        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env, after: Vec::new() })
     }
 
     fn retroarch_config(config: &FrontendConfig) -> Result<Vec<OsString>> {
@@ -59,18 +62,26 @@ impl LaunchSpec {
         args.extend(ra.extra_args.iter().map(OsString::from));
         args.push("--menu".into());
         Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(),
-            env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect() })
+            env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), after: config.launch_after.clone() })
     }
 
     fn standalone(command: &Standalone, game: &Game) -> Self {
         let mut argv = command.argv.iter().map(|arg| if arg == "{rom}" { game.path.clone().into_os_string() } else { arg.into() });
         let program = PathBuf::from(argv.next().expect("config rejects an empty command"));
         let env = command.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Self { program, args: argv.collect(), log: command.log.clone(), env }
+        Self { program, args: argv.collect(), log: command.log.clone(), env, after: Vec::new() }
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.
     pub fn run(&self, on_started: impl FnOnce()) -> Result<std::process::ExitStatus> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while let Some(missing) = self.after.iter().find(|path| !path.exists()) {
+            if std::time::Instant::now() >= deadline {
+                eprintln!("ghazal: launching without {}", missing.display());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         let mut cmd = Command::new(&self.program);
         let mut pump = None;
         cmd.args(&self.args).envs(self.env.iter().cloned()).stdin(Stdio::null());

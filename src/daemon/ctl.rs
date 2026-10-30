@@ -3,6 +3,7 @@
 //!   status                 -> ok brightness=70 volume=60 battery=85 charging=0
 //!   brightness 50|+10|-10  -> ok ...
 //!   volume 40|+5|-5        -> ok ...
+//!   lights next|prev|<preset>  -> ok ... lights=<preset> (only on boards with stick lights)
 //!   suspend | poweroff | reboot
 //!
 //! `ghazal ctl <command...>` is the client; the frontend uses `request()` directly.
@@ -24,17 +25,19 @@ pub struct Status {
     pub battery: Option<u8>,
     pub charging: bool,
     pub suspend: bool,
+    pub lights: Option<crate::hw::lights::Preset>,
 }
 
 impl Status {
     fn to_line(self) -> String {
         let battery = self.battery.map_or("none".to_string(), |b| b.to_string());
-        format!("ok brightness={} volume={} battery={battery} charging={} suspend={}", self.brightness, self.volume, self.charging as u8, self.suspend as u8)
+        let lights = self.lights.map_or(String::new(), |preset| format!(" lights={}", preset.id()));
+        format!("ok brightness={} volume={} battery={battery} charging={} suspend={}{lights}", self.brightness, self.volume, self.charging as u8, self.suspend as u8)
     }
 
     #[cfg(test)]
     fn parse(line: &str) -> Result<Self> {
-        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false, suspend: false };
+        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false, suspend: false, lights: None };
         let body = line.strip_prefix("ok").ok_or_else(|| anyhow!("{}", line.trim()))?;
         for kv in body.split_whitespace() {
             let Some((k, v)) = kv.split_once('=') else { continue };
@@ -44,11 +47,17 @@ impl Status {
                 "battery" => s.battery = v.parse().ok(),
                 "charging" => s.charging = v == "1",
                 "suspend" => s.suspend = v == "1",
+                "lights" => s.lights = lights(line),
                 _ => {}
             }
         }
         Ok(s)
     }
+}
+
+/// The stick-light preset in a status reply; None on boards without them.
+pub fn lights(reply: &str) -> Option<crate::hw::lights::Preset> {
+    reply.split_whitespace().find_map(|field| field.strip_prefix("lights=")).and_then(crate::hw::lights::Preset::parse)
 }
 
 /// Parses "50", "+10" or "-10" relative to `current`.
@@ -74,6 +83,17 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
             Some("volume") => {
                 let v = level(words.next(), d.settings.volume)?;
                 d.set_volume(v);
+            }
+            Some("lights") => {
+                if d.hw.lights.is_none() { bail!("this device has no stick lights"); }
+                let current = d.settings.lights;
+                let preset = match words.next() {
+                    Some("next") => current.step(true),
+                    Some("prev") => current.step(false),
+                    Some(id) => crate::hw::lights::Preset::parse(id).with_context(|| format!("unknown lights preset {id:?}"))?,
+                    None => bail!("lights needs next, prev or a preset"),
+                };
+                d.set_lights(preset);
             }
             Some("stop-emulator") => crate::emulator::stop()?,
             // Reply before acting: these may not return (poweroff) or block (suspend).
@@ -106,8 +126,8 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
 /// Sends one command and returns the reply line.
 pub fn request(socket: &Path, command: &str) -> Result<String> {
     let mut stream = UnixStream::connect(socket).with_context(|| format!("connecting to {}", socket.display()))?;
-    // Emulator recovery can wait 1.5 seconds for TERM and another 1.5 for KILL.
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    // stop-emulator waits up to 10 s for TERM, then KILLs.
+    stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.write_all(format!("{command}\n").as_bytes())?;
     let mut reply = String::new();
     BufReader::new(&stream).read_line(&mut reply)?;
@@ -131,9 +151,9 @@ mod tests {
 
     #[test]
     fn status_roundtrip() {
-        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true, suspend: true };
+        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true, suspend: true, lights: Some(crate::hw::lights::Preset::Rainbow) };
         assert_eq!(Status::parse(&s.to_line()).unwrap(), s);
-        let none = Status { battery: None, ..s };
+        let none = Status { battery: None, lights: None, ..s };
         assert_eq!(Status::parse(&none.to_line()).unwrap(), none);
         assert!(Status::parse("err nope").is_err());
     }

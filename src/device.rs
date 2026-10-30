@@ -34,6 +34,41 @@ pub struct DeviceConfig {
     #[serde(default)]
     pub poweroff: Poweroff,
     pub input_bridge: Option<InputBridge>,
+    pub cpu: Option<Cpu>,
+    pub lights: Option<Lights>,
+}
+
+/// RGB rings around the sticks: a serial microcontroller (see hw::lights).
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Lights {
+    /// GPIO LED that powers the controller; absent on boards without rings.
+    pub power: PathBuf,
+    /// Platform device name of its UART; tty numbers depend on probe order.
+    pub uart: String,
+}
+
+/// CPU frequency policy by activity: the menu idles most of the time, games
+/// need steady clocks. Boot keeps the kernel's default until the first frame.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Cpu {
+    /// cpufreq `scaling_governor` file of the policy covering every core.
+    pub governor: PathBuf,
+    pub menu: String,
+    pub game: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Activity { Menu, Game }
+
+impl Cpu {
+    pub fn apply(&self, activity: Activity) {
+        let governor = match activity { Activity::Menu => &self.menu, Activity::Game => &self.game };
+        if let Err(error) = crate::sys::write_file(&self.governor, governor) {
+            eprintln!("ghazal: CPU governor: {error:#}");
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -179,6 +214,9 @@ pub struct Audio {
     /// Fixed signal-path controls applied before the daemon restores user volume.
     #[serde(default)]
     pub route: Vec<AudioSetting>,
+    /// Speaker amplifier switch. The daemon turns it off while the headphone
+    /// jack reports headphones (the codec drives both from one output).
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -69,12 +69,16 @@ with three attempts per slot. Each attempt is persisted before loading Linux.
 A boot is confirmed through RAUC after the frontend draws a frame, the daemon
 socket exists, and the data card is mounted. Confirmation runs in the background.
 
-The health service arms the hardware watchdog and stops feeding it if startup
-never reaches those checks. Kernel panics reboot. After three unconfirmed boots,
-U-Boot tries the other slot. A kernel hang before userspace arms the watchdog
-can still require Reset; bootloader-to-kernel watchdog handover needs physical
-validation. If both slots are exhausted, reflash from a computer after backing
-up data. Routine updates do not replace SPL/U-Boot or the partition layout.
+The kernel starts the hardware watchdog when its driver probes, about 0.2 s
+into boot, and pets it until the health service opens it, for at most 60 s.
+The health service stops feeding it if startup never reaches those checks.
+Kernel panics reboot. After three unconfirmed boots, U-Boot tries the other
+slot. On the RG40XX-V v2, a slot whose userspace never opened the watchdog
+reset itself about a minute after boot and U-Boot fell back to the other slot.
+U-Boot itself does not arm the watchdog, so a hang between reset and the
+driver probe still requires Reset. If both slots are exhausted, reflash from a
+computer after backing up data. Routine updates do not replace SPL/U-Boot or
+the partition layout.
 
 A missing, invalid or full data volume enters Wi-Fi/SSH recovery rather than
 repeatedly rebooting through both slots. Correct the selected card or its
@@ -131,5 +135,5 @@ retained settings/SSH identities/saves, a missing
 inactive kernel, and three failed frontend starts followed by automatic watchdog
 resets and fallback. Shared data-card faults retain SSH recovery without
 repeatedly consuming boot attempts. The data volume recovered after those resets. Deliberate
-power removal during installation or an environment write, early kernel hangs,
-and other hardware variants still need physical validation.
+power removal during installation or an environment write, hangs before the
+watchdog driver probes, and other hardware variants still need physical validation.

@@ -82,7 +82,7 @@ pub fn benchmark(config: &super::config::FrontendConfig) -> Result<()> {
     if ids.is_empty() { anyhow::bail!("benchmark requires games"); }
     let fixture = Fixture(std::env::temp_dir().join(format!("ghazal-recent-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos())));
     fs::create_dir(&fixture.0)?;
-    let mut activity = Activity::load(&fixture.0.join("activity.toml"))?;
+    let mut activity = Activity::load(&fixture.0.join("activity.toml")).map_err(LoadError::into_error)?;
     for id in &ids { activity.launched(id.clone())?; }
     let catalog = Catalog::new(library, activity);
     let linear = |id: &GameId| {
@@ -128,6 +128,20 @@ pub struct Activity {
     stored: ActivityData,
 }
 
+/// Damaged data is set aside; a read error (a card hiccup) must not be, or the
+/// next save would replace the user's favorites and history.
+#[derive(Debug)]
+pub enum LoadError {
+    Unreadable(anyhow::Error),
+    Damaged(anyhow::Error),
+}
+
+impl LoadError {
+    pub fn into_error(self) -> anyhow::Error {
+        match self { Self::Unreadable(error) | Self::Damaged(error) => error }
+    }
+}
+
 impl Activity {
     /// Moves an unreadable file out of the way, keeping it for inspection.
     pub fn set_aside(path: &Path) -> Result<PathBuf> {
@@ -137,13 +151,23 @@ impl Activity {
         Ok(aside)
     }
 
-    pub fn load(path: &Path) -> Result<Self> {
-        let stored = match fs::read_to_string(path) {
-            Ok(contents) => toml::from_str(&contents)
-                .with_context(|| format!("reading game activity {}", path.display()))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound =>
-                StoredActivity::V2 { favorites: BTreeSet::new(), recent: Vec::new() },
-            Err(error) => return Err(error.into()),
+    pub fn load(path: &Path) -> Result<Self, LoadError> {
+        let read = |path: &Path| match fs::read_to_string(path) {
+            Ok(contents) => Ok(Some(contents)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(LoadError::Unreadable(error.into())),
+        };
+        // exFAT has no journal: a power cut during the rename can leave only
+        // the staged copy.
+        let contents = match read(path)? {
+            Some(contents) => Some(contents),
+            None => read(&crate::sys::atomic_pending(path))?,
+        };
+        let stored = match contents {
+            Some(contents) => toml::from_str(&contents)
+                .with_context(|| format!("reading game activity {}", path.display()))
+                .map_err(LoadError::Damaged)?,
+            None => StoredActivity::V2 { favorites: BTreeSet::new(), recent: Vec::new() },
         };
         let (stored, migrated) = match stored {
             StoredActivity::V1 { favorites, recent } => {
@@ -155,7 +179,7 @@ impl Activity {
             StoredActivity::V2 { favorites, recent } => (ActivityData { favorites, recent }, false),
         };
         let mut activity = Self { path: path.to_owned(), stored };
-        if migrated { activity.commit(activity.stored.clone())?; }
+        if migrated { activity.commit(activity.stored.clone()).map_err(LoadError::Unreadable)?; }
         Ok(activity)
     }
 

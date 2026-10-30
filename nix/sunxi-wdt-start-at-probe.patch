@@ -1,0 +1,27 @@
+sunxi_wdt: keep the watchdog running from probe until userspace takes over
+
+Without a bootloader-armed watchdog, a hang between kernel start and the
+first userspace open of /dev/watchdog needs a physical reset. With
+WDOG_HW_RUNNING the watchdog core pings it until it is opened, bounded by
+watchdog.open_timeout, so A/B boot counting can fall back automatically.
+
+--- a/drivers/watchdog/sunxi_wdt.c
++++ b/drivers/watchdog/sunxi_wdt.c
+@@ -286,7 +286,16 @@
+ 
+ 	watchdog_set_drvdata(&sunxi_wdt->wdt_dev, sunxi_wdt);
+ 
+-	sunxi_wdt_stop(&sunxi_wdt->wdt_dev);
++	/*
++	 * U-Boot leaves the watchdog off, so a kernel or init hang before
++	 * userspace opens /dev/watchdog would wait for a manual reset. Run it
++	 * from probe instead: the watchdog core pings it until userspace takes
++	 * over, for at most CONFIG_WATCHDOG_OPEN_TIMEOUT seconds.
++	 */
++	err = sunxi_wdt_start(&sunxi_wdt->wdt_dev);
++	if (err)
++		return err;
++	set_bit(WDOG_HW_RUNNING, &sunxi_wdt->wdt_dev.status);
+ 
+ 	watchdog_stop_on_reboot(&sunxi_wdt->wdt_dev);
+ 	err = devm_watchdog_register_device(dev, &sunxi_wdt->wdt_dev);

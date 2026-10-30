@@ -118,7 +118,7 @@ pub fn kill_by_name(name: &str) {
         }
         let comm = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
         if comm.trim_end() == name {
-            eprintln!("ghazal: stopping {name} (pid {pid})");
+            log(format_args!("ghazal: stopping {name} (pid {pid})"));
             kill(pid, libc::SIGTERM);
         }
     }
@@ -143,12 +143,31 @@ pub fn umount(target: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Where `write_atomic` stages `path`'s new contents: a hidden sibling, so files
+/// differing only in extension never share one and directory readers skip it.
+pub fn atomic_pending(path: &Path) -> std::path::PathBuf {
+    let name = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+    path.with_file_name(format!(".{name}.tmp"))
+}
+
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_mode(path, bytes, 0o644)
+}
+
+/// For secrets: the staged copy is never readable by others either.
+pub fn write_atomic_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_mode(path, bytes, 0o600)
+}
+
+fn write_atomic_mode(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
     use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().context("atomic file has no parent")?;
     std::fs::create_dir_all(parent)?;
-    let pending = path.with_extension("tmp");
-    let mut file = std::fs::File::create(&pending)?;
+    let pending = atomic_pending(path);
+    // A stale staged file would keep its old permissions.
+    let _ = std::fs::remove_file(&pending);
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&pending)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(pending, path)?;
@@ -231,6 +250,21 @@ pub fn kernel_release() -> String {
         libc::uname(&mut u);
         std::ffi::CStr::from_ptr(u.release.as_ptr()).to_string_lossy().into_owned()
     }
+}
+
+/// Adds a line to the kernel log: timestamped, persisted by the kernel-log
+/// service and readable even when stderr goes nowhere (early boot, PID 1).
+pub fn kmsg(line: std::fmt::Arguments) {
+    use std::io::Write;
+    let _ = std::fs::OpenOptions::new().write(true).open("/dev/kmsg").and_then(|mut kmsg| kmsg.write_all(format!("{line}\n").as_bytes()));
+}
+
+/// A diagnostic line. PID 1's stderr is the framebuffer console: its first
+/// write makes fbcon take over and power the panel on, ~0.2 s before the write
+/// returns. PID 1 logs to the kernel log only; the menu's modeset turns the
+/// panel on instead.
+pub fn log(line: std::fmt::Arguments) {
+    if std::process::id() == 1 { kmsg(line) } else { eprintln!("{line}") }
 }
 
 /// Writes `value` to a sysfs/procfs/debugfs file (no trailing newline added).

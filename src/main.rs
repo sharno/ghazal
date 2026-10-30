@@ -66,6 +66,7 @@ fn main() {
         if std::process::id() == 1 {
             use std::os::unix::process::CommandExt;
             eprintln!("ghazal: opening emergency console");
+            update::disarm_watchdog();
             let _ = std::process::Command::new("/bin/sh").arg("-i").exec();
             loop { std::thread::sleep(std::time::Duration::from_secs(60)); }
         }
@@ -92,6 +93,7 @@ fn run() -> Result<()> {
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
         "observe" => observe::run(&profile.device()?, rest),
         "rescue" => init::rescue(),
+        "data-directories" => init::data_directories(),
         "frontend" => run_frontend(&profile, rest),
         "daemon" => daemon::run(&profile.device()?, &profile.system()?),
         "supervise" => {
@@ -167,7 +169,9 @@ fn run_init(profile: &Profile) -> Result<()> {
         Ok(Err(e)) => e,
         Err(_) => anyhow!("panicked"),
     };
+    // Failures belong on screen too; the kernel log keeps the reason across reboots.
     eprintln!("ghazal init failed: {err:#}");
+    sys::kmsg(format_args!("ghazal init failed: {err:#}"));
     if std::process::id() == 1 && init::data_unavailable(&err) {
         eprintln!("ghazal: keeping Wi-Fi and SSH recovery available; restore the data card or correct its preference, then reboot");
         return init::rescue().context("data recovery failed");

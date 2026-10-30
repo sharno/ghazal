@@ -56,13 +56,19 @@ a recovery route before attempting PM tests.
 
 ## Remote kernel trials
 
-An inactive A/B slot protects the installed files, but fallback still requires
-a reset. Userspace boot-health checks cannot recover a kernel that hangs before
-PID 1. A PMIC watchdog reset in a running OS proves only that reset mechanism:
-it does not establish watchdog handover across a normal reboot, firmware and
-the next kernel. Verify that full sequence with the known working kernel before
-trying a different kernel remotely. Keep physical Reset access available until
-that recovery sequence has been demonstrated.
+`nix/sunxi-wdt-start-at-probe.patch` starts the SoC watchdog when its driver
+probes; the watchdog core pets it until userspace opens `/dev/watchdog0`, for
+at most `CONFIG_WATCHDOG_OPEN_TIMEOUT` (60 s). This was demonstrated on the
+RG40XX-V v2: slot B booted a profile without the health service, stayed up for
+the first minute, reset itself, and U-Boot booted slot A.
+
+For a remote trial, copy the kernel into the inactive slot's `/boot`, then set
+`BOOT_ORDER` to try it first with `BOOT_<slot>_LEFT=1`, so a single failed
+attempt falls back. A hang after the driver probes (about 0.2 s) resets the
+board within a minute plus the 16 s hardware timeout. A hang before it, in
+U-Boot or early kernel setup, still needs physical Reset: keep changes that
+affect early boot (memory layout, CPU bring-up, the device tree's core nodes)
+for sessions with someone at the device.
 
 For charging diagnostics, observe USB presence and battery voltage/capacity over
 time rather than relying on a single indicator reading. Compare PMIC registers
