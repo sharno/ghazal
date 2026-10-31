@@ -86,13 +86,15 @@ impl Saved {
 
 /// The nickname other players see: the hostname. Every Ghazal handheld is
 /// called "ghazal" until renamed, so the default gets part of the machine id
-/// to tell two of them apart.
+/// to tell two of them apart. The id's last four digits do that: a handheld's
+/// id starts with sixteen zeros.
 pub fn nickname(hostname: &str, machine_id: &str) -> String {
     let name: String = hostname.trim().chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).take(NICK_MAX).collect();
-    let suffix: String = machine_id.trim().chars().filter(char::is_ascii_hexdigit).take(4).collect();
-    match name.as_str() {
-        "" | "ghazal" if suffix.len() == 4 => format!("ghazal-{suffix}"),
-        "" => "ghazal".to_owned(),
+    let digits: String = machine_id.trim().chars().filter(char::is_ascii_hexdigit).collect();
+    let suffix = digits.len().checked_sub(4).map(|from| &digits[from..]);
+    match (name.as_str(), suffix) {
+        ("" | "ghazal", Some(suffix)) => format!("ghazal-{suffix}"),
+        ("", None) => "ghazal".to_owned(),
         _ => name,
     }
 }
@@ -453,7 +455,7 @@ mod tests {
     #[test]
     fn the_nickname_comes_from_the_hostname() {
         assert_eq!(nickname("retro-deck\n", "0123456789abcdef"), "retro-deck");
-        assert_eq!(nickname("ghazal", "9f3a77c1000000000000000000000000"), "ghazal-9f3a");
+        assert_eq!(nickname("ghazal", "000000000000000018dd591b1ec296ad\n"), "ghazal-96ad");
         assert_eq!(nickname("ghazal\n", ""), "ghazal");
         assert_eq!(nickname("", "abcd"), "ghazal-abcd");
         assert_eq!(nickname("my deck!", "abcd"), "mydeck");

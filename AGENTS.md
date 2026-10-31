@@ -77,20 +77,14 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
-- RetroAchievements and netplay are implemented but unvalidated on a handheld
-  (docs/standalone.md, RetroAchievements and netplay). Check: sign-in over Wi-Fi
-  and an unlock toast in a game; the first-boot account merge from
-  `provision.toml`; Configuration → Achievements account lands on RetroArch's
-  Achievements page (the key path in `[retroarch.menu_paths]` was derived from
-  1.22's menu source: Restart must be listed, else one Up fewer); hosting and
-  joining between two handhelds by broadcast discovery, by `netplay-hosts.txt`
-  and from Applications; the wait for Wi-Fi after a Last Game startup. RetroArch
-  facts the code relies on: `--connect` takes `address|port|session`, not
-  `address:port`; `cheevos_hardcore_mode_enable` and `netplay_nat_traversal`
-  default to on and `netplay_public_announce` to true; an appended config is
-  saved into the user config on exit unless `config_save_on_exit` is false in it.
-  Not done: entering a netplay password or a relay session from Ghazal's menu
-  (RetroArch's own Netplay menu does both), and checking both ROMs' CRC before joining.
+- RetroAchievements and netplay: see Untested features. RetroArch facts the code
+  relies on: `--connect` takes `address|port|session`, not `address:port`;
+  `cheevos_hardcore_mode_enable` and `netplay_nat_traversal` default to on and
+  `netplay_public_announce` to true; `menu_swap_ok_cancel_buttons` defaults to
+  true (OK is the RetroPad B command); an appended config is saved into the user
+  config on exit unless `config_save_on_exit` is false in it. Not done: entering
+  a netplay password or a relay session from Ghazal's menu (RetroArch's own
+  Netplay menu does both), and checking both ROMs' CRC before joining.
 - Validate charge-only startup on hardware. U-Boot already includes the AXP717
   charge-only patch (`nix/uboot.nix`); do not describe it as wholly unimplemented.
 - Loopback: nothing raised `lo`, so 127.0.0.1 failed with `Cannot assign
@@ -331,6 +325,31 @@ validated. Remove an entry once it has been checked on a handheld.
   an unknown name and `No Agent registered` when a passphrase is needed but
   `--dont-ask` is set (both mapped). Not done: enterprise networks, a radio
   switch, non-ASCII input.
+- RetroAchievements and netplay (docs/standalone.md). Never done: signing in to
+  RetroAchievements (no account tonight, so no login request left the handheld
+  and the TLS/DNS path of RetroArch's rc_client is unproven), an unlock popup, the
+  saved token, hardcore turning off save states in a game, the wait for Wi-Fi
+  after a Last Game startup with achievements on, and a full netplay session
+  between two devices (needs a second handheld or desktop RetroArch 1.22.2 with
+  the same core and ROM file). Checked on the RG40XX-V: Configuration shows
+  Achievements (with the account) and Achievements account; Achievements cycles
+  off, on, hardcore and off in the user config, and refuses without an account;
+  a seed in `/var/lib/ghazal/retroarch-account.cfg` is merged into the user
+  config at the next launch (mode 0600) and removed; Achievements account opens
+  RetroArch on its ACHIEVEMENTS page (its key path is data, reached after two
+  fixes: `lo` had to be raised, and OK is RetroArch's B command); Host netplay
+  runs `--appendconfig /run/ghazal/retroarch-netplay.cfg --host --port 55435
+  --nick ghazal-XXXX` and answers LAN discovery with a 688-byte reply (nickname,
+  core, game, port), leaving the solo config and `.state.auto` untouched at exit;
+  Join netplay lists a stand-in host (Y rescans; also from Applications, which
+  finds the game by file name) and a saved host from
+  `/mnt/games/.ghazal/netplay-hosts.txt`, and starts `--connect ADDRESS
+  --sram-mode noload-nosave`, which fails to connect to the stand-in and returns
+  to the menu with Menu + Start; a pinned core is used when hosting. The Mac's
+  firewall hides its broadcast answers: probe from the handheld, not the Mac.
+  The key path on a card whose RetroArch menu differs (for example hidden
+  advanced settings) is untried. `observe frame` shows RetroArch's GL menu stale
+  after a page change (title and footer lag the list): check the footer text.
 
 ## Keeping this backlog accurate
 

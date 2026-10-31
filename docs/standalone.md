@@ -510,8 +510,8 @@ and Join netplay. PSP runs in standalone PPSSPP and has no netplay, and neither
 does a game pinned to a standalone emulator.
 
 - **Host netplay** starts the game with `--host --port 55435 --nick NAME`. The
-  nickname is the hostname; a handheld still called `ghazal` appends four
-  characters of its machine ID so two of them differ.
+  nickname is the hostname; a handheld still called `ghazal` appends the last four
+  characters of its machine ID (the first sixteen are zeros) so two of them differ.
 - **Join netplay** broadcasts RetroArch's LAN discovery query (UDP port 55435,
   `RANQ`) and lists the hosts that answer with the game they are playing (Y
   scans again, for a host that started late). From a
