@@ -68,7 +68,12 @@ power = "/sys/class/leds/rgb:kbd_backlight/brightness"
 uart = "5001400.serial"
 
 [cpu]
-# muOS's policy: schedutil in the menu, full speed while a game runs.
-governor = "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor"
-menu = "schedutil"
-game = "performance"
+# Up to 1008 MHz the tested RG40XX-V runs its CPU at the lowest voltage
+# (0.9 V; 1.1 V at 1416 MHz), so floors there cost little energy and leave
+# frame-pacing headroom; schedutil climbs past them when a game needs more.
+policy = "/sys/devices/system/cpu/cpufreq/policy0"
+menu = { governor = "schedutil", min_khz = 480000 }
+light = { governor = "schedutil", min_khz = 720000 }
+moderate = { governor = "schedutil", min_khz = 1008000 }
+# muOS's policy for every game: full speed throughout.
+full = { governor = "performance", min_khz = 480000 }
