@@ -58,6 +58,8 @@ pub struct LogPump {
 pub struct EmulatorReport {
     pub error: Option<String>,
     pub save_warning: Option<String>,
+    /// Why a Moonlight stream ended without the host closing it.
+    pub stream_ended: Option<String>,
 }
 
 impl LogPump {
@@ -99,7 +101,7 @@ impl LogPump {
                 }
             })();
             if let Err(error) = result { crate::sys::log(format_args!("ghazal: log writer failed: {error:#}")); }
-            EmulatorReport { save_warning: diagnostic.save_warning.take(), error: diagnostic.finish() }
+            EmulatorReport { save_warning: diagnostic.save_warning.take(), stream_ended: diagnostic.stream_ended.take(), error: diagnostic.finish() }
         })?;
         Ok((writer.into(), Self { stopping, thread: Some(thread) }))
     }
@@ -121,7 +123,22 @@ struct Diagnostics {
     partial: Vec<u8>,
     last: Option<(DiagnosticSource, String)>,
     save_warning: Option<String>,
+    stream_ended: Option<String>,
 }
+
+/// What `moonlight` prints (stderr) when it cannot start a stream.
+const MOONLIGHT_FAILURES: &[&str] = &[
+    "Can't connect to server", "Can't find app", "Can't get app list", "Gamestream error", "You must pair with the PC first",
+    "Server doesn't support", "Unsupported version", "Invalid data received", "Couldn't initialize video decoding",
+    "Couldn't find decoder", "SDL_CreateRenderer failed", "SDL: could not", "Could not initialize SDL",
+];
+
+/// What it prints (stdout) when a running stream is cut. A graceful end,
+/// closed from the host, is not one.
+const MOONLIGHT_CUT: &[&str] = &[
+    "Connection terminated with error", "No video received from host", "Your network connection isn't performing well",
+    "The connection was unexpectedly terminated", "The connection was terminated by the host",
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum DiagnosticSource { Content, Frontend, Core }
@@ -142,7 +159,12 @@ impl Diagnostics {
         if line.contains("[State] Auto save state to") && line.trim_end().ends_with("failed.") {
             self.save_warning = Some("Automatic save state failed. This core may not support save states; progress cannot automatically resume.".into());
         }
-        let message = if let Some((_, body)) = line.split_once("[libretro ERROR]") {
+        if MOONLIGHT_CUT.iter().any(|prefix| line.starts_with(prefix)) {
+            self.stream_ended = Some(line.trim_end().chars().take(500).collect());
+        }
+        let message = if MOONLIGHT_FAILURES.iter().any(|prefix| line.starts_with(prefix)) {
+            Some((DiagnosticSource::Frontend, line.trim()))
+        } else if let Some((_, body)) = line.split_once("[libretro ERROR]") {
             Some((DiagnosticSource::Core, body.trim()))
         } else if let Some((_, body)) = line.split_once("[Environ] SET_MESSAGE:") {
             let lower = body.to_ascii_lowercase();
@@ -188,6 +210,19 @@ mod tests {
         let mut capture = Diagnostics::default();
         capture.feed(b"[INFO] [Environ] SET_MESSAGE: Firmware not found: syscard3.pce\n[ERROR] [Environ] GET_VARIABLE: invalid value\n");
         assert_eq!(capture.finish().as_deref(), Some("Firmware not found: syscard3.pce"));
+    }
+
+    #[test]
+    fn moonlight_failures_and_cut_streams_are_reported_but_a_graceful_end_is_not() {
+        let mut capture = Diagnostics::default();
+        capture.feed(b"Connecting to 10.0.0.2...\nCan't connect to server 10.0.0.2\n");
+        assert_eq!(capture.finish().as_deref(), Some("Can't connect to server 10.0.0.2"));
+        let mut capture = Diagnostics::default();
+        capture.feed(b"Connection is okay\nYour network connection isn't performing well. Reduce your video bitrate setting or try a faster connection.\n");
+        assert!(capture.stream_ended.as_deref().is_some_and(|text| text.starts_with("Your network connection")));
+        let mut capture = Diagnostics::default();
+        capture.feed(b"Connection has been terminated gracefully.\n");
+        assert!(capture.stream_ended.is_none() && capture.finish().is_none());
     }
 
     #[test]

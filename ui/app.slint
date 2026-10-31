@@ -186,6 +186,8 @@ export component AppWindow inherits Window {
     in property <[Hint]> hints;
     in property <[string]> menu-items;
     in property <string> menu-title: "Menu";
+    /// A wider panel for long rows, such as emulator names.
+    in property <bool> menu-wide: false;
     /// Box art of the selected game (see App::request_art).
     in property <image> art;
     in property <bool> art-visible;
@@ -394,15 +396,17 @@ export component AppWindow inherits Window {
         background: #00000096;
         Rectangle {
             property <length> levels-height: root.levels-visible ? 112px : 0;
-            width: min(320px, root.width - 2 * Theme.pad);
+            width: min(root.menu-wide ? 440px : 320px, root.width - 2 * Theme.pad);
             height: 56px + root.menu-items.length * Theme.row-height + self.levels-height;
             border-radius: 14px;
             background: Theme.panel;
             Text {
                 x: Theme.pad;
                 y: 4px;
+                width: parent.width - 2 * Theme.pad;
                 height: 44px;
                 text: root.menu-title;
+                overflow: elide;
                 vertical-alignment: center;
                 font-size: 20px;
                 font-weight: 700;
@@ -417,7 +421,9 @@ export component AppWindow inherits Window {
                 background: i == root.menu-selected ? Theme.accent : transparent;
                 Text {
                     x: Theme.pad - 4px;
+                    width: parent.width - 2 * Theme.pad + 8px;
                     text: item;
+                    overflow: elide;
                     vertical-alignment: center;
                     font-size: 18px;
                     color: i == root.menu-selected ? Theme.on-accent : Theme.text;

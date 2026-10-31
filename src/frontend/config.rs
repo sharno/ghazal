@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use super::emulator::{CoreName, Emulator, Emulators, StandaloneName};
 use crate::device::CpuLoad;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -14,6 +15,8 @@ pub struct FrontendConfig {
     pub rom_roots: Vec<PathBuf>,
     #[serde(default = "default_activity_file")]
     pub activity_file: PathBuf,
+    /// Emulator choices per game and system. Beside the activity file when unset.
+    pub emulators_file: Option<PathBuf>,
     pub retroarch: RetroArch,
     /// Where emulators find BIOS files; systems' `requires_any` are relative to it.
     #[serde(default = "default_bios_dir")]
@@ -32,6 +35,9 @@ pub struct FrontendConfig {
     /// udev's database, which RetroArch and SDL need to find the gamepad.
     #[serde(default)]
     pub launch_after: Vec<PathBuf>,
+    /// Game streaming; without it the menu says Moonlight is unavailable.
+    #[serde(default)]
+    pub moonlight: Option<Moonlight>,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }
@@ -73,6 +79,23 @@ pub struct RetroArch {
     pub log: Option<PathBuf>,
 }
 
+/// Moonlight, the GameStream/Sunshine client: `bin` runs the stream and the
+/// pair, list, unpair and quit helpers.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Moonlight {
+    pub bin: PathBuf,
+    /// Pairing keys, known hosts and stream settings. On the data card, so a
+    /// reflashed OS card keeps its pairings.
+    pub data_dir: PathBuf,
+    /// SDL controller database, so the pad is a gamepad on the host.
+    pub mapping: Option<PathBuf>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Output of streams is appended here.
+    pub log: Option<PathBuf>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(try_from = "RawSystemEntry")]
 pub struct SystemEntry {
@@ -80,8 +103,8 @@ pub struct SystemEntry {
     /// Folder names under a ROM root, matched case-insensitively.
     pub dirs: Vec<String>,
     pub extensions: Vec<String>,
-    pub launch: Launch,
-    pub cpu: CpuLoad,
+    /// The system's own emulator first, then its `[[system.alternative]]`s.
+    pub emulators: Emulators,
     /// The system is hidden until one of these BIOS files exists, so it never
     /// shows games that can only fail to start.
     pub requires_any: Vec<PathBuf>,
@@ -102,13 +125,15 @@ pub struct ArtSources {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Launch {
     /// A libretro core file, run by RetroArch.
-    Core(String),
+    Core(CoreName),
     /// A standalone emulator, given by its `command`.
     Standalone(Standalone),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Standalone {
+    /// Tells this emulator from its system's others in saved choices.
+    pub name: StandaloneName,
     /// Program and arguments; the argument `{rom}` becomes the game's path.
     pub argv: Vec<String>,
     pub env: BTreeMap<String, String>,
@@ -116,7 +141,42 @@ pub struct Standalone {
     pub log: Option<PathBuf>,
 }
 
-/// The TOML shape: exactly one of `core` or `command`.
+/// The TOML shape of one emulator, exactly one of `core` or `command`: a
+/// `[[system.alternative]]`, or the emulator a system declares inline. Like an
+/// unrated system, an unrated emulator runs at full clock.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEmulator {
+    core: Option<String>,
+    command: Option<Vec<String>>,
+    /// Identifies a standalone `command` in saved choices; its program's file name when unset.
+    name: Option<String>,
+    /// How the emulator picker names it; derived from the core or `name` when unset.
+    label: Option<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    log: Option<PathBuf>,
+    #[serde(default)]
+    cpu: CpuLoad,
+}
+
+impl RawEmulator {
+    fn build(self, system: &str) -> Result<Emulator, String> {
+        let launch = match (self.core, self.command) {
+            (Some(core), None) if self.env.is_empty() && self.log.is_none() && self.name.is_none() => Launch::Core(core.into()),
+            (Some(_), None) => return Err(format!("system {system:?}: env, log and name apply to a command; RetroArch uses [retroarch]")),
+            (None, Some(argv)) if argv.is_empty() => return Err(format!("system {system:?} has an empty command")),
+            (None, Some(argv)) => {
+                let program = argv[0].rsplit('/').next().unwrap_or_default().to_owned();
+                Launch::Standalone(Standalone { name: self.name.unwrap_or(program).into(), argv, env: self.env, log: self.log })
+            }
+            (Some(_), Some(_)) => return Err(format!("system {system:?} sets both core and command")),
+            (None, None) => return Err(format!("system {system:?} needs a core or a command")),
+        };
+        Ok(Emulator { label: self.label.unwrap_or_else(|| launch.default_label()), launch, cpu: self.cpu })
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSystemEntry {
@@ -125,11 +185,16 @@ struct RawSystemEntry {
     extensions: Vec<String>,
     core: Option<String>,
     command: Option<Vec<String>>,
+    /// The system's own standalone emulator name, as `name` in an alternative.
+    emulator_name: Option<String>,
+    label: Option<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
     log: Option<PathBuf>,
     #[serde(default)]
     cpu: CpuLoad,
+    #[serde(default)]
+    alternative: Vec<RawEmulator>,
     #[serde(default)]
     requires_any: Vec<PathBuf>,
     #[serde(default)]
@@ -140,19 +205,20 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
     type Error = String;
 
     fn try_from(raw: RawSystemEntry) -> Result<Self, String> {
-        let launch = match (raw.core, raw.command) {
-            (Some(core), None) if raw.env.is_empty() && raw.log.is_none() => Launch::Core(core),
-            (Some(_), None) => return Err(format!("system {:?}: env and log apply to a command; RetroArch uses [retroarch]", raw.name)),
-            (None, Some(argv)) if argv.is_empty() => return Err(format!("system {:?} has an empty command", raw.name)),
-            (None, Some(argv)) => Launch::Standalone(Standalone { argv, env: raw.env, log: raw.log }),
-            (Some(_), Some(_)) => return Err(format!("system {:?} sets both core and command", raw.name)),
-            (None, None) => return Err(format!("system {:?} needs a core or a command", raw.name)),
-        };
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, cpu: raw.cpu, requires_any: raw.requires_any, art: raw.art })
+        let own = RawEmulator { core: raw.core, command: raw.command, name: raw.emulator_name, label: raw.label, env: raw.env, log: raw.log, cpu: raw.cpu };
+        let default = own.build(&raw.name)?;
+        let alternatives = raw.alternative.into_iter().map(|alternative| alternative.build(&raw.name)).collect::<Result<Vec<_>, _>>()?;
+        let emulators = Emulators::new(default, alternatives).map_err(|duplicate| format!("system {:?}: {duplicate}", raw.name))?;
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, emulators, requires_any: raw.requires_any, art: raw.art })
     }
 }
 
 impl FrontendConfig {
+    /// Where emulator choices are kept: beside the activity file, so they stay with the data card.
+    pub fn emulators_file(&self) -> PathBuf {
+        self.emulators_file.clone().unwrap_or_else(|| self.activity_file.with_file_name("emulators.toml"))
+    }
+
     /// Relative paths in a config file are relative to that file, not the working directory.
     /// `retroarch.bin` is left alone so a bare name can be looked up on `PATH`.
     pub fn resolve_relative_to(&mut self, base: &Path) {
@@ -163,6 +229,7 @@ impl FrontendConfig {
         };
         self.rom_roots.iter_mut().for_each(fix);
         fix(&mut self.activity_file);
+        if let Some(file) = &mut self.emulators_file { fix(file); }
         fix(&mut self.bios_dir);
         fix(&mut self.settings_file);
         if let Some(cache) = &mut self.thumbnail_cache { fix(cache); }
@@ -174,12 +241,18 @@ impl FrontendConfig {
             fix(log);
         }
         fix(&mut self.daemon_socket);
+        if let Some(moonlight) = &mut self.moonlight {
+            fix(&mut moonlight.data_dir);
+            if let Some(mapping) = &mut moonlight.mapping { fix(mapping); }
+            if let Some(log) = &mut moonlight.log { fix(log); }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frontend::emulator::EmulatorId;
 
     fn system(fields: &str) -> Result<SystemEntry, toml::de::Error> {
         toml::from_str(&format!("name = \"PSP\"\ndirs = [\"PSP\"]\nextensions = [\"iso\"]\n{fields}"))
@@ -187,9 +260,9 @@ mod tests {
 
     #[test]
     fn a_system_runs_exactly_one_core_or_command() {
-        assert_eq!(system("core = \"ppsspp_libretro.so\"").unwrap().launch, Launch::Core("ppsspp_libretro.so".into()));
+        assert_eq!(system("core = \"ppsspp_libretro.so\"").unwrap().emulators.default().launch, Launch::Core("ppsspp_libretro.so".into()));
         let standalone = system("command = [\"/usr/bin/ppsspp\", \"{rom}\"]\nlog = \"/var/log/ppsspp.log\"").unwrap();
-        assert!(matches!(standalone.launch, Launch::Standalone(Standalone { ref argv, log: Some(_), .. }) if argv.len() == 2));
+        assert!(matches!(standalone.emulators.default().launch, Launch::Standalone(Standalone { ref argv, log: Some(_), .. }) if argv.len() == 2));
         assert!(system("").is_err());
         assert!(system("core = \"a.so\"\ncommand = [\"b\"]").is_err());
         assert!(system("command = []").is_err());
@@ -198,8 +271,61 @@ mod tests {
 
     #[test]
     fn an_unrated_system_runs_at_full_clock() {
-        assert_eq!(system("core = \"a.so\"").unwrap().cpu, CpuLoad::Full);
-        assert_eq!(system("core = \"a.so\"\ncpu = \"light\"").unwrap().cpu, CpuLoad::Light);
+        assert_eq!(system("core = \"a.so\"").unwrap().emulators.default().cpu, CpuLoad::Full);
+        assert_eq!(system("core = \"a.so\"\ncpu = \"light\"").unwrap().emulators.default().cpu, CpuLoad::Light);
         assert!(system("core = \"a.so\"\ncpu = \"fast\"").is_err());
+    }
+
+    #[test]
+    fn alternatives_are_rated_and_named_separately() {
+        let psp = system(r#"
+            command = ["/usr/bin/ppsspp", "{rom}"]
+            label = "PPSSPP (standalone)"
+            [[alternative]]
+            core = "ppsspp_libretro.so"
+            label = "PPSSPP (libretro)"
+            cpu = "moderate"
+            [[alternative]]
+            command = ["/opt/other/ppsspp-fork", "{rom}"]
+        "#).unwrap().emulators;
+        let all: Vec<_> = psp.iter().map(|emulator| (emulator.label.as_str(), emulator.id(), emulator.cpu)).collect();
+        assert_eq!(all, [
+            ("PPSSPP (standalone)", EmulatorId::Standalone("ppsspp".into()), CpuLoad::Full),
+            ("PPSSPP (libretro)", EmulatorId::Core("ppsspp_libretro.so".into()), CpuLoad::Moderate),
+            ("ppsspp-fork", EmulatorId::Standalone("ppsspp-fork".into()), CpuLoad::Full),
+        ]);
+        // A system without alternatives is unchanged.
+        assert_eq!(system("core = \"snes9x_libretro.so\"").unwrap().emulators.len(), 1);
+    }
+
+    #[test]
+    fn ambiguous_or_incomplete_alternatives_are_rejected() {
+        let alternative = |fields: &str| system(&format!("core = \"a_libretro.so\"\n[[alternative]]\n{fields}"));
+        assert!(alternative("core = \"a_libretro.so\"").unwrap_err().to_string().contains("listed twice"));
+        assert!(alternative("").is_err());
+        assert!(alternative("core = \"b.so\"\ncommand = [\"b\"]").is_err());
+        assert!(alternative("core = \"b.so\"\nname = \"b\"").is_err());
+        assert!(alternative("core = \"b.so\"\nlevel = 3").is_err());
+        // Two standalone emulators need distinct names.
+        let standalone = |second: &str| system(&format!("command = [\"/usr/bin/x\"]\n[[alternative]]\ncommand = [\"/other/x\"]\n{second}"));
+        assert!(standalone("").is_err());
+        assert!(standalone("name = \"x2\"").is_ok());
+    }
+
+    #[test]
+    fn emulator_choices_live_beside_the_activity_file_unless_placed() {
+        let config = |extra: &str| -> FrontendConfig { toml::from_str(&format!("rom_roots = []\nactivity_file = \"/card/.ghazal/activity.toml\"\n{extra}\n[retroarch]\nbin = \"retroarch\"\ncore_dirs = []")).unwrap() };
+        assert_eq!(config("").emulators_file(), PathBuf::from("/card/.ghazal/emulators.toml"));
+        assert_eq!(config("emulators_file = \"/elsewhere/choices.toml\"").emulators_file(), PathBuf::from("/elsewhere/choices.toml"));
+    }
+
+    /// The shipped system list must keep working with the shipped alternatives.
+    #[test]
+    fn shipped_alternatives_name_distinct_emulators() {
+        let config: FrontendConfig = toml::from_str(crate::profile::DEFAULT_FRONTEND).unwrap();
+        let psp = config.systems.iter().find(|system| system.name == "PSP").unwrap();
+        assert!(psp.emulators.len() >= 2, "the PSP offers PPSSPP standalone and its libretro core");
+        assert!(matches!(psp.emulators.default().launch, Launch::Standalone(_)));
+        assert!(config.systems.iter().any(|system| system.emulators.len() > 1 && matches!(system.emulators.default().launch, Launch::Core(_))));
     }
 }

@@ -46,7 +46,7 @@ COMMANDS:
   check                  validate configs and service binaries
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
-  observe audio|boot|frame|press|recent-benchmark  inspect and exercise the real device
+  observe audio|boot|frame|press|recent-benchmark|moonlight-hosts  inspect and exercise the real device
 
 Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $GHAZAL_CONFIG_DIR,
 etc/ next to the binary, the binary's directory, or /etc/ghazal; built-in defaults otherwise.";
@@ -91,6 +91,7 @@ fn run() -> Result<()> {
         "kernel-log" => debug::kernel_log(),
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
+        "observe" if rest == ["moonlight-hosts"] => frontend::observe_moonlight_hosts(),
         "observe" => observe::run(&profile.device()?, rest),
         "rescue" => init::rescue(),
         "data-directories" => init::data_directories(),

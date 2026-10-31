@@ -93,6 +93,26 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - There is no user-facing factory-reset flow. If added, define which OS settings
   it resets and preserve games, saves and identities unless explicitly selected.
 
+### Moonlight game streaming
+
+- The whole flow is implemented (docs/moonlight.md) but no stream has run: there
+  was no host. Pair with a real Sunshine host, then check the SDL KMSDRM window
+  and letterboxed scaling, audio (Moonlight's 4096-sample buffer is ~85 ms),
+  the pad mapping, Menu + Start ending a stream cleanly (SIGTERM becomes
+  SDL_QUIT, so `quitappafter` still runs), and whether Sunshine answers the
+  mDNS browse (a multicast-only responder would not be found).
+- Decoding is software H.264 on the four A53 cores. Run `decode-bench`
+  (`nix build .#decode-bench`, docs/moonlight.md) on the handheld and set the
+  default resolution and frame rate from its frame-time tail; the container's
+  numbers are from an Apple core and only show relative cost (720p60 ~2.8x the
+  default 640x360).
+- Hardware decoding is not available here: `MEDIA_SUPPORT` is off and the H700
+  device tree has no Cedrus node. Revisit it only if measured software
+  decoding cannot hold the target; it needs the kernel driver, a DT node, V4L2
+  request decoding and a DRM-PRIME output in Moonlight's SDL path.
+- Moonlight and its FFmpeg add ~3.9 MB to the root (`nix path-info` against
+  the device's `/nix/store`); check the root's free space after bumps.
+
 ### Boot time and game performance
 
 - `ghazal observe boot` reports firmware, kernel-to-frame and total time; the
@@ -127,6 +147,25 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   (system.toml) cut that to 0% with 60 fps held for GB, NES, SNES and GBA.
   The AXP717 has no discharge current reading, so measure draw as charge lost
   over equal long runs (`ghazal observe power`).
+- Emulator choice (X in a game list, docs/standalone.md) is checked on the
+  RG40XX-V v2 for pin, system default, restore, persistence across a reboot,
+  Last Game startup with a pinned core, History and Collection lists, damaged
+  and unknown-version `emulators.toml`, and one launch with every shipped
+  alternative that has games on the dev card (frame, PCM running, Menu+Start
+  back). Boot stayed 2.92 to 2.95 s. The alternatives' `cpu` floors reuse their
+  default's and are unmeasured: time each with the null-video method before
+  trusting them (PicoDrive ran at the moderate floor and reached 1104 MHz in
+  an intro). Saves and states are filed per core name (`SAVES/file/VBA Next`,
+  not `mGBA`), so switching cores starts without the game's battery save;
+  copying `.srm` files between compatible cores is not done. Not built: gpsp
+  (ROCKNIX's H700 build is 32-bit ARM with a 32-bit dynarec; a generic aarch64
+  build has no dynarec) and PS1 alternatives (`beetle-psx-lr`, `swanstation-lr`).
+  The picker shows `Default (PPSSPP (standalone))` with nested parentheses.
+- With a menu overlay open (the Start menu or the emulator picker), `ghazal
+  observe frame` shows the whole screen shifted about 26 px left and wrapped.
+  The commit before emulator choice (ca9352d) does it too. `present()` copies
+  rows at the damage's x, so look at Slint's output and the scanout buffer
+  before blaming the panel; check whether the panel itself shows it.
 - Check status icons with the desktop snapshot power override at normal and
   compact sizes (docs/standalone.md). The software renderer has no Path support
   unless explicitly enabled; embedded-font symbols avoid adding that dependency.
@@ -161,7 +200,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   core must come from the one nixpkgs in `nix/runtime`, and programs must find
   libraries through their store RPATHs, never `/usr/lib`. Stock nixpkgs
   graphics closures do not fit the 1 GiB slot; keep overrides free of X11,
-  Wayland, LLVM, Vulkan and FFmpeg, and check the root's size after bumps.
+  Wayland, LLVM and Vulkan, and check the root's size after bumps. FFmpeg is
+  only the H.264 decoder (`nix/runtime/ffmpeg.nix`): FFmpeg's configure
+  applies options in order, so `--enable-*` must follow `--disable-everything`.
   Cores follow ROCKNIX's recipes (`nix/runtime/rocknix-core.nix`): after a
   `rocknix` bump, restate changed package.mk conditionals and hooks in
   `cores.nix`, launch every system and compare core speed against the previous
@@ -190,6 +231,18 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - An open SSH session postpones idle poweroff, so keep one open during long
   unattended work. BusyBox lacks many applet links (`sed`, `pidof`,
   `readlink`, `od`): use `busybox <applet>`.
+
+## Untested features
+
+Features merged before hardware validation was possible, or only partly
+validated. Remove an entry once it has been checked on a handheld.
+
+- Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
+  so the system is hidden), the rotated-panel image profile that keeps only the
+  libretro PSP core (unit test only, no RG28XX), and the sound and frame pacing
+  of every alternative beyond one captured intro frame with PCM running. The
+  Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
+  have only been run for a few seconds each.
 
 ## Keeping this backlog accurate
 

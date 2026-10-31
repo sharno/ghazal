@@ -1,0 +1,131 @@
+--- a/libgamestream/CMakeLists.txt
++++ b/libgamestream/CMakeLists.txt
+@@ -5,8 +5,6 @@
+ find_package(CURL REQUIRED)
+ find_package(OpenSSL 1.1.0 REQUIRED)
+ find_package(EXPAT REQUIRED)
+-
+-pkg_check_modules(AVAHI REQUIRED avahi-client)
+ 
+ aux_source_directory(./ GAMESTREAM_SRC_LIST)
+ aux_source_directory(../third_party/h264bitstream GAMESTREAM_SRC_LIST)
+@@ -23,9 +21,9 @@
+ set_target_properties(gamestream PROPERTIES SOVERSION ${SO_VERSION} VERSION ${PROJECT_VERSION})
+ set_target_properties(moonlight-common PROPERTIES SOVERSION ${SO_VERSION} VERSION ${PROJECT_VERSION})
+ 
+-target_include_directories(gamestream PRIVATE ../third_party/moonlight-common-c/src ../third_party/h264bitstream ${AVAHI_INCLUDE_DIRS} ${LibUUID_INCLUDE_DIRS})
++target_include_directories(gamestream PRIVATE ../third_party/moonlight-common-c/src ../third_party/h264bitstream ${LibUUID_INCLUDE_DIRS})
+ target_include_directories(moonlight-common PRIVATE ../third_party/moonlight-common-c/reedsolomon ../third_party/moonlight-common-c/enet/include)
+-target_link_libraries(gamestream ${CURL_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXPAT_LIBRARIES} ${AVAHI_LIBRARIES} ${LibUUID_LIBRARIES})
++target_link_libraries(gamestream ${CURL_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXPAT_LIBRARIES} ${LibUUID_LIBRARIES})
+ 
+ target_link_libraries(gamestream ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS})
+ 
+--- a/libgamestream/discover.c
++++ b/libgamestream/discover.c
+@@ -18,101 +18,9 @@
+  */
+ 
+ #include "errors.h"
++#include "discover.h"
+ 
+-#include <avahi-client/client.h>
+-#include <avahi-client/lookup.h>
+-
+-#include <avahi-common/simple-watch.h>
+-#include <avahi-common/malloc.h>
+-#include <avahi-common/error.h>
+-
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <stdbool.h>
+-#include <time.h>
+-
+-static AvahiSimplePoll *simple_poll = NULL;
+-
+-struct cb_ctx {
+-  char* address;
+-  unsigned short* port;
+-};
+-
+-static void client_callback(AvahiClient *c, AvahiClientState state, void *userdata) {
+-  if (state == AVAHI_CLIENT_FAILURE) {
+-    gs_error = "Server connection failure";
+-    avahi_simple_poll_quit(simple_poll);
+-  }
++// Avahi is not built: callers must pass the host's address.
++void gs_discover_server(char* dest, unsigned short* port) {
++  gs_error = "mDNS discovery is not built in";
+ }
+-
+-static void resolve_callback(AvahiServiceResolver *r, AvahiIfIndex interface, AvahiProtocol protocol, AvahiResolverEvent event, const char *name, const char *type, const char *domain, const char *host_name, const AvahiAddress *address, uint16_t port, AvahiStringList *txt, AvahiLookupResultFlags flags, void *userdata) {
+-  if (event == AVAHI_RESOLVER_FOUND) {
+-    if (userdata != NULL) {
+-      struct cb_ctx* ctx = userdata;
+-      avahi_address_snprint(ctx->address, AVAHI_ADDRESS_STR_MAX, address);
+-      *ctx->port = port;
+-      avahi_simple_poll_quit(simple_poll);
+-    } else {
+-      char strAddress[AVAHI_ADDRESS_STR_MAX];
+-      avahi_address_snprint(strAddress, sizeof(strAddress), address);
+-      printf(" %s (%s:%u)\n", host_name, strAddress, port);
+-    }
+-  }
+-
+-  avahi_service_resolver_free(r);
+-}
+-
+-static void browse_callback(AvahiServiceBrowser *b, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *name, const char *type, const char *domain, AvahiLookupResultFlags flags, void* userdata) {
+-  AvahiClient *c = avahi_service_browser_get_client(b);
+-
+-  switch (event) {
+-  case AVAHI_BROWSER_FAILURE:
+-    gs_error = "Server browser failure";
+-    avahi_simple_poll_quit(simple_poll);
+-    break;
+-  case AVAHI_BROWSER_NEW:
+-    if (!(avahi_service_resolver_new(c, interface, protocol, name, type, domain, AVAHI_PROTO_INET, 0, resolve_callback, userdata)))
+-      gs_error = "Failed to resolve service";
+-
+-    break;
+-  case AVAHI_BROWSER_REMOVE:
+-    break;
+-  }
+-}
+-
+-void gs_discover_server(char* dest, unsigned short* port) {
+-  AvahiClient *client = NULL;
+-  AvahiServiceBrowser *sb = NULL;
+-
+-  if (!(simple_poll = avahi_simple_poll_new())) {
+-    gs_error = "Failed to create simple poll object";
+-    goto cleanup;
+-  }
+-
+-  int error;
+-  client = avahi_client_new(avahi_simple_poll_get(simple_poll), 0, client_callback, NULL, &error);
+-  if (!client) {
+-    gs_error = "Failed to create client";
+-    goto cleanup;
+-  }
+-
+-  struct cb_ctx ctx;
+-  ctx.address = dest;
+-  ctx.port = port;
+-  if (!(sb = avahi_service_browser_new(client, AVAHI_IF_UNSPEC, AVAHI_PROTO_INET, "_nvstream._tcp", NULL, 0, browse_callback, &ctx))) {
+-    gs_error = "Failed to create service browser";
+-    goto cleanup;
+-  }
+-
+-  avahi_simple_poll_loop(simple_poll);
+-
+-  cleanup:
+-  if (sb)
+-    avahi_service_browser_free(sb);
+-
+-  if (client)
+-    avahi_client_free(client);
+-
+-  if (simple_poll)
+-    avahi_simple_poll_free(simple_poll);
+-}
