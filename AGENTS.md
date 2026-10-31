@@ -298,9 +298,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 - Unconfirmed on GitHub's `ubuntu-24.04-arm` runners: that `modprobe uinput`
   gives the `release-tests` input step a `/dev/uinput` (otherwise it warns and
-  the layout gate is the only runtime gate), and how long `vm-smoke` takes there
-  (about 30 s in Docker's QEMU). If the runners lack uinput, run
-  the input test inside the QEMU machine instead.
+  the layout gate is the only runtime gate). `vm-smoke` passes there (about 30 s
+  in Docker's QEMU). If the runners lack uinput, run the input test inside the
+  QEMU machine instead.
 - `scripts/acceptance.sh` ran on the RG40XX-V v2 against a fresh image built from
   main: Game Boy, GBA, SNES, Mega Drive, PlayStation and PSP games, 69 checks
   passed and the PSP save state was skipped by design, in 2 min 7 s. The menu path
@@ -323,12 +323,13 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
 
-- Release gates in CI: `release-tests` and `vm-smoke` (`.github/workflows/images.yml`)
-  have never run on GitHub; only `check.yml` has. The same gates passed locally on
-  main (layout, headless input with the real RetroArch, QEMU smoke) and
-  `scripts/acceptance.sh` passed on the handheld. Unknown: whether
-  `ubuntu-24.04-arm` has `/dev/uinput`, and whether a first tag build gets
-  through `publish` (it needs both jobs).
+- Release gates in CI (`.github/workflows/images.yml`): `vm-smoke` passed on
+  GitHub's `ubuntu-24.04-arm` runner. `release-tests` has not run there: it needs
+  the `runtime` job, which pushes to main keep cancelling (each push cancels the
+  run in progress). The same gates passed locally on main (layout, headless input
+  with the real RetroArch, QEMU smoke) and `scripts/acceptance.sh` passed on the
+  handheld. Unknown: whether `ubuntu-24.04-arm` has `/dev/uinput`, and whether a
+  first tag build gets through `publish` (it needs both jobs).
 
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the
