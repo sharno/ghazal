@@ -45,6 +45,18 @@ let
     withPAM = false; withFIDO = false; withSecurityKey = false; withLdns = false; withKerberos = false;
   };
   dbus = pkgs.dbus.override { x11Support = false; enableSystemd = false; };
+  bluez = callPackage ./bluez.nix { inherit dbus; };
+  # The RTL8821CS's Bluetooth firmware. The kernel loads it from the root filesystem
+  # when Bluetooth is first turned on, so it costs the kernel image nothing.
+  bluetooth-firmware = pkgs.runCommand "ghazal-bluetooth-firmware" { } ''
+    install -Dm644 ${pkgs.linux-firmware}/lib/firmware/rtl_bt/rtl8821cs_{fw,config}.bin -t $out/rtl_bt
+  '';
+  # With systemd's stock rules masked nothing marks a Bluetooth or USB gamepad as one,
+  # and RetroArch's udev joypad driver (hotplug included) only takes devices marked
+  # ID_INPUT_JOYSTICK. This is the stock 60-input-id rule: udev's own classifier.
+  input-rules = pkgs.writeText "71-input-hotplug.rules" ''
+    ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event[0-9]*", IMPORT{builtin}="input_id"
+  '';
   udev = pkgs.systemdMinimal;
   # fw_printenv/fw_setenv for the U-Boot A/B environment (config/updates/fw_env.config).
   fw-env = pkgs.runCommand "ghazal-fw-env" { } ''
@@ -69,6 +81,15 @@ let
     "usr/bin/udevadm" = "${udev}/bin/udevadm";
     "usr/lib/systemd/systemd-udevd" = "${udev}/lib/systemd/systemd-udevd";
     "usr/bin/dbus-daemon" = "${dbus}/bin/dbus-daemon";
+    "usr/lib/bluetooth/bluetoothd" = "${bluez}/libexec/bluetooth/bluetoothd";
+    "usr/bin/bluetoothctl" = "${bluez}/bin/bluetoothctl";
+    "usr/bin/btmgmt" = "${bluez}/bin/btmgmt";
+    "usr/bin/btmon" = "${bluez}/bin/btmon";
+    "etc/bluetooth/main.conf" = profile + "/bluetooth/main.conf";
+    "etc/bluetooth/input.conf" = profile + "/bluetooth/input.conf";
+    "usr/lib/firmware/rtl_bt/rtl8821cs_fw.bin" = "${bluetooth-firmware}/rtl_bt/rtl8821cs_fw.bin";
+    "usr/lib/firmware/rtl_bt/rtl8821cs_config.bin" = "${bluetooth-firmware}/rtl_bt/rtl8821cs_config.bin";
+    "etc/udev/rules.d/71-input-hotplug.rules" = "${input-rules}";
     "usr/lib/iwd" = "${pkgs.iwd}/libexec/iwd";
     "usr/bin/iwctl" = "${pkgs.iwd}/bin/iwctl";
     "usr/sbin/iw" = "${pkgs.iw}/bin/iw";
@@ -121,6 +142,6 @@ let
 in
 assert lib.assertMsg (missing == [ ]) "frontend.toml names unbuilt cores: ${toString missing}";
 {
-  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro cores tree ppsspp-defaults;
+  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro cores tree ppsspp-defaults bluez;
   closure = pkgs.closureInfo { rootPaths = [ tree ]; };
 }
