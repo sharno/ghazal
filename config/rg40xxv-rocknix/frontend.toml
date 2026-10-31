@@ -34,6 +34,42 @@ core_dirs = ["/usr/lib/libretro"]
 extra_args = ["-f"]
 log = "/var/log/ghazal/retroarch.log"
 env = { HOME = "/mnt/games/.ghazal/home", XDG_CONFIG_HOME = "/mnt/games/.ghazal", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache", XDG_RUNTIME_DIR = "/run" }
+# A launch that signs in to RetroAchievements or joins netplay waits up to this
+# many seconds for Wi-Fi, and only when a Wi-Fi network is saved.
+online_wait = 8
+
+# Configuration -> Achievements account opens RetroArch's menu and presses
+# these keys through its network command port (network_cmd_port in
+# retroarch.cfg). From the main menu, Up wraps to the last entry: Quit, Restart,
+# Configuration File, Information, then Settings (5 presses), and in Settings
+# Up from the top reaches Logging, Directory, User, then Achievements (4 presses).
+# Derived from RetroArch 1.22's menu source; adjust here if the layout differs.
+[retroarch.menu_paths]
+achievements = ["up", "up", "up", "up", "up", "a", "up", "up", "up", "up", "a"]
+
+# Game actions (X on a game) can host or join a netplay session; Applications ->
+# Join netplay finds hosts by itself. A host answers a LAN broadcast with the
+# game it plays; hosts on another network (a VPN) can be listed by hand in
+# hosts_file, one `address[:port] [name]` per line.
+[netplay]
+port = 55435
+discovery_ms = 1500
+hosts_file = "/mnt/games/.ghazal/netplay-hosts.txt"
+
+# Applied over the user's RetroArch config for netplay launches only.
+[netplay.retroarch]
+# RetroArch writes its settings on exit, including these: keep them out of the
+# config used for solo play.
+config_save_on_exit = "false"
+# LAN only: no listing on libretro's public lobby, no relay, and no UPnP or
+# NAT-PMP request that opens a port on the router.
+netplay_public_announce = "false"
+netplay_use_mitm_server = "false"
+netplay_nat_traversal = "false"
+# A session starts from the host's state: the solo resume state must neither
+# load into it nor be overwritten by it.
+savestate_auto_load = "false"
+savestate_auto_save = "false"
 
 # PortMaster support (docs/ports.md): Applications -> PortMaster installs and runs it,
 # and the Ports system at the end of this file lists the ports it installs.

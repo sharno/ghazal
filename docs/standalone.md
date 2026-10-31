@@ -334,8 +334,9 @@ preserves favorites and history. Existing format 1 files migrate atomically.
 A system in `frontend.toml` runs its games with its own `core` or `command`
 (its default emulator) and may list `[[system.alternative]]` emulators (the
 comment above the first `[[system]]` has the keys). Press X on a game, in a
-system's list, Collection or History, to open the emulator picker; its title
-shows the emulator the game uses now. A system with one emulator says so.
+system's list, Collection or History, to open its actions, and choose Emulator
+(listed only for a system with alternatives) to open the emulator picker; its
+title shows the emulator the game uses now.
 
 | Picker row | A (this game) | X (the whole system) |
 | --- | --- | --- |
@@ -451,6 +452,90 @@ database's Dark Overlay HackFix keeping the picture from going black.
 
 In the ghazal menu, Menu and Start act when released, and only when no other
 key was pressed while held, so hotkey chords such as Menu + Vol never open it.
+
+## RetroAchievements and netplay
+
+`nix/runtime/retroarch.nix` builds RetroArch with networking, TLS (the
+built-in mbedTLS, which carries its own CA bundle, so no system certificates
+are read), RetroAchievements and LAN netplay discovery, and fails the build if
+the binary lacks any of them. Both features need Wi-Fi. A launch that signs in
+to RetroAchievements or joins netplay waits up to `[retroarch] online_wait`
+(8 s) for a route, but only when a Wi-Fi network is saved; an offline handheld
+never waits.
+
+### RetroAchievements
+
+Configuration → Achievements cycles off, on and hardcore. It needs an account
+(Configuration → Achievements account, or `provision.toml`). The row shows the
+mode and account: `On, name`, or `signs in at next game` while a password has not
+yet been exchanged for a login token. Softcore is the default: hardcore mode
+turns off save states, rewind and cheats, so Ghazal's auto-resume and
+Menu + R1/L1 do nothing while it is on. Ghazal writes both `cheevos_enable`
+and `cheevos_hardcore_mode_enable`, because RetroArch's own default for
+hardcore is on.
+
+Configuration → Achievements account starts RetroArch's menu and presses the
+keys of `[retroarch.menu_paths] achievements` in `frontend.toml` through
+RetroArch's network command port (`network_cmd_enable`), which lands on
+Settings → Achievements. RetroArch has no command line option for a menu page,
+so the path is data: it counts entries from the end of each list (Up wraps) and
+comes from RetroArch 1.22's menu source. If a page differs, the player is still
+in RetroArch's menu, and the path is the thing to change. Enter the username
+and password there and quit RetroArch. RetroArch signs in when a game loads,
+keeps a login token and clears the password; both are written to
+`/mnt/games/.ghazal/retroarch/retroarch.cfg` when RetroArch exits, so the token
+lives on the data card.
+
+`provision.toml` can carry the account (`[retroarch] cheevos_username` and
+`cheevos_password`). The data card is not mounted at that point of boot, so
+provisioning writes `/var/lib/ghazal/retroarch-account.cfg` (mode 0600) on the
+state partition. The next RetroArch launch merges it into the user config on the
+data card, which turns achievements on in softcore mode, and deletes the seed.
+The password stays in that config (mode 0600 on ext4; exFAT keeps no modes)
+until the first sign-in. Values with a double quote or line break are rejected,
+since RetroArch's config format cannot hold them. Nothing logs the password;
+check sign-in in `/var/log/ghazal/retroarch.log`. Badges cache under
+`thumbnails_directory`, on the data card. Without a connection when a game
+loads, RetroArch cannot sign in and achievements stay off for that session.
+
+### Netplay
+
+In a game list, X opens the game's actions: Play, Emulator (systems with
+alternatives), and, when the game's emulator is a RetroArch core, Host netplay
+and Join netplay. PSP runs in standalone PPSSPP and has no netplay, and neither
+does a game pinned to a standalone emulator.
+
+- **Host netplay** starts the game with `--host --port 55435 --nick NAME`. The
+  nickname is the hostname; a handheld still called `ghazal` appends four
+  characters of its machine ID so two of them differ.
+- **Join netplay** broadcasts RetroArch's LAN discovery query (UDP port 55435,
+  `RANQ`) and lists the hosts that answer with the game they are playing (Y
+  scans again, for a host that started late). From a
+  game it shows hosts of that game, plus hosts listed in
+  `/mnt/games/.ghazal/netplay-hosts.txt` (one `address[:port] [name]` per line,
+  for another subnet or a VPN, where a broadcast does not reach). Applications →
+  Join netplay lists every host and starts the matching game from the library:
+  same file name, preferring a system that has an emulator running the host's
+  core. Joining uses the emulator that runs the host's core when the system has
+  one (a host's core beats the game's pinned emulator), else the game's own;
+  a saved host does not report its core. Joining runs
+  `--connect ADDRESS --port PORT --sram-mode noload-nosave`, so the host's save
+  never overwrites the joiner's.
+- Netplay launches pass `--appendconfig /run/ghazal/retroarch-netplay.cfg`,
+  written from `[netplay.retroarch]`: no public lobby listing, relay or UPnP
+  port mapping (RetroArch defaults to announcing publicly and to NAT traversal),
+  no automatic state load or save, and `config_save_on_exit = "false"`, because
+  RetroArch writes appended settings into the user config when it exits.
+  Changes made in RetroArch's menu during a session are therefore not kept.
+
+Both handhelds need the same RetroArch version, the same core and the same ROM
+file, and the core must support save states. A host with a netplay password must
+be joined from RetroArch's own menu (Menu + X, Netplay), which also offers
+spectating and the public relay.
+
+Not yet checked on a handheld: Achievements account's key path, sign-in over
+Wi-Fi, the first-boot account merge, hosting and joining between two handhelds,
+and the wait for Wi-Fi after a Last Game startup.
 
 ## Migrating a muOS data card
 

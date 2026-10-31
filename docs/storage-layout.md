@@ -47,7 +47,8 @@ GHAZALDATA/                 # or the root of your TF2 partition
     ├── activity.toml     # Collection and History
     ├── emulators.toml    # emulator chosen per game and per system
     ├── thumbnails/       # downloaded art and missing-art markers
-    ├── retroarch/        # native settings and per-core options
+    ├── retroarch/        # native settings, per-core options, RetroAchievements login and badges
+    ├── netplay-hosts.txt # optional extra netplay hosts, one `address[:port] [name]` per line
     ├── home/             # writable home for libretro cores
     ├── ports/home/       # writable home for PortMaster ports
     ├── cache/            # disposable emulator caches
@@ -60,8 +61,8 @@ Keep multi-file games together; use playlists when a system supports them.
 ROMs and proprietary BIOS files are not included. Box art can live beside ROMs
 in `Imgs/<game>.png`, in a preserved muOS catalogue, or in `.ghazal/thumbnails/`.
 The Collection is the favorites list; History holds the latest 100 unique games.
-Press X on a game to choose its emulator, or its system's default; the choices
-are in `.ghazal/emulators.toml` and a core's saves and states stay under that
+Press X on a game, then Emulator, to choose its emulator, or its system's
+default; the choices are in `.ghazal/emulators.toml` and a core's saves and states stay under that
 core's name in `SAVES`.
 
 PPSSPP shares game saves through `SAVES/file/PPSSPP/PSP/SAVEDATA` and stores its
@@ -104,6 +105,7 @@ GHAZALROOT/                # either OS slot; matching boot files update together
     │   ├── last-data-card    # card used last boot; only then is TF2 awaited
     │   ├── machine-id
     │   ├── ssh/              # authorized_keys and SSH host identity
+    │   ├── retroarch-account.cfg # provisioned RetroAchievements login, until the next RetroArch start
     │   └── update-channel
     ├── lib/iwd/              # provisioned Wi-Fi credentials
     ├── lib/rauc/             # update status

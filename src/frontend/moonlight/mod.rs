@@ -288,6 +288,7 @@ impl Moonlight {
             after: self.launch_after.clone(),
             // Software decoding needs every core at full clock.
             cpu: CpuLoad::Full,
+            needs: Default::default(),
         })
     }
 

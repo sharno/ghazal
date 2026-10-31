@@ -10,6 +10,15 @@ struct Provision {
     data_card: Option<DataCard>,
     #[serde(default)]
     ssh_authorized_keys: Vec<String>,
+    retroarch: Option<RetroArchAccount>,
+}
+/// A RetroAchievements account. RetroArch signs in with it when the first game
+/// loads, then keeps a token instead of the password.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetroArchAccount {
+    cheevos_username: String,
+    cheevos_password: String,
 }
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -34,6 +43,9 @@ fn validate(config: &Provision) -> Result<()> {
         {
             bail!("invalid Wi-Fi provisioning values");
         }
+    }
+    if let Some(account) = &config.retroarch {
+        crate::retroarch_cfg::account_seed(&account.cheevos_username, &account.cheevos_password)?;
     }
     for key in &config.ssh_authorized_keys {
         let fields: Vec<_> = key.split_whitespace().collect();
@@ -115,6 +127,12 @@ pub fn apply(path: &Path) -> Result<()> {
             )
             .as_bytes(),
         )?;
+    }
+    // The data card is not mounted yet, so the account waits in the state
+    // partition; the menu merges it into RetroArch's config at the next launch.
+    if let Some(account) = config.retroarch {
+        let seed = crate::retroarch_cfg::account_seed(&account.cheevos_username, &account.cheevos_password)?;
+        crate::sys::write_atomic_private(Path::new(crate::retroarch_cfg::ACCOUNT_SEED), seed.render().as_bytes())?;
     }
     if !config.ssh_authorized_keys.is_empty() {
         let destination = Path::new("/var/lib/ghazal/ssh/authorized_keys");
@@ -203,5 +221,23 @@ mod tests {
             ..Default::default()
         })
         .is_ok());
+    }
+
+    #[test]
+    fn retroachievements_credentials_are_checked_before_anything_is_written() {
+        let account = |user: &str, password: &str| Provision {
+            retroarch: Some(RetroArchAccount { cheevos_username: user.into(), cheevos_password: password.into() }),
+            ..Default::default()
+        };
+        assert!(validate(&account("sharno", "pass word")).is_ok());
+        assert!(validate(&account("", "password")).is_err());
+        assert!(validate(&account("sharno", "")).is_err());
+        // A quote or line break would end the value in RetroArch's config.
+        assert!(validate(&account("sharno", "pass\"word")).is_err());
+        assert!(validate(&account("sharno", "pass\nword")).is_err());
+        let error = validate(&account("sharno", "hunter\"2")).unwrap_err().to_string();
+        assert!(!error.contains("hunter"), "the diagnostic must not echo the password");
+        assert!(toml::from_str::<Provision>("[retroarch]\ncheevos_username = 'a'\ncheevos_password = 'b'\n").is_ok());
+        assert!(toml::from_str::<Provision>("[retroarch]\ncheevos_username = 'a'\ncheevos_token = 'b'\n").is_err());
     }
 }

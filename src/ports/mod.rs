@@ -97,6 +97,7 @@ pub fn launch_spec(config: &FrontendConfig, ports: &Config, script: &Path) -> Re
         env: Vec::new(),
         after: config.launch_after.clone(),
         cpu: crate::device::CpuLoad::Full,
+        needs: Default::default(),
     })
 }
 
