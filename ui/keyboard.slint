@@ -1,0 +1,113 @@
+// A gamepad on-screen keyboard. Rust (src/frontend/keyboard.rs) owns the keys,
+// the cursor and the text and pushes them in through KeyboardState; this file
+// only draws them. It takes its colours as properties so it does not depend on
+// the app's theme and can sit in any screen that needs typed text.
+
+/// One key. `start` and `width` count half-keys, so every row is 20 wide.
+export struct KeyCap {
+    label: string,
+    row: int,
+    start: int,
+    width: int,
+    action: bool,
+}
+
+export global KeyboardState {
+    in property <bool> visible;
+    in property <string> title;
+    /// Help text under the title, or the reason the last attempt was refused.
+    in property <string> note;
+    in property <bool> note-is-error;
+    /// The typed text as it should be shown (masked, trimmed, with a caret).
+    in property <string> text;
+    in property <[KeyCap]> keys;
+    /// Index into `keys` of the highlighted key.
+    in property <int> selected;
+}
+
+export component OnScreenKeyboard inherits Rectangle {
+    in property <color> backdrop;
+    in property <color> surface;
+    in property <color> ink;
+    in property <color> muted;
+    in property <color> highlight;
+    in property <color> on-highlight;
+    in property <color> alert;
+    in property <bool> compact;
+    in property <length> margin: 16px;
+
+    property <length> unit: (self.width - 2 * root.margin) / 20;
+    property <length> title-height: compact ? 20px : 28px;
+    property <length> note-height: compact ? 16px : 22px;
+    property <length> field-height: compact ? 28px : 40px;
+    property <length> keys-top: self.title-height + self.note-height + self.field-height + 14px;
+    // Rows shrink to fit a short screen instead of running off the bottom.
+    property <length> key-height: min(compact ? 30px : 50px, (self.height - self.keys-top) / 5);
+
+    background: root.backdrop;
+
+    Text {
+        x: root.margin;
+        y: 4px;
+        width: parent.width - 2 * root.margin;
+        height: root.title-height;
+        text: KeyboardState.title;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.compact ? 15px : 20px;
+        font-weight: 700;
+        color: root.ink;
+    }
+
+    Text {
+        x: root.margin;
+        y: 4px + root.title-height;
+        width: parent.width - 2 * root.margin;
+        height: root.note-height;
+        text: KeyboardState.note;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.compact ? 11px : 14px;
+        color: KeyboardState.note-is-error ? root.alert : root.muted;
+    }
+
+    Rectangle {
+        x: root.margin;
+        y: 8px + root.title-height + root.note-height;
+        width: parent.width - 2 * root.margin;
+        height: root.field-height;
+        border-radius: 8px;
+        background: root.surface;
+        Text {
+            x: 12px;
+            width: parent.width - 24px;
+            height: parent.height;
+            text: KeyboardState.text;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: root.compact ? 15px : 22px;
+            color: root.ink;
+        }
+    }
+
+    for key[i] in KeyboardState.keys: Rectangle {
+        x: root.margin + key.start * root.unit + 2px;
+        y: root.keys-top + key.row * root.key-height;
+        width: key.width * root.unit - 4px;
+        height: root.key-height - 4px;
+        border-radius: 8px;
+        background: i == KeyboardState.selected ? root.highlight : key.action ? root.surface : root.backdrop;
+        border-width: i == KeyboardState.selected || key.action ? 0px : 1px;
+        border-color: root.surface;
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: key.label;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: root.compact ? 13px : key.action ? 16px : 22px;
+            font-weight: i == KeyboardState.selected ? 700 : 400;
+            color: i == KeyboardState.selected ? root.on-highlight : root.ink;
+        }
+    }
+}

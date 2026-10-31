@@ -3,6 +3,9 @@
 
 import "../assets/DejaVuSans.ttf";
 import "../assets/DejaVuSans-Bold.ttf";
+import { OnScreenKeyboard, KeyboardState } from "keyboard.slint";
+
+export { KeyboardState, KeyCap } from "keyboard.slint";
 
 export struct Row {
     label: string,
@@ -338,6 +341,21 @@ export component AppWindow inherits Window {
                 overflow: elide;
                 font-size: 18px;
                 color: Theme.dim;
+            }
+
+            // Covers the list while a screen asks for typed text.
+            if KeyboardState.visible: OnScreenKeyboard {
+                width: parent.width;
+                height: parent.height;
+                backdrop: Theme.bg;
+                surface: Theme.panel;
+                ink: Theme.text;
+                muted: Theme.dim;
+                highlight: Theme.accent;
+                on-highlight: Theme.on-accent;
+                alert: Theme.warn;
+                compact: Theme.compact;
+                margin: Theme.pad;
             }
         }
 
