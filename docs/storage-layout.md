@@ -34,6 +34,7 @@ GHAZALDATA/                 # or the root of your TF2 partition
 │   ├── NES/
 │   ├── SNES/
 │   ├── PSP/
+│   ├── PORTS/            # PortMaster, and the ports it installs (docs/ports.md)
 │   └── ...               # aliases supported by frontend.toml
 ├── BIOS/
 │   ├── dc/               # Dreamcast/Naomi BIOS files, where required
@@ -47,6 +48,7 @@ GHAZALDATA/                 # or the root of your TF2 partition
     ├── thumbnails/       # downloaded art and missing-art markers
     ├── retroarch/        # native settings and per-core options
     ├── home/             # writable home for libretro cores
+    ├── ports/home/       # writable home for PortMaster ports
     ├── cache/            # disposable emulator caches
     └── syncthing/        # this card's Syncthing identity and database
 ```

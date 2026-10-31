@@ -252,10 +252,9 @@ sessions postpone it). Hold Power for a clean shutdown.
 The daemon rejects `ctl suspend` while disabled. Dimming still works and input
 activity restores brightness; an emulator or SSH session inhibits idle actions.
 Physical wake, display/audio/input recovery and battery drain require acceptance
-before enabling suspend. Initial scope is RetroArch
-games; existing PortMaster applications, standalone emulators and muOS themes
-are not launch targets. Current frontend/daemon controls do not yet expose
-Bluetooth pairing or HDMI switching.
+before enabling suspend. Launch targets are RetroArch games, standalone PPSSPP
+and [PortMaster ports](ports.md); muOS applications and themes are not. Current
+frontend/daemon controls do not yet expose Bluetooth pairing or HDMI switching.
 
 ## Recovery and logs
 
