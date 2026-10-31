@@ -135,7 +135,7 @@ mod tests {
         p.device().unwrap();
         p.frontend().unwrap();
         p.system().unwrap();
-        for dir in ["config/rg40xxv", "dev/etc"] {
+        for dir in ["config/rg40xxv", "dev/etc", "config/qemu"] {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let path = entry.path();
                 let name = path.file_name().unwrap().to_string_lossy().to_string();

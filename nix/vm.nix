@@ -46,6 +46,9 @@ let
     mkdir -p $root/roms/GBA $root/roms/SNES
     for g in "Pixel Quest" "Orbit Jam" "Neon Drift" "Sky Harbor" "Caverns of Rust"; do touch "$root/roms/GBA/$g.gba"; done
     for g in "Castle Crawl" "Block Party"; do touch "$root/roms/SNES/$g.sfc"; done
+    # Ten games: reaching the last needs L1, R1 and Down presses (nix/vm-smoke.nix).
+    mkdir -p $root/roms/SMOKE
+    for g in Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet; do touch "$root/roms/SMOKE/$g.rom"; done
     (cd $root && find . | sort | cpio -o -H newc -R 0:0 --quiet) | xz --check=crc32 -T0 > $out
   '';
 
@@ -57,8 +60,11 @@ let
       # GHAZAL_VM_HEADLESS=1: no window; QEMU monitor on $GHAZAL_VM_MONITOR (a unix socket)
       # for scripted key presses and screendumps.
       display=(-display "gtk,zoom-to-fit=on")
+      serial=(-serial mon:stdio)
       if [ -n "''${GHAZAL_VM_HEADLESS:-}" ]; then
+        # Headless, the monitor has its own socket and stdio is the guest's console alone.
         display=(-display none -monitor "unix:''${GHAZAL_VM_MONITOR:-/tmp/ghazal-vm.monitor},server,nowait")
+        serial=(-serial stdio)
       fi
       exec qemu-system-aarch64 \
         -machine virt -cpu cortex-a53 -smp 4 -m 1024 \
@@ -66,7 +72,7 @@ let
         -append "rdinit=/init console=ttyAMA0 loglevel=4" \
         -device virtio-gpu-pci,xres=640,yres=480 \
         -device virtio-keyboard-pci \
-        -serial mon:stdio "''${display[@]}" "$@"
+        "''${serial[@]}" "''${display[@]}" "$@"
     '';
   };
 in

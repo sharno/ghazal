@@ -128,10 +128,11 @@ marks = "/run/ghazal/udev-settled"
 start = "background"
 # Nothing else raises `lo`, and 127.0.0.1 is unusable while it is down: RetroArch's
 # command port (Achievements account), `ssh -R` and local proxies need it.
+# BusyBox's `ip`, called through `busybox` like every applet the image lacks a link for.
 [[supervisor.service]]
 name = "loopback"
 kind = "oneshot"
-exec = ["/usr/bin/ip", "link", "set", "lo", "up"]
+exec = ["/usr/bin/busybox", "ip", "link", "set", "lo", "up"]
 start = "background"
 [[supervisor.service]]
 name = "dbus"

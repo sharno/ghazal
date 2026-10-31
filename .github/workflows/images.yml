@@ -52,6 +52,8 @@ jobs:
           fi
           builder=$(nix build .#image-builder --no-link --print-out-paths)
           printf '%s\n' "$builder" > build/release-tools/store-path.txt
+          # The runtime tree is in the builder's closure; release-tests checks it.
+          nix build .#runtime --no-link --print-out-paths > build/release-tools/tree-path.txt
           "$builder/bin/ghazal-image-builder" --matrix > build/release-tools/devices.json
           nix-store --query --requisites "$builder" > build/release-tools/paths.txt
           mapfile -t paths < build/release-tools/paths.txt
@@ -62,6 +64,57 @@ jobs:
           path: build/release-tools/
           retention-days: 3
           compression-level: 0
+  # Release gates (docs/release-checks.md). Betas 8 and 9 shipped a runtime whose
+  # RetroArch had no gamepad profile; these checks open the built runtime instead of
+  # trusting that it built. They run beside the image builds, publication waits for
+  # them, and they are their own jobs so a failure never discards the runtime cache.
+  release-tests:
+    if: inputs.artifact_run == ''
+    needs: runtime
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tools
+          path: build/release-tools
+      - name: Import the identical checked runtime
+        run: gzip -dc build/release-tools/runtime.nar.gz | nix-store --import
+      - name: Install Rust toolchain
+        run: rustup show
+      - name: Build the release checks
+        run: cargo build --release --locked --manifest-path tools/release-check/Cargo.toml
+      - name: Check the runtime tree against the shipped profile
+        run: |
+          tree=$(cat build/release-tools/tree-path.txt)
+          tools/release-check/target/release/ghazal-release-check layout "$tree" config/rg40xxv-rocknix
+      - name: Drive the runtime's RetroArch with a virtual gamepad
+        # Needs /dev/uinput. When the runner kernel lacks it the test reports exit
+        # status 77 and the layout check above remains the gate; run
+        # scripts/release-tests.sh input on a machine that has it before tagging.
+        run: |
+          sudo modprobe uinput || true
+          tree=$(cat build/release-tools/tree-path.txt)
+          status=0
+          sudo env GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" tools/release-check/target/release/ghazal-release-check input "$tree" config/rg40xxv-rocknix || status=$?
+          if test "$status" -eq 77; then
+            echo "::warning::No /dev/uinput on this runner: the headless RetroArch input test was skipped"
+          else
+            exit "$status"
+          fi
+  # Ghazal as PID 1 on a stock kernel in QEMU: the menu must draw and answer a key.
+  vm-smoke:
+    if: inputs.artifact_run == ''
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix run .#vm-smoke
   images:
     needs: runtime
     runs-on: ubuntu-24.04-arm
@@ -115,8 +168,8 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') &&
-      (inputs.artifact_run != '' || (needs.checks.result == 'success' && needs.images.result == 'success'))
-    needs: [checks, images]
+      (inputs.artifact_run != '' || (needs.checks.result == 'success' && needs.images.result == 'success' && needs.release-tests.result == 'success' && needs.vm-smoke.result == 'success'))
+    needs: [checks, images, release-tests, vm-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -138,7 +191,7 @@ jobs:
           jq -e --arg sha "$tag_sha" --arg tag "$TAG" '.head_sha == $sha and .head_branch == $tag and .event == "push" and .path == ".github/workflows/images.yml" and .status == "completed"' build-run.json
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN/jobs?per_page=100" --jq '.jobs[]' | jq -s -e '
             . as $jobs |
-            ["runtime", "checks / check", "images (ddr3)", "images (ddr4)"] as $required |
+            ["runtime", "checks / check", "release-tests", "vm-smoke", "images (ddr3)", "images (ddr4)"] as $required |
             all($required[]; . as $name | any($jobs[]; .name == $name and .conclusion == "success"))' >/dev/null
       - uses: actions/download-artifact@v4
         with:

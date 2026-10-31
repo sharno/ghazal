@@ -113,6 +113,12 @@ impl Choices {
         Ok(Self { backing: Backing::File(path.to_owned()), data })
     }
 
+    /// What the menu would launch with, for observers: a file that cannot be
+    /// used means the system defaults, and the file is never touched.
+    pub fn read_only(path: &Path) -> Self {
+        Self::load(path).unwrap_or_else(|error| Self { backing: Backing::Unavailable { reason: format!("{error:?}") }, data: Data::default() })
+    }
+
     /// Loads for the menu, which must start whatever the file holds: returns
     /// usable choices and a warning for the player when something was wrong.
     pub fn open(path: &Path) -> (Self, Option<String>) {

@@ -74,6 +74,10 @@ signed update bundle. Use `.img.gz` to flash a card and `.raucb` for RAUC update
 CI builds both bootloaders, all device trees and the common kernel from pinned
 sources, runs Rust checks, audits public provisioning, checks both image
 filesystems and verifies the complete artifact inventory before publication.
+It also opens the built runtime (every core, command, PPSSPP asset and the
+gamepad profile), runs its RetroArch against a virtual copy of the handheld's
+pad and boots the menu in QEMU; publication waits for all three
+([release checks](https://github.com/sharno/ghazal/blob/main/docs/release-checks.md)).
 A disposable loop-device test grows p3 while p1/p2 are mounted, kills a
 formatter after its first write, recovers that transaction, checks save retention
 and proves unknown data is refused. Provisioning errors are reported on the

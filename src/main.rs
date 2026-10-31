@@ -1,5 +1,6 @@
 //! ghazal: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
 
+mod acceptance;
 mod daemon;
 mod debug;
 mod device;
@@ -49,7 +50,7 @@ COMMANDS:
   check                  validate configs and service binaries
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
-  observe audio|boot|frame|press|recent-benchmark|moonlight-hosts  inspect and exercise the real device
+  observe audio|boot|frame|press|plan|launch|recent-benchmark|moonlight-hosts  inspect and exercise the real device
   ports run SCRIPT|install|prepare|check|ldd FILE  run PortMaster ports, install PortMaster, check what ports need
 
 Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $GHAZAL_CONFIG_DIR,
@@ -96,6 +97,7 @@ fn run() -> Result<()> {
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
         "observe" if rest == ["moonlight-hosts"] => frontend::observe_moonlight_hosts(),
+        "observe" if matches!(rest.first().map(String::as_str), Some("plan" | "launch")) => acceptance::run(&profile.device()?, &profile.frontend()?, rest),
         "observe" => observe::run(&profile.device()?, rest),
         "ports" => ports::cli(&profile, rest),
         "rescue" => init::rescue(),

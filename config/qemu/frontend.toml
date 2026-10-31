@@ -16,3 +16,11 @@ name = "SNES"
 dirs = ["SNES"]
 extensions = ["sfc"]
 core = "snes9x_libretro.so"
+
+# Smoke test only: "launching" a game records its path, so the test can see which game
+# the menu path from `ghazal observe launch` selected.
+[[system]]
+name = "Smoke Test"
+dirs = ["SMOKE"]
+extensions = ["rom"]
+command = ["/bin/sh", "-c", "echo launched \"$0\" >> /run/ghazal/launched; sleep 2", "{rom}"]

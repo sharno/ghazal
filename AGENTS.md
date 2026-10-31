@@ -219,6 +219,11 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   `--target`: a stale target that differs from main's workflows can require
   workflow-write permission unavailable to GITHUB_TOKEN. Resume asset uploads
   only on drafts; never overwrite an already published release in CI.
+- A release publishes only after `release-tests` and `vm-smoke` pass
+  (docs/release-checks.md); a resumed publication must find both in the run.
+  Both read the shipped profile, so new cores, services and emulators are covered
+  without editing the checker. When a release breaks something they missed, add
+  the check before fixing anything else.
 - Classify user-volume failures separately from OS faults. A missing/full data
   card is shared by both slots: retain Wi-Fi/SSH recovery instead of exhausting
   both boot budgets. Keep this distinction through anyhow boot-step context.
@@ -277,6 +282,31 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - An open SSH session postpones idle poweroff, so keep one open during long
   unattended work. BusyBox lacks many applet links (`sed`, `pidof`,
   `readlink`, `od`): use `busybox <applet>`.
+- Before tagging, run the release checklist in docs/release-checks.md:
+  `scripts/acceptance.sh GAMES_FILE` launches each listed game through the menu
+  with scratch save paths and checks controls, sound, picture, clock policy, save
+  states and quitting. Keep the games file out of the repository. A bind mount of
+  a wrapper over the resolved RetroArch store path redirects saves without
+  touching the read-only root. `ghazal observe plan|launch ROM` give it the
+  menu's own button path; `observe frame` prints `distinct_colors` for blank-frame checks.
+- Reproduce the CI gates with `scripts/release-tests.sh [layout|input|smoke]`
+  (on macOS it uses the nixos/nix container; Docker's kernel has `/dev/uinput`).
+  The shared Docker disk fills up when several builds run: keep cargo's target
+  directory in a tmpfs (`--tmpfs /target`) for Rust checks.
+
+### Release checks
+
+- Unconfirmed on GitHub's `ubuntu-24.04-arm` runners: that `modprobe uinput`
+  gives the `release-tests` input step a `/dev/uinput` (otherwise it warns and
+  the layout gate is the only runtime gate), and how long `vm-smoke` takes there
+  (about 30 s in Docker's QEMU). If the runners lack uinput, run
+  the input test inside the QEMU machine instead.
+- `scripts/acceptance.sh` has not yet run on hardware: confirm the menu path
+  from `observe launch`, the wrapper bind over the store path, the PPSSPP flow
+  and every threshold (16 colours, 3.5 s boot) on the RG40XX-V v2.
+- `vm-smoke` covers the `ghazal` binary on a stock kernel with `config/qemu`
+  only. Booting the real image (H700 kernel, runtime, emulators) in QEMU is not
+  possible; hardware acceptance stays the proof for those.
 
 ## Untested features
 
