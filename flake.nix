@@ -53,6 +53,10 @@
             profile = ./config/qemu;
           };
 
+          # Release gates (tools/release-check, docs/release-checks.md).
+          release-check = pkgs.callPackage ./nix/release-check.nix { src = ./.; };
+          vm-smoke = pkgs.callPackage ./nix/vm-smoke.nix { vm = vm.runner; };
+
           # winit/softbuffer dlopen these at runtime for the desktop simulator.
           simLibs = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr ];
         in
@@ -63,11 +67,20 @@
             inherit (runtime) mesa retroarch ppsspp;
             vm-initrd = vm.initrd;
             vm = vm.runner;
+            inherit release-check vm-smoke;
             default = vm.runner;
           };
 
+          # `nix build .#checks.<system>.runtime-layout` fails when the built
+          # runtime breaks the shipped profile (cores, commands, gamepad profile).
+          checks.runtime-layout = pkgs.runCommand "ghazal-runtime-layout" { } ''
+            ${release-check}/bin/ghazal-release-check layout ${runtime.tree} ${./config/rg40xxv-rocknix}
+            touch $out
+          '';
+
           apps = {
             vm = { type = "app"; program = "${vm.runner}/bin/ghazal-vm"; };
+            vm-smoke = { type = "app"; program = "${vm-smoke}/bin/ghazal-vm-smoke"; };
             image = { type = "app"; program = "${image-builder}/bin/ghazal-image-builder"; };
           };
 
@@ -83,6 +96,7 @@
     {
       packages = nixpkgs.lib.mapAttrs (_: o: o.packages) perSystem;
       apps = nixpkgs.lib.mapAttrs (_: o: o.apps) perSystem;
+      checks = nixpkgs.lib.mapAttrs (_: o: o.checks) perSystem;
       devShells = nixpkgs.lib.mapAttrs (_: o: o.devShells) perSystem;
     };
 }

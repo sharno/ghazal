@@ -1,0 +1,13 @@
+[package]
+name = "ghazal-release-check"
+version = "0.1.0"
+edition = "2021"
+description = "Release gates: checks the built device runtime against the shipped profile and drives its RetroArch with a virtual gamepad"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+anyhow = "1"
+evdev = "0.12"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
