@@ -32,10 +32,32 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
             println!("power_on_to_first_frame_seconds = {:.3}", firmware + kernel);
             Ok(())
         }
+        Some("hdmi") if args.len() == 1 => hdmi(device),
         Some("press") if args.len() == 2 => press(device, &args[1]),
         Some("power") if args.len() == 2 => power(device, args[1].parse().context("power takes a duration in seconds")?),
-        _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...]"),
+        _ => bail!("usage: ghazal observe audio | boot | hdmi | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...]"),
     }
+}
+
+/// What the board reports about HDMI, without taking the display or changing anything.
+fn hdmi(device: &DeviceConfig) -> Result<()> {
+    let config = device.display.hdmi.as_ref().context("this profile does not configure HDMI")?;
+    let connector = crate::hdmi::connector::Connector::find_hdmi(Path::new(crate::hdmi::connector::DRM_CLASS), None).context("this board has no HDMI connector")?;
+    let connection = connector.connection();
+    println!("connector: {}", connector.name());
+    println!("status: {connection:?}");
+    println!("wanted mode: {}x{}", config.mode.width, config.mode.height);
+    if connection == crate::hdmi::Connection::Connected {
+        println!("modes: {}", connector.modes().split_whitespace().collect::<Vec<_>>().join(" "));
+    }
+    match device.audio.as_ref().and_then(|audio| audio.hdmi.as_ref()) {
+        Some(sound) => {
+            let overlay = sound.overlay.as_ref().map_or_else(|| "none".to_owned(), |path| format!("{} ({})", path.display(), if path.exists() { "present" } else { "missing" }));
+            println!("sound card {}: {} (overlay {overlay})", sound.card, if crate::hdmi::audio::card_present(sound) { "present" } else { "created on first use" });
+        }
+        None => println!("sound: not configured"),
+    }
+    Ok(())
 }
 
 /// The CPU's time at each clock step over a run on battery, with the battery's

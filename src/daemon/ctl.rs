@@ -4,6 +4,7 @@
 //!   brightness 50|+10|-10  -> ok ...
 //!   volume 40|+5|-5        -> ok ...
 //!   lights next|prev|<preset>  -> ok ... lights=<preset> (only on boards with stick lights)
+//!   output panel=on|off sound=speaker|hdmi -> ok panel=off sound=hdmi (what the daemon could do)
 //!   suspend | poweroff | reboot
 //!
 //! `ghazal ctl <command...>` is the client; the frontend uses `request()` directly.
@@ -94,6 +95,10 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
                     None => bail!("lights needs next, prev or a preset"),
                 };
                 d.set_lights(preset);
+            }
+            Some("output") => {
+                let outputs = d.set_outputs(crate::hdmi::Outputs::parse(&mut words)?);
+                return Ok(format!("ok {}", outputs.to_args()));
             }
             Some("stop-emulator") => crate::emulator::stop()?,
             // Reply before acting: these may not return (poweroff) or block (suspend).

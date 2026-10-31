@@ -11,7 +11,13 @@ pub struct Settings {
     /// Show the selected game's box art beside game lists.
     pub show_thumbnails: bool,
     pub startup: StartupMode,
+    /// Left out of the file while it is the default, so a previous OS slot (which
+    /// rejects unknown keys and would then drop every setting) still reads it.
+    #[serde(skip_serializing_if = "is_default_policy")]
+    pub hdmi: crate::hdmi::Policy,
 }
+
+fn is_default_policy(policy: &crate::hdmi::Policy) -> bool { *policy == crate::hdmi::Policy::default() }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -29,7 +35,7 @@ impl StartupMode {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { show_thumbnails: true, startup: StartupMode::Menu }
+        Self { show_thumbnails: true, startup: StartupMode::Menu, hdmi: crate::hdmi::Policy::default() }
     }
 }
 
@@ -48,5 +54,27 @@ impl Settings {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         crate::sys::write_atomic(path, toml::to_string(self)?.as_bytes()).with_context(|| format!("saving {}", path.display()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_hdmi_policy_stays_out_of_the_file() {
+        let text = toml::to_string(&Settings::default()).unwrap();
+        assert!(!text.contains("hdmi"), "{text}");
+        let chosen = Settings { hdmi: crate::hdmi::Policy::Mirror, ..Settings::default() };
+        let text = toml::to_string(&chosen).unwrap();
+        assert!(text.contains("hdmi = \"mirror\""), "{text}");
+        assert_eq!(toml::from_str::<Settings>(&text).unwrap(), chosen);
+    }
+
+    #[test]
+    fn settings_written_before_hdmi_existed_still_load() {
+        let old: Settings = toml::from_str("show_thumbnails = false\nstartup = \"last-game\"\n").unwrap();
+        assert_eq!(old.hdmi, crate::hdmi::Policy::Auto);
+        assert_eq!(old.startup, StartupMode::LastGame);
     }
 }

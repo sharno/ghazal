@@ -1,6 +1,8 @@
 pub mod evdev_input;
 mod fbdev;
 mod kms;
+mod routing;
+mod scale;
 
 #[cfg(feature = "desktop")]
 pub mod desktop;
@@ -17,6 +19,7 @@ use slint::{PhysicalSize, Rgb8Pixel};
 
 use crate::device::{DeviceConfig, Output};
 use crate::frontend::app::{App, Effect};
+use crate::hdmi::{Connection, Layout, Sound};
 use crate::frontend::config::FrontendConfig;
 use crate::frontend::input::Repeater;
 use crate::ui::AppWindow;
@@ -155,8 +158,50 @@ impl Display {
     fn open(device: &DeviceConfig) -> Result<Self> {
         Ok(match device.display.output {
             Output::Fbdev => Self::Fbdev(fbdev::Framebuffer::open(&device.framebuffer)?),
-            Output::Kms => Self::Kms(kms::Kms::open(&device.display.card)?.with_rotation(device.display.rotation)),
+            Output::Kms => Self::Kms(kms::Kms::open(&device.display.card, device.display.hdmi.as_ref())?.with_rotation(device.display.rotation)),
         })
+    }
+
+    fn layout(&self) -> Layout {
+        match self {
+            Self::Fbdev(_) => Layout::Panel,
+            Self::Kms(k) => k.layout(),
+        }
+    }
+
+    /// Only KMS boards with an HDMI connector in their profile have one.
+    fn hdmi_connection(&self) -> Connection {
+        match self {
+            Self::Fbdev(_) => Connection::Absent,
+            Self::Kms(k) => k.hdmi_connection(),
+        }
+    }
+
+    fn release_forced(&self) {
+        if let Self::Kms(k) = self { k.release_forced(); }
+    }
+
+    fn hdmi_mode(&self) -> Option<(u16, u16)> {
+        match self {
+            Self::Fbdev(_) => None,
+            Self::Kms(k) => k.hdmi_mode(),
+        }
+    }
+
+    fn set_layout(&mut self, layout: Layout) -> Result<Layout> {
+        match self {
+            Self::Fbdev(_) => Ok(Layout::Panel),
+            Self::Kms(k) => k.set_layout(layout),
+        }
+    }
+
+    /// Draws on the handheld's own screen even while HDMI shows the menu.
+    fn present_panel(&mut self, frame: &[Rgb8Pixel], stride: usize, damage: Damage) -> Result<()> {
+        match self {
+            Self::Fbdev(fb) => fb.present(frame, stride, damage),
+            Self::Kms(k) => k.present_panel(frame, stride, damage)?,
+        }
+        Ok(())
     }
 
     fn size(&self) -> (u32, u32) {
@@ -203,6 +248,8 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
         }
     }
     let levels_watch = crate::levels::Watch::open(&config.daemon_socket)?;
+    let mut routing = routing::Routing::new(config.daemon_socket.clone());
+    let retroarch_config = config.retroarch.user_config.clone();
     let mut app = build_app(config)?;
     if !claim_boot_startup()? { app.disable_startup(); }
     let mut repeater = Repeater::default();
@@ -220,11 +267,23 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
             }
         }
 
+        // HDMI is looked at once the first frame is out: the boot path never waits for it.
+        if !first_frame && routing.due(app.hdmi_policy(), now) {
+            if let Some(update) = routing.sync(&mut display, app.hdmi_policy(), now) {
+                app.set_hdmi(update.status, update.error);
+                screen.invalidate();
+                continue;
+            }
+        }
+
         let mut effect = app.take_startup_effect();
         if effect.is_none() {
             let mut deadline = repeater.next_deadline().map_or(app.next_deadline(), |t| t.min(app.next_deadline()));
             if let Some(wake) = screen.next_wake() {
                 deadline = deadline.min(now + wake);
+            }
+            if let Some(poll) = routing.next_poll() {
+                deadline = deadline.min(poll);
             }
             input.poll(deadline.saturating_duration_since(now), levels_watch.as_ref().map(crate::levels::Watch::fd), |key, pressed| {
                 if pressed {
@@ -248,15 +307,35 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 // Close the evdev clients entirely: gameplay must never enter a
                 // frontend queue (including SYN_DROPPED recovery batches).
                 drop(input);
+                let (plan, update) = routing.prepare_launch(&mut display, device, app.hdmi_policy());
+                if let Some(update) = update { app.set_hdmi(update.status, update.error); }
+                let spec = routing::route_sound(spec, device, plan.sound);
+                // The emulator takes the display over; the handheld's screen says where the game is.
+                if plan.layout.game_on_hdmi() { show_panel_notice(&mut app, &mut screen, &mut display, w as usize); }
                 if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Game(spec.cpu)); }
                 let result = display.with_released(|| spec.run(|| app.session_started(purpose)));
                 if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Menu); }
+                routing.finish_launch(&mut display, &plan);
+                if let (Sound::Hdmi, Some(path)) = (plan.sound, &retroarch_config) { routing::forget_hdmi_device(path, device); }
+                app.set_notice(None);
                 let result = result?;
                 screen.invalidate();
                 input = evdev_input::Input::open(device)?;
                 repeater.clear();
                 app.launch_finished(result);
             }
+        }
+    }
+}
+
+/// Draws the "playing on HDMI" screen on the handheld's own display only.
+fn show_panel_notice(app: &mut App, screen: &mut Screen, display: &mut Display, width: usize) {
+    app.set_notice(Some(("Playing on HDMI", "Menu + Start quits the game. This screen returns when it ends.")));
+    screen.invalidate();
+    app.tick(Instant::now());
+    if let Some(damage) = screen.render() {
+        if let Err(error) = display.present_panel(screen.pixels(), width, damage) {
+            eprintln!("ghazal: drawing the HDMI notice: {error:#}");
         }
     }
 }
