@@ -101,6 +101,9 @@ menu's own **Install PortMaster**:
   udev marks `ID_INPUT_KEYBOARD=1`; the pad's bottom button closes the dialog and
   the port's exit leaves nothing running and the input device gone.
 - A port playing a tone through SDL2: PCM `RUNNING`, owner the port.
+- PortMaster's Love2D runtime (`runtimes/love_11.5`) starts from the menu and draws
+  PortMaster's own splash through LuaJIT, SDL2 KMSDRM and GLES, with OpenAL open on
+  ALSA (PCM `RUNNING`), then exits cleanly.
 - A squashfs runtime mounts with plain `mount` for gzip, zstd and **xz**
   compression, reads back intact and leaves no loop device after `umount`.
 - A script that exits with status 3 shows `[ERROR] Broken.sh stopped after 0 s with
@@ -112,7 +115,9 @@ menu's own **Install PortMaster**:
 Found and fixed by those runs: `/dev/fd` was missing; PortMaster's zip stores
 `gptokeyb` without an execute bit and starts its Love2D splash before its own
 `chmod -R +x`; Love2D's runtime needs freetype, OpenAL, mpg123, Vorbis and Theora
-from the system.
+from the system; and once Love could run, PortMaster's splash held the display (the
+DRM master) so its own SDL window failed with "No available video device":
+`mod_Ghazal.txt` drops the launcher's one `env ... love.aarch64 .../pmsplash` call.
 
 Off-device, `scripts/test-ports.sh` repeats the port, namespace, squashfs and
 PortMaster-tool checks in an aarch64 Linux container with the runtime's own glibc,
@@ -122,9 +127,10 @@ control-file copying, executable bits, the ports folder lookup and failure
 reporting.
 
 Not tried: a real port from the catalogue (SDL2/GLES, gptokeyb mouse, mono, Godot),
-PortMaster's own downloads and its Options, Love2D's splash and runtime with the
-new libraries (see AGENTS.md), game audio beyond a tone, and anything that needs a
-person: controller feel and the `ANALOG_STICKS` value for this board.
+PortMaster's own downloads and its Options (including its disclaimer), Love2D video
+(`.ogv`: libtheora 1.2's decoder is linked under the `.so.1` name Love asks for), game
+audio beyond a tone, and anything that needs a person: controller feel and the
+`ANALOG_STICKS` value for this board.
 
 ## What should work, and what will not
 
