@@ -110,6 +110,10 @@ pub fn run(ports: &Config, device: &DeviceConfig, ports_dir: &Path, script: &Pat
         // A stale control.txt is a worse port, not a reason to refuse to start one.
         eprintln!("ghazal: updating PortMaster's control files: {error:#}");
     }
+    if !ports_dir.join(PORTMASTER).join("control.txt").is_file() {
+        // Not fatal: a plain shell script may still work.
+        eprintln!("ghazal: PortMaster is not installed in {}: ports source its control.txt and use its tools", ports_dir.display());
+    }
     std::fs::create_dir_all(&ports.home).with_context(|| format!("creating {}", ports.home.display()))?;
     let environment = env::port_env(&Spec {
         home: &ports.home, bin: &ports.bin, libs: &ports.libs, controller_db: &ports.controller_db,

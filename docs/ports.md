@@ -46,7 +46,7 @@ resumed with a state: they save the way each game does.
 | `/lib/ld-linux-aarch64.so.1` for its glibc binaries | link to the runtime's glibc loader (`nix/runtime/default.nix`) |
 | `#!/bin/bash`, `#!/usr/bin/env python3` | `/usr/bin/bash`, `/usr/bin/env` |
 | python3 with ctypes and ssl, unzip, curl, mount (loop), unsquashfs, pkill, ... | `/usr/lib/ghazal/ports/bin`, first on the port's `PATH` |
-| SDL2, SDL2_image, SDL2_mixer, SDL2_ttf, EGL, GLESv2, gbm, drm, ALSA, udev, zlib, libpng, libstdc++, libgcc_s | `/usr/lib/ghazal/ports/lib`, in the port's `LD_LIBRARY_PATH` (a port's own `libs.aarch64` is searched first) |
+| SDL2, SDL2_image, SDL2_mixer, SDL2_ttf, EGL, GLESv2, gbm, drm, ALSA, udev, zlib, libpng, libstdc++, libgcc_s | `/usr/lib/ghazal/ports/lib`, in the port's `LD_LIBRARY_PATH` (a port's own `libs.aarch64` is searched first); the four SDL libraries are also linked in `/usr/lib`, where PortMaster's launcher points its GUI |
 | `control.txt`, `mod_<CFW>.txt`, `get_controls`, `$GPTOKEYB` | Ghazal's own, copied into the PortMaster folder before every run (`config/rg40xxv-rocknix/ports`); `CFW_NAME` is `Ghazal` |
 | a gamepad SDL knows | an SDL mapping generated from the pad's evdev capabilities and `device.toml`, in `/run/ghazal/ports/gamecontrollerdb.txt` |
 | `/dev/uinput` for gptokeyb's keyboard | present; a udev rule classifies virtual input devices so SDL reads them |

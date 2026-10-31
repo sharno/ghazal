@@ -208,6 +208,7 @@ if [ -n "${PM_SAMPLE:-}" ]; then
   check "innoextract runs" sh -c "$PM/innoextract.aarch64 --version 2>&1 | grep -qi innoextract"
   check "sdl_resolution initializes SDL with the dummy driver" sh -c "$PM/sdl_resolution.aarch64 2>&1 | grep -qa 'Current'"
   if [ -f $PM/pylibs.zip ]; then
+    check "BusyBox unzip unpacks PortMaster's own zip" sh -c "mkdir -p $WORK/unzip && unzip -q -o $PM/pylibs.zip -d $WORK/unzip && [ -f $WORK/unzip/pylibs/harbourmaster/__init__.py ]"
     check "PortMaster's Python code unpacks (zipfile)" python3 -c "import zipfile; zipfile.ZipFile('$PM/pylibs.zip').extractall('$PM')"
   fi
   # PortMaster launcher sets this itself, to the standard place.
