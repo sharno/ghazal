@@ -319,11 +319,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   `runtime` job (new derivations) took about 50 minutes, and every push to main
   cancels the run in progress before its cache is saved, so let the `runtime`
   job finish before pushing again.
-- Beta 11's release went out with 33 of 38 images: `publish` extracted both image
-  artifacts (about 27 GB) onto the runner's root disk, which ran out of space
-  during the DDR4 one, and nothing counted the files. Beta 12 repackaged it. The
-  job now extracts onto `/mnt` and checks counts before and after uploading; keep
-  an eye on artifact size as the runtime grows (beta 10 was 23 GB).
+- The runner's root disk cannot hold both image artifacts (about 27 GB; beta 10
+  was 23 GB), so `publish` extracts them onto `/mnt` and checks the image and
+  bundle counts before and after uploading. Watch artifact size as the runtime
+  grows.
 - `scripts/acceptance.sh` ran on the RG40XX-V v2 against a fresh image built from
   main: Game Boy, GBA, SNES, Mega Drive, PlayStation and PSP games, 69 checks
   passed and the PSP save state was skipped by design, in 2 min 7 s. The menu path

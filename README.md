@@ -69,7 +69,7 @@ RetroAchievements on once an account is set up under **Achievements account**.
 
 Releases include 38 images covering 19 device/panel variants with DDR3 and DDR4
 bootloaders. Physical validation currently covers the RG40XX-V v2 / DDR4;
-other targets are experimental. Native suspend/wake is disabled. Beta 11's new
+other targets are experimental. Native suspend/wake is disabled. Beta 12's new
 features (streaming, PortMaster, HDMI, Wi-Fi setup, achievements and netplay,
 per-game emulators) are only partly tested on hardware; the release notes say
 what ran. Games and proprietary BIOS files are supplied by the user.
