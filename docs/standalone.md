@@ -78,7 +78,9 @@ Hardware acceptance requires a real boot, display and controller input, sound,
 RetroArch launch/exit, persistent saves, clean shutdown and repeated deep
 suspend/resume from both menu and emulator. QEMU does not establish H700 sleep
 support. Record `/sys/power/mem_sleep`, wake sources and post-resume kernel logs,
-then measure idle sleep battery drain on the actual board.
+then measure idle sleep battery drain on the actual board. The
+[release checklist](release-checks.md) automates the launch, sound, saves and
+quit parts with `scripts/acceptance.sh`.
 
 ## Build
 
@@ -173,6 +175,8 @@ The built-in observation commands exercise the real handheld:
 /opt/ghazal/ghazal observe frame /tmp/menu.ppm
 /opt/ghazal/ghazal observe press menu+x
 /opt/ghazal/ghazal observe power 60
+/opt/ghazal/ghazal observe plan "/mnt/games/ROMS/GB/Example.gb"
+/opt/ghazal/ghazal observe launch "/mnt/games/ROMS/GB/Example.gb"
 ```
 
 `observe audio` reports PCM state and user volume, reads every fixed routing
@@ -180,7 +184,12 @@ control and fails if it differs from the profile. `frame` reads the currently
 scanned-out DRM buffer, including emulator and RetroArch menus, without taking
 display ownership. It supports linear XRGB8888 and refuses unsupported layouts
 or overwriting an observation. Copy the PPM over SSH and convert it on the host
-with `ffmpeg -i menu.ppm menu.png`. `press` validates named buttons against the
+with `ffmpeg -i menu.ppm menu.png`; it also prints `distinct_colors` (capped at
+4096), which is 1 or 2 for a blank frame. `plan ROM` runs the menu's library scan
+and prints, as `key=value` lines, the ROM's system, launch kind, expected clock
+policy and the button path from anywhere in the menu to launching it; `launch ROM`
+presses that path on the real gamepad ([release checks](release-checks.md) use
+both). `press` validates named buttons against the
 actual evdev capabilities, presses the chord for 200 ms and releases it even on
 an error. These observations help test the real drivers; they do not establish
 physical speaker output or sound quality by themselves. `power` reports the CPU's
