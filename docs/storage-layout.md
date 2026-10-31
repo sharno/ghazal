@@ -48,6 +48,7 @@ GHAZALDATA/                 # or the root of your TF2 partition
     ├── retroarch/        # native settings and per-core options
     ├── home/             # writable home for libretro cores
     ├── cache/            # disposable emulator caches
+    ├── moonlight/        # game streaming: known hosts, settings and this device's pairing keys
     └── syncthing/        # this card's Syncthing identity and database
 ```
 
@@ -60,6 +61,10 @@ The Collection is the favorites list; History holds the latest 100 unique games.
 PPSSPP shares game saves through `SAVES/file/PPSSPP/PSP/SAVEDATA` and stores its
 standalone states under `SAVES/state/PPSSPP-standalone`. The rotated RG28XX uses
 the libretro PSP core instead of standalone PPSSPP, so core states are separate.
+
+`.ghazal/moonlight/keys` is the device's identity for streaming hosts: a card
+that keeps it stays paired, and copying it to a second handheld makes the two
+indistinguishable to the host.
 
 Back up **ROMS, BIOS, SAVES and .ghazal**, including hidden files. Syncthing's GUI
 is local-only on port 8384; use an SSH tunnel to configure it. Avoid cloning a
