@@ -19,6 +19,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   ten rolling numbered states, separate from the automatic resume state.
 - Change brightness, volume, stick lights (RG40XX H/V, RG CubeXX) and persistent
   RetroArch settings from Configuration.
+- Pair Bluetooth gamepads from Configuration → Bluetooth and play with them
+  beside the handheld's own controls.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a
   lower CPU clock than demanding ones.
 - Use one SD card for everything, or separate OS and games/data cards.
