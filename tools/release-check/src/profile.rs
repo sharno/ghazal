@@ -89,6 +89,9 @@ pub struct RetroArch {
 pub enum Launch {
     Core(String),
     Command { argv: Vec<String>, env: BTreeMap<String, String> },
+    /// A launch kind added after these checks were written: nothing here knows
+    /// what to expect of it, so the checks leave it alone.
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,7 +116,8 @@ impl TryFrom<RawSystem> for SystemEntry {
         let launch = match (raw.core, raw.command) {
             (Some(core), None) => Launch::Core(core),
             (None, Some(argv)) if !argv.is_empty() => Launch::Command { argv, env: raw.env },
-            _ => return Err(format!("system {:?} needs exactly one of core or a non-empty command", raw.name)),
+            (None, None) => Launch::Other,
+            _ => return Err(format!("system {:?} sets both core and command, or an empty command", raw.name)),
         };
         Ok(Self { name: raw.name, launch })
     }
@@ -228,7 +232,7 @@ impl Profile {
     pub fn standalone(&self) -> impl Iterator<Item = (&str, &[String], &BTreeMap<String, String>)> {
         self.systems.iter().filter_map(|system| match &system.launch {
             Launch::Command { argv, env } => Some((system.name.as_str(), argv.as_slice(), env)),
-            Launch::Core(_) => None,
+            Launch::Core(_) | Launch::Other => None,
         })
     }
 }
@@ -263,7 +267,8 @@ mod tests {
         let system = |fields: &str| toml::from_str::<RawSystem>(&format!("name = \"X\"\n{fields}")).map(SystemEntry::try_from);
         assert!(matches!(system("core = \"a.so\"").unwrap(), Ok(SystemEntry { launch: Launch::Core(_), .. })));
         assert!(matches!(system("command = [\"/usr/bin/x\"]").unwrap(), Ok(SystemEntry { launch: Launch::Command { .. }, .. })));
-        assert!(system("").unwrap().is_err());
+        // A launch kind this checker predates is skipped, not rejected.
+        assert!(matches!(system("kind = \"stream\"").unwrap(), Ok(SystemEntry { launch: Launch::Other, .. })));
         assert!(system("core = \"a\"\ncommand = [\"b\"]").unwrap().is_err());
         assert!(system("command = []").unwrap().is_err());
     }

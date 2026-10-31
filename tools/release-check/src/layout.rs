@@ -6,6 +6,7 @@
 
 use std::fmt::Display;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::profile::Profile;
@@ -132,6 +133,14 @@ fn cores(ctx: &Ctx) -> Result<String, Problems> {
     problems_or(problems, || format!("{} cores", cores.len()))
 }
 
+/// A standalone emulator may be a wrapper script; anything else must be an
+/// aarch64 executable.
+fn expect_program(path: &Path) -> Result<(), String> {
+    let mut start = [0u8; 2];
+    let script = fs::File::open(path).and_then(|mut file| file.read_exact(&mut start)).is_ok() && start == *b"#!";
+    if script { Ok(()) } else { expect_elf(path, &[ElfKind::Executable, ElfKind::Shared]).map(drop) }
+}
+
 fn standalone_commands(ctx: &Ctx) -> Result<String, Problems> {
     let commands: Vec<_> = ctx.profile.standalone().collect();
     let problems: Problems = commands
@@ -139,7 +148,7 @@ fn standalone_commands(ctx: &Ctx) -> Result<String, Problems> {
         .filter_map(|(system, argv, _)| {
             ctx.tree
                 .is_executable(Path::new(&argv[0]))
-                .and_then(|file| expect_elf(&file, &[ElfKind::Executable, ElfKind::Shared]).map(drop))
+                .and_then(|file| expect_program(&file))
                 .map_err(|error| format!("{system}: {error}"))
                 .err()
         })
@@ -437,6 +446,20 @@ mod tests {
         let fixture = Fixture::new();
         fs::remove_file(fixture.tree_path("/usr/sbin/sshd")).unwrap();
         assert!(fixture.failures().iter().any(|failure| failure.contains("/usr/sbin/sshd")));
+    }
+
+    #[test]
+    fn a_wrapper_script_is_a_valid_standalone_command_and_an_unknown_launch_kind_is_left_alone() {
+        use std::io::Write;
+        let fixture = Fixture::new();
+        let mut frontend = fs::OpenOptions::new().append(true).open(fixture.dir.path().join("profile/frontend.toml")).unwrap();
+        writeln!(frontend, "\n[[system]]\nname = \"Stream\"\ncommand = [\"/usr/bin/stream\", \"{{rom}}\"]\n[[system]]\nname = \"Future\"\nkind = \"something-new\"").unwrap();
+        fixture.program(Path::new("/usr/bin/stream"), b"#!/bin/sh\nexec true\n");
+        let failures = fixture.failures();
+        assert!(failures.is_empty(), "{failures:#?}");
+        // A binary that is neither a script nor an aarch64 ELF is still refused.
+        fixture.program(Path::new("/usr/bin/stream"), &elf(2, 62));
+        assert!(fixture.failures().iter().any(|failure| failure.contains("Stream") && failure.contains("not built for aarch64")));
     }
 
     #[test]
