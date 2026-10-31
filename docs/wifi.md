@@ -75,6 +75,8 @@ WPA3 passwords shorter than 8 characters are refused by the keyboard.
 
 Nothing starts at boot. The worker is created when Wi-Fi is opened and ends
 when it is closed, so the first frame and the supervisor are unchanged. The
+release binary grows by 197 KB (11.30 to 11.49 MB, measured against main
+with the Moonlight merge); that code is not touched before the screen opens. The
 Configuration entry appears only when the image has iwctl and a wireless
 interface exists (`/sys/class/net/*/phy80211`; RG28XX and RG35XX 2024 have none).
 If iwd is not running (it starts in the background phase) iwctl prints nothing
