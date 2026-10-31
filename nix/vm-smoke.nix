@@ -4,10 +4,10 @@
 # This covers the static `ghazal` binary: PID 1, the supervisor, the daemon and
 # the menu's KMS and input code, with config/qemu in place of the handheld's
 # profile. It does not exercise the H700 kernel, drivers or the Nix runtime.
-{ writeShellApplication, socat, coreutils, gnugrep, vm }:
+{ writeShellApplication, socat, coreutils, gnugrep, gnused, vm }:
 writeShellApplication {
   name = "ghazal-vm-smoke";
-  runtimeInputs = [ socat coreutils gnugrep ];
+  runtimeInputs = [ socat coreutils gnugrep gnused ];
   text = ''
     # Under emulation without KVM the boot takes a minute or two.
     boot_timeout=''${GHAZAL_SMOKE_BOOT_TIMEOUT:-420}
@@ -111,6 +111,14 @@ writeShellApplication {
       pass "the menu responds to the gamepad" "pressing A changed the screen"
     else
       fail "the menu responds to the gamepad" "the screen did not change within 16 s of pressing A"
+    fi
+
+    # `observe frame` is how the acceptance script tells a blank screen from a picture.
+    if guest '/opt/ghazal/ghazal observe frame /run/ghazal/smoke.ppm' 60 \
+      && [ "$(sed -n 's/^distinct_colors=\([0-9]*\).*/\1/p' "$work/serial.log" | tail -n 1)" -ge 16 ]; then
+      pass "observe frame reads the screen back" "$(grep '^distinct_colors=' "$work/serial.log" | tail -n 1 | tr -d '\r')"
+    else
+      fail "observe frame reads the screen back" "$(grep -E 'observe|captured|distinct|Error|error' "$work/serial.log" | tail -n 2 | tr '\r\n' '  ')"
     fi
 
     # The acceptance script launches games with `ghazal observe launch`: it computes a
