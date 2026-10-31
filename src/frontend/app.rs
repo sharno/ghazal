@@ -9,15 +9,17 @@ use super::config::FrontendConfig;
 use super::emulator_choice::Choices;
 use super::emulator_picker::{self, Picker, Step};
 use super::input::Button;
+use super::keyboard;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
 use super::moonlight::{self, Notice};
 use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
+use super::wifi;
 use crate::daemon::ctl;
 use crate::hw::battery;
 use crate::ports;
-use crate::ui::{AppWindow, Hint, Row};
+use crate::ui::{AppWindow, Hint, KeyCap, KeyboardState, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
 const STATUS_REFRESH: Duration = Duration::from_secs(20);
@@ -46,6 +48,7 @@ enum View {
     Configuration,
     Information,
     Updates,
+    Wifi,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -106,6 +109,7 @@ enum MenuItem {
     SystemUpdate,
     PortMaster,
     InstallPortMaster,
+    Wifi,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
     Moonlight,
@@ -134,6 +138,7 @@ impl MenuItem {
             Self::SystemUpdate => "System update",
             Self::PortMaster => "PortMaster",
             Self::InstallPortMaster => "Install PortMaster",
+            Self::Wifi => "Wi-Fi",
             Self::Lights(preset) => preset.menu_label(),
             Self::Moonlight => "Moonlight game streaming",
         }
@@ -255,6 +260,12 @@ pub struct App {
     rows_for: Option<View>,
     row_start: usize,
     hints_for: Option<Hints>,
+    /// Open while View::Wifi is shown; its worker thread lives and dies with it.
+    wifi: Option<wifi::Controller>,
+    /// What the Wi-Fi screen last drew, refreshed whenever it reacts.
+    wifi_view: Option<wifi::View>,
+    /// Keys currently in the keyboard's UI model, so it is only rebuilt on change.
+    keyboard_keys: Vec<keyboard::KeyView>,
 }
 
 impl App {
@@ -330,6 +341,9 @@ impl App {
             rows_for: None,
             row_start: 0,
             hints_for: None,
+            wifi: None,
+            wifi_view: None,
+            keyboard_keys: Vec::new(),
         };
         app.start_scan(false);
         if let Ok(warning) = std::fs::read_to_string("/run/ghazal/provision-warning") { app.error(warning); }
@@ -409,7 +423,8 @@ impl App {
             }
             return None;
         }
-        if matches!(button, Button::Menu | Button::Start) {
+        // The on-screen keyboard uses Start to confirm and Menu to cancel.
+        if matches!(button, Button::Menu | Button::Start) && !self.wifi.as_ref().is_some_and(wifi::Controller::typing) {
             self.open_menu(MenuPage::Main);
             return None;
         }
@@ -457,7 +472,7 @@ impl App {
                         MenuItem::Lights(_) => { self.step_lights(button != Button::Left); self.rows_for = None; }
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
-                        MenuItem::SystemUpdate if button == Button::A => { self.activate(item); }
+                        MenuItem::SystemUpdate | MenuItem::Wifi if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         _ => {},
                     }
@@ -473,6 +488,7 @@ impl App {
                 },
                 button => self.updater.cursor = navigate(self.updater.cursor, 4, button),
             },
+            View::Wifi => self.wifi_button(button),
             View::Information => match button {
                 Button::B => self.view = View::Home,
                 button => self.information_cursor = navigate(self.information_cursor, self.information_rows.len(), button),
@@ -497,6 +513,58 @@ impl App {
         }
         None
     }
+
+    /// Opens Configuration → Wi-Fi. Its worker starts here, not at boot.
+    fn open_wifi(&mut self) {
+        match wifi::open(Instant::now()) {
+            Ok(controller) => {
+                self.wifi_view = Some(controller.view());
+                self.wifi = Some(controller);
+                self.view = View::Wifi;
+                self.rows_for = None;
+            }
+            Err(error) => self.error(format!("Wi-Fi: {error}")),
+        }
+    }
+
+    fn wifi_button(&mut self, button: Button) {
+        let Some(controller) = &mut self.wifi else {
+            // Not reachable by design; never leave the user on a screen with no owner.
+            self.view = View::Configuration;
+            return;
+        };
+        let reaction = controller.handle(button, Instant::now());
+        self.wifi_reacted(reaction);
+    }
+
+    /// Takes in what the Wi-Fi screen did: a new picture, a message, or its end.
+    fn wifi_reacted(&mut self, reaction: wifi::Reaction) {
+        match reaction.notice {
+            Some(wifi::Notice::Info(text)) => self.notice(&text),
+            Some(wifi::Notice::Error(text)) => self.error(text),
+            None => {}
+        }
+        if !reaction.changed { return; }
+        self.rows_for = None;
+        match self.wifi.as_ref() {
+            Some(controller) if !controller.closed() => self.wifi_view = Some(controller.view()),
+            _ => {
+                self.wifi = None;
+                self.wifi_view = None;
+                self.view = View::Configuration;
+            }
+        }
+    }
+
+    fn poll_wifi(&mut self, now: Instant) {
+        let Some(controller) = &mut self.wifi else { return };
+        let reaction = controller.poll(now);
+        self.wifi_reacted(reaction);
+    }
+
+    /// For the snapshot renderer: the Wi-Fi screen is waiting on its worker.
+    #[cfg(feature = "desktop")]
+    pub fn wifi_working(&self) -> bool { self.wifi.as_ref().is_some_and(wifi::Controller::working) }
 
     fn launch(&mut self, list: GameList, cursor: usize) -> Option<Effect> {
         let (system, game) = self.game_at(list, cursor)?;
@@ -595,6 +663,7 @@ impl App {
             self.relay_moonlight_notice();
             self.rows_for = None;
         }
+        self.poll_wifi(now);
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -748,6 +817,7 @@ impl App {
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
+        if let Some(wake) = self.wifi.as_ref().and_then(|wifi| wifi.next_deadline(Instant::now())) { deadline = deadline.min(wake); }
         deadline
     }
 
@@ -794,6 +864,7 @@ impl App {
 
     fn configuration_items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
+        if wifi::available() { items.push(MenuItem::Wifi); }
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -884,6 +955,7 @@ impl App {
                 match self.updater.open() { Ok(()) => self.view = View::Updates, Err(error) => self.error(format!("{error:#}")) }
                 None
             },
+            MenuItem::Wifi => { self.open_wifi(); None }
             MenuItem::RetroArchSettings => match LaunchSpec::retroarch_settings(&self.config) {
                 Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
                 Err(error) => { self.error(format!("RetroArch settings: {error:#}")); None }
@@ -1050,6 +1122,10 @@ impl App {
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
             }
             View::Updates => { let (label, detail) = self.updater.row(index); Row { label: label.into(), detail: detail.into(), glyph: "".into() } },
+            View::Wifi => {
+                let row = self.wifi_view.as_ref()?.rows.get(index)?;
+                Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
+            }
             View::Information => self.information_rows.get(index)?.clone(),
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
@@ -1078,6 +1154,7 @@ impl App {
             (None, View::Moonlight) => self.moonlight.as_ref().map_or(SYSTEM_HINTS, moonlight::Moonlight::hints),
             (None, View::Configuration) => CONFIGURATION_HINTS,
             (None, View::Updates) => OPTIONS_HINTS,
+            (None, View::Wifi) => self.wifi_view.as_ref().map_or(INFORMATION_HINTS, |view| if self.ui.window().size().width < 560 { view.narrow_hints } else { view.hints }),
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -1097,6 +1174,34 @@ impl App {
         Some(Overlay { title, labels, cursor, wide: false })
     }
 
+    /// The keyboard some screen is asking for. A screen that takes typed text
+    /// adds itself here.
+    fn active_keyboard(&self) -> Option<&keyboard::Display> {
+        self.wifi_view.as_ref().and_then(|view| view.keyboard.as_ref()).filter(|_| self.view == View::Wifi)
+    }
+
+    /// Shows the on-screen keyboard for whichever screen is asking for text.
+    fn sync_keyboard(&mut self) {
+        let state = self.ui.global::<KeyboardState>();
+        let keyboard = self.active_keyboard();
+        state.set_visible(keyboard.is_some());
+        let Some(keyboard) = keyboard else { return };
+        state.set_title(keyboard.title.as_str().into());
+        let (note, is_error) = match &keyboard.note {
+            keyboard::Note::Help(text) => (text, false),
+            keyboard::Note::Problem(text) => (text, true),
+        };
+        state.set_note(note.as_str().into());
+        state.set_note_is_error(is_error);
+        state.set_text(keyboard.shown.as_str().into());
+        state.set_selected(keyboard.selected as i32);
+        if keyboard.keys != self.keyboard_keys {
+            let caps: Vec<KeyCap> = keyboard.keys.iter().map(|key| KeyCap { label: key.label.as_str().into(), row: key.row as i32, start: key.start as i32, width: key.width as i32, action: key.action }).collect();
+            state.set_keys(ModelRc::new(VecModel::from(caps)));
+            self.keyboard_keys = keyboard.keys.clone();
+        }
+    }
+
     /// Pushes state into the UI. Slint only repaints what actually changed.
     fn sync(&mut self) {
         let (cursor, total) = match self.view {
@@ -1107,6 +1212,7 @@ impl App {
             View::Moonlight => self.moonlight.as_ref().map_or((0, 0), |session| (session.cursor(), session.len())),
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
+            View::Wifi => self.wifi_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
             View::Information => (self.information_cursor, self.information_rows.len()),
         };
 
@@ -1138,6 +1244,7 @@ impl App {
             View::Moonlight => moonlight_heading.as_str(),
             View::Configuration => "Configuration",
             View::Updates => "System update",
+            View::Wifi => "Wi-Fi",
             View::Information => "Information",
         }.into());
         ui.set_position(if total > 0 { format!("{} / {total}", cursor + 1) } else { String::new() }.into());
@@ -1172,6 +1279,7 @@ impl App {
             ui.set_hints(ModelRc::new(VecModel::from(model)));
             self.hints_for = Some(hints);
         }
+        self.sync_keyboard();
         if show_art {
             self.request_art(cursor);
         }

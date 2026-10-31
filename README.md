@@ -29,9 +29,10 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 - Use one SD card for everything, or separate OS and games/data cards.
 - Install signed system updates from GitHub through Configuration → System update
   on A/B installations; see [updates and migration](docs/updates.md).
-- Connect over Wi-Fi and SSH, sync files with Syncthing, and fall back to the
-  other OS slot when one fails to start. Kernel panics show the kernel log on
-  screen; on the RG40XX-V v2 they then need a power cycle.
+- Join Wi-Fi networks from Configuration → Wi-Fi with an on-screen keyboard
+  ([Wi-Fi setup](docs/wifi.md)), connect over SSH, sync files with Syncthing,
+  and fall back to the other OS slot when one fails to start. Kernel panics show
+  the kernel log on screen; on the RG40XX-V v2 they then need a power cycle.
 
 ## What we care about
 

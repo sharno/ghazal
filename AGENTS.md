@@ -255,6 +255,14 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Build the static binary on any host with `cargo build --release --target
   aarch64-unknown-linux-musl` (rust-lld; see .cargo/config.toml). Unit tests and
   the desktop build need Linux.
+- In a nix container, `nix develop` makes rustup unpack a ~1.5 GB toolchain
+  into every fresh container, and parallel runs fill the shared Docker disk
+  (builds then fail with ENOSPC, even `docker run`). Keep `CARGO_HOME` and the
+  target dir in named volumes and take the toolchain from nix instead:
+  `nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#clippy
+  nixpkgs#gcc -c cargo test`, with `CARGO_PROFILE_DEV_DEBUG=0` to keep the
+  target small. Tests and both clippy runs pass that way (CI uses rustup's
+  stable). `iwctl` blocks while iwd is down, so time-limit any probe of it.
 - Test on the inactive slot: mount it (or remount the booted B root
   read-write and rename files into place), then `fw_setenv BOOT_ORDER "B A"`.
   Keep slot A as the known-good fallback and use `BOOT_B_LEFT=1` for kernels.
@@ -290,6 +298,16 @@ validated. Remove an entry once it has been checked on a handheld.
   Options (including accepting its disclaimer), Love2D video (`.ogv`), the controller
   feel and `ANALOG_STICKS` (1 from ROCKNIX's table). The card's old stock-OS scripts in
   `ROMS/PORTS` list under Ports and fail when launched (they name `/mnt/vendor/...`).
+- Wi-Fi setup (Configuration → Wi-Fi, docs/wifi.md, with the reusable
+  on-screen keyboard in `ui/keyboard.slint`): the parsers were checked against
+  iwd 3.12 output captured from the handheld and the screen logic against a
+  fake radio, but joining, a refused password, forgetting, hidden networks and
+  cancelling have not run on hardware. iwctl 3.12 accepts `--` and
+  `--passphrase=-x`, and waits (rather than fails) while iwd is down, which the
+  screen turns into "service is not running" after 8 s. Still to see on the
+  device: iwd's wording for each failure (`KNOWN_FAILURES` in `backend.rs`
+  guesses, e.g. for a refused password) and a powered-off adapter. Not done:
+  enterprise networks, a radio switch, non-ASCII input.
 
 ## Keeping this backlog accurate
 

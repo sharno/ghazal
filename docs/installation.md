@@ -49,7 +49,9 @@ no manual DTB copying is needed for a correctly chosen image.
 
 ## Optional Wi-Fi and SSH
 
-After writing, mount `GHAZALBOOT`. Copy `provision.toml.example` to
+Wi-Fi can also be set up on the handheld afterwards, from Configuration → Wi-Fi
+(see [Wi-Fi setup](wifi.md)); SSH keys still need this file. To seed both
+before first boot, mount `GHAZALBOOT`. Copy `provision.toml.example` to
 `provision.toml`, and edit it before first boot:
 
 ```toml
