@@ -33,8 +33,42 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
             Ok(())
         }
         Some("press") if args.len() == 2 => press(device, &args[1]),
-        _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | press BUTTON[+BUTTON...]"),
+        Some("power") if args.len() == 2 => power(device, args[1].parse().context("power takes a duration in seconds")?),
+        _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...]"),
     }
+}
+
+/// The CPU's time at each clock step over a run on battery, with the battery's
+/// voltage and charge at both ends. The AXP717 measures charge current only,
+/// so draw shows as charge lost over a long run, not as a current.
+fn power(device: &DeviceConfig, seconds: std::num::NonZeroU32) -> Result<()> {
+    let battery = device.battery.as_ref().context("device has no battery profile")?;
+    if crate::hw::battery::read(Some(battery)).context("battery unreadable")?.charging {
+        bail!("unplug the charger: the battery would gain charge");
+    }
+    let residency = device.cpu.as_ref().context("device has no CPU profile")?.policy.join("stats/time_in_state");
+    let text = |path: &Path| fs::read_to_string(path).with_context(|| path.display().to_string());
+    let read = |name: &str| -> Result<i64> {
+        let path = battery.path.join(name);
+        text(&path)?.trim().parse().with_context(|| path.display().to_string())
+    };
+    // "kHz ticks" per line, in a fixed order.
+    let steps = || -> Result<Vec<(u64, u64)>> {
+        text(&residency)?.lines().map(|line| {
+            let (khz, ticks) = line.split_once(' ').context("malformed time_in_state")?;
+            Ok((khz.parse()?, ticks.trim().parse()?))
+        }).collect()
+    };
+    let (capacity, voltage, before) = (read("capacity")?, read("voltage_now")?, steps()?);
+    std::thread::sleep(Duration::from_secs(seconds.get().into()));
+    let spent: Vec<_> = steps()?.into_iter().zip(before).map(|((khz, end), (_, start))| (khz, end - start)).collect();
+    let total: u64 = spent.iter().map(|(_, ticks)| ticks).sum();
+    let shares: Vec<_> = spent.iter().filter(|(_, ticks)| *ticks > 0)
+        .map(|(khz, ticks)| format!("{}MHz={}%", khz / 1000, ticks * 100 / total)).collect();
+    println!("cpu {}", shares.join(" "));
+    println!("voltage {}mV -> {}mV", voltage / 1000, read("voltage_now")? / 1000);
+    println!("capacity {capacity}% -> {}%", read("capacity")?);
+    Ok(())
 }
 
 /// Reset to kernel start: the generic timer counts from reset, CLOCK_BOOTTIME

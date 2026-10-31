@@ -248,7 +248,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 // Close the evdev clients entirely: gameplay must never enter a
                 // frontend queue (including SYN_DROPPED recovery batches).
                 drop(input);
-                if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Game); }
+                if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Game(spec.cpu)); }
                 let result = display.with_released(|| spec.run(|| app.session_started(purpose)));
                 if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Menu); }
                 let result = result?;

@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::device::CpuLoad;
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct FrontendConfig {
@@ -79,6 +81,7 @@ pub struct SystemEntry {
     pub dirs: Vec<String>,
     pub extensions: Vec<String>,
     pub launch: Launch,
+    pub cpu: CpuLoad,
     /// The system is hidden until one of these BIOS files exists, so it never
     /// shows games that can only fail to start.
     pub requires_any: Vec<PathBuf>,
@@ -126,6 +129,8 @@ struct RawSystemEntry {
     env: BTreeMap<String, String>,
     log: Option<PathBuf>,
     #[serde(default)]
+    cpu: CpuLoad,
+    #[serde(default)]
     requires_any: Vec<PathBuf>,
     #[serde(default)]
     art: ArtSources,
@@ -143,7 +148,7 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
             (Some(_), Some(_)) => return Err(format!("system {:?} sets both core and command", raw.name)),
             (None, None) => return Err(format!("system {:?} needs a core or a command", raw.name)),
         };
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, requires_any: raw.requires_any, art: raw.art })
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, cpu: raw.cpu, requires_any: raw.requires_any, art: raw.art })
     }
 }
 
@@ -189,5 +194,12 @@ mod tests {
         assert!(system("core = \"a.so\"\ncommand = [\"b\"]").is_err());
         assert!(system("command = []").is_err());
         assert!(system("core = \"a.so\"\nlog = \"/x\"").is_err());
+    }
+
+    #[test]
+    fn an_unrated_system_runs_at_full_clock() {
+        assert_eq!(system("core = \"a.so\"").unwrap().cpu, CpuLoad::Full);
+        assert_eq!(system("core = \"a.so\"\ncpu = \"light\"").unwrap().cpu, CpuLoad::Light);
+        assert!(system("core = \"a.so\"\ncpu = \"fast\"").is_err());
     }
 }

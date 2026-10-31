@@ -48,25 +48,50 @@ pub struct Lights {
     pub uart: String,
 }
 
-/// CPU frequency policy by activity: the menu idles most of the time, games
-/// need steady clocks. Boot keeps the kernel's default until the first frame.
+/// CPU frequency policy by activity: the menu idles most of the time; a game
+/// gets a floor that sustains its system at full speed, and the governor
+/// raises the clock above it for heavier scenes and fast-forward. Boot keeps
+/// the kernel's default until the first frame.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Cpu {
-    /// cpufreq `scaling_governor` file of the policy covering every core.
-    pub governor: PathBuf,
-    pub menu: String,
-    pub game: String,
+    /// cpufreq policy directory covering every core.
+    pub policy: PathBuf,
+    pub menu: Policy,
+    pub light: Policy,
+    pub moderate: Policy,
+    pub full: Policy,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Policy {
+    pub governor: String,
+    /// Lowest clock; the governor picks the first step at or above it.
+    pub min_khz: u32,
+}
+
+/// How much CPU a system's emulator needs (frontend.toml); `Cpu` maps it to a policy.
+#[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CpuLoad { Light, Moderate, #[default] Full }
+
 #[derive(Debug, Clone, Copy)]
-pub enum Activity { Menu, Game }
+pub enum Activity { Menu, Game(CpuLoad) }
 
 impl Cpu {
     pub fn apply(&self, activity: Activity) {
-        let governor = match activity { Activity::Menu => &self.menu, Activity::Game => &self.game };
-        if let Err(error) = crate::sys::write_file(&self.governor, governor) {
-            eprintln!("ghazal: CPU governor: {error:#}");
+        let policy = match activity {
+            Activity::Menu => &self.menu,
+            Activity::Game(CpuLoad::Light) => &self.light,
+            Activity::Game(CpuLoad::Moderate) => &self.moderate,
+            Activity::Game(CpuLoad::Full) => &self.full,
+        };
+        let writes = [("scaling_governor", policy.governor.clone()), ("scaling_min_freq", policy.min_khz.to_string())];
+        for (file, value) in writes {
+            if let Err(error) = crate::sys::write_file(&self.policy.join(file), &value) {
+                eprintln!("ghazal: CPU {file}: {error:#}");
+            }
         }
     }
 }

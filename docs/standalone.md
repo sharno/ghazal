@@ -167,6 +167,7 @@ The built-in observation commands exercise the real handheld:
 /opt/ghazal/ghazal observe audio
 /opt/ghazal/ghazal observe frame /tmp/menu.ppm
 /opt/ghazal/ghazal observe press menu+x
+/opt/ghazal/ghazal observe power 60
 ```
 
 `observe audio` reports PCM state and user volume, reads every fixed routing
@@ -177,7 +178,11 @@ or overwriting an observation. Copy the PPM over SSH and convert it on the host
 with `ffmpeg -i menu.ppm menu.png`. `press` validates named buttons against the
 actual evdev capabilities, presses the chord for 200 ms and releases it even on
 an error. These observations help test the real drivers; they do not establish
-physical speaker output or sound quality by themselves.
+physical speaker output or sound quality by themselves. `power` reports the CPU's
+time at each clock step over a run on battery, with battery voltage and
+charge at both ends. The AXP717 only measures charge current (its
+`current_now` barely moves with load), so compare draw as charge lost over
+equal long runs.
 
 SD2 partition 1 may be exFAT, FAT32 or ext4. It mounts at `/mnt/games` with:
 
@@ -205,9 +210,14 @@ tail -n 100 /var/log/ghazal/kernel-log.log
 /opt/ghazal/ghazal ctl poweroff
 ```
 
-The CPU runs `schedutil` in the menu and `performance` while a game runs,
-as on muOS (`[cpu]` in `device.toml`); boot keeps the kernel's `performance`
-default until the first frame. The red LED lights at low battery.
+The CPU runs `schedutil` in the menu. A game's system sets its `cpu` load in
+`frontend.toml`, and `[cpu]` in `device.toml` maps it to a clock floor:
+`light` (720 MHz) and `moderate` (1008 MHz) use `schedutil` above the floor,
+so fast-forward and heavier scenes still reach the top clock. Up to 1008 MHz
+the tested RG40XX-V's CPU stays at its lowest voltage (0.9 V, against 1.1 V at
+1416 MHz), which is where the saving comes from. Unrated systems run at
+`performance`, muOS's policy for every game. Boot keeps the kernel's
+`performance` default until the first frame. The red LED lights at low battery.
 
 The RG40XX-V's stock firmware charges every H700 model at 1.5 A while
 running; the device tree now does too (it was 1.024 A). The daemon logs each

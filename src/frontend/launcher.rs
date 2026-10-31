@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 
 use super::config::{FrontendConfig, Launch, Standalone};
 use super::library::{Game, System};
+use crate::device::CpuLoad;
 
 pub struct LaunchSpec {
     pub program: PathBuf,
@@ -15,6 +16,7 @@ pub struct LaunchSpec {
     pub env: Vec<(String, String)>,
     /// From [`FrontendConfig::launch_after`].
     pub after: Vec<PathBuf>,
+    pub cpu: CpuLoad,
 }
 
 impl LaunchSpec {
@@ -23,7 +25,7 @@ impl LaunchSpec {
             Launch::Core(core) => Self::retroarch(config, core, game)?,
             Launch::Standalone(standalone) => Self::standalone(standalone, game),
         };
-        Ok(Self { after: config.launch_after.clone(), ..spec })
+        Ok(Self { after: config.launch_after.clone(), cpu: system.cpu, ..spec })
     }
 
     fn retroarch(config: &FrontendConfig, core: &str, game: &Game) -> Result<Self> {
@@ -40,7 +42,7 @@ impl LaunchSpec {
         args.extend(["-L".into(), core.into(), game.path.clone().into()]);
 
         let env = ra.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env, after: Vec::new() })
+        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full })
     }
 
     fn retroarch_config(config: &FrontendConfig) -> Result<Vec<OsString>> {
@@ -62,14 +64,14 @@ impl LaunchSpec {
         args.extend(ra.extra_args.iter().map(OsString::from));
         args.push("--menu".into());
         Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(),
-            env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), after: config.launch_after.clone() })
+            env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), after: config.launch_after.clone(), cpu: CpuLoad::Light })
     }
 
     fn standalone(command: &Standalone, game: &Game) -> Self {
         let mut argv = command.argv.iter().map(|arg| if arg == "{rom}" { game.path.clone().into_os_string() } else { arg.into() });
         let program = PathBuf::from(argv.next().expect("config rejects an empty command"));
         let env = command.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Self { program, args: argv.collect(), log: command.log.clone(), env, after: Vec::new() }
+        Self { program, args: argv.collect(), log: command.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full }
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.

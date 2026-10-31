@@ -23,11 +23,16 @@ extra_args = ["-f"]
 log = "/var/log/ghazal/retroarch.log"
 env = { HOME = "/mnt/games/.ghazal/home", XDG_CONFIG_HOME = "/mnt/games/.ghazal", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache", XDG_RUNTIME_DIR = "/run" }
 
+# `cpu` picks a clock floor from device.toml [cpu]. Measured on one game's
+# intro, emulation plus ~2.7 ms of presentation fits a 60 Hz frame below
+# 480 MHz for light systems and below 720 MHz for moderate ones; heavier scenes
+# raise the clock above the floor. Unlisted systems run at full clock.
 [[system]]
 name = "Game Boy"
 dirs = ["GB", "Game Boy", "Nintendo Game Boy", "Nintendo - Game Boy"]
 extensions = ["gb", "zip", "7z"]
 core = "gambatte_libretro.so"
+cpu = "light"
 art = { libretro = "Nintendo - Game Boy", muos = "Nintendo Game Boy" }
 
 [[system]]
@@ -35,6 +40,7 @@ name = "Game Boy Color"
 dirs = ["GBC", "Game Boy Color", "Nintendo Game Boy Color", "Nintendo - Game Boy Color"]
 extensions = ["gbc", "gb", "zip", "7z"]
 core = "gambatte_libretro.so"
+cpu = "light"
 art = { libretro = "Nintendo - Game Boy Color", muos = "Nintendo Game Boy Color" }
 
 [[system]]
@@ -42,6 +48,7 @@ name = "Game Boy Advance"
 dirs = ["GBA", "Game Boy Advance", "Nintendo Game Boy Advance"]
 extensions = ["gba", "zip", "7z"]
 core = "mgba_libretro.so"
+cpu = "moderate"
 art = { libretro = "Nintendo - Game Boy Advance", muos = "Nintendo Game Boy Advance" }
 
 [[system]]
@@ -49,6 +56,7 @@ name = "NES"
 dirs = ["NES", "FC", "Famicom", "Nintendo NES", "Nintendo - Nintendo Entertainment System (Headered)"]
 extensions = ["nes", "fds", "unf", "zip", "7z"]
 core = "fceumm_libretro.so"
+cpu = "light"
 art = { libretro = "Nintendo - Nintendo Entertainment System", muos = "Nintendo NES - Famicom" }
 
 [[system]]
@@ -56,6 +64,7 @@ name = "SNES"
 dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES", "Nintendo - Super Nintendo Entertainment System"]
 extensions = ["sfc", "smc", "zip", "7z"]
 core = "snes9x_libretro.so"
+cpu = "moderate"
 art = { libretro = "Nintendo - Super Nintendo Entertainment System", muos = "Nintendo SNES - SFC" }
 
 [[system]]
@@ -63,6 +72,7 @@ name = "Mega Drive / Genesis"
 dirs = ["MD", "GENESIS", "Mega Drive", "Sega Genesis"]
 extensions = ["md", "gen", "bin", "smd", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+cpu = "light"
 art = { libretro = "Sega - Mega Drive - Genesis", muos = "Sega Mega Drive - Genesis" }
 
 [[system]]
@@ -70,6 +80,7 @@ name = "Master System"
 dirs = ["MS", "SMS", "Master System", "Sega Master System"]
 extensions = ["sms", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+cpu = "light"
 art = { libretro = "Sega - Master System - Mark III", muos = "Sega Master System" }
 
 [[system]]
@@ -77,6 +88,7 @@ name = "Game Gear"
 dirs = ["GG", "Game Gear", "Sega Game Gear"]
 extensions = ["gg", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+cpu = "light"
 art = { libretro = "Sega - Game Gear", muos = "Sega Game Gear" }
 
 [[system]]
@@ -84,6 +96,7 @@ name = "PC Engine"
 dirs = ["PCE", "TG16", "PC Engine", "TurboGrafx-16"]
 extensions = ["pce", "cue", "chd", "zip", "7z"]
 core = "beetle_pce_fast_libretro.so"
+cpu = "light"
 art = { libretro = "NEC - PC Engine - TurboGrafx 16", muos = "NEC PC Engine" }
 
 [[system]]
@@ -105,6 +118,7 @@ name = "Arcade"
 dirs = ["ARCADE", "FBNEO", "CPS1", "CPS2", "CPS3", "NEOGEO"]
 extensions = ["zip", "7z"]
 core = "fbneo_libretro.so"
+cpu = "moderate"
 art = { muos = "Arcade" }
 
 [[system]]
@@ -112,6 +126,7 @@ name = "MAME 2003 Plus"
 dirs = ["MAME"]
 extensions = ["zip"]
 core = "mame2003_plus_libretro.so"
+cpu = "moderate"
 art = { muos = "Arcade" }
 
 [[system]]
@@ -126,6 +141,7 @@ name = "WonderSwan"
 dirs = ["WS", "WSC", "WonderSwan", "WonderSwan Color"]
 extensions = ["ws", "wsc", "zip", "7z"]
 core = "beetle_wswan_libretro.so"
+cpu = "moderate"
 art = { libretro = "Bandai - WonderSwan Color" }
 
 [[system]]
@@ -182,6 +198,7 @@ name = "MSX"
 dirs = ["MSX", "MSX2"]
 extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip"]
 core = "bluemsx_libretro.so"
+cpu = "light"
 # blueMSX's free C-BIOS machines and databases (libretro/blueMSX-libretro,
 # system/bluemsx: Databases/ and the three "* - C-BIOS" Machines/ folders).
 requires_any = ["Machines/MSX2+ - C-BIOS/config.ini"]
@@ -200,6 +217,7 @@ name = "Game & Watch"
 dirs = ["GW", "Game & Watch"]
 extensions = ["mgw", "zip"]
 core = "gw_libretro.so"
+cpu = "light"
 art = { libretro = "Handheld Electronic Game" }
 
 [[system]]
@@ -215,6 +233,7 @@ name = "Sega 32X"
 dirs = ["SEGA32X", "32X"]
 extensions = ["32x", "smd", "bin", "md", "zip", "7z"]
 core = "picodrive_libretro.so"
+cpu = "moderate"
 art = { libretro = "Sega - 32X", muos = "Sega 32X" }
 
 [[system]]

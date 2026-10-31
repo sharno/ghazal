@@ -91,6 +91,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   audio and save/resume. Use the desktop simulator and `ghazal observe` for fast
   iteration, then confirm on-device behavior. QEMU cannot prove H700 driver or
   suspend correctness. Document benchmark conditions instead of universal speed claims.
+- Per-system CPU floors (`cpu` in `frontend.toml`) come from one game's intro
+  per system: unthrottled speed and null-video emulation time (RetroArch's
+  `core_run` perf counters stay empty). On the RG40XX-V, GB, NES, MD, SNES
+  (including SuperFX Doom), GBA and MAME 2003-Plus held 60 fps at their floors
+  and spent ~80% of the time there instead of at 1416 MHz. The tested unit
+  keeps 0.9 V up to 1008 MHz and needs 1.1 V at 1320–1416 MHz; other speed
+  bins differ (`vdd-cpu` microvolts per step). Without `UCLAMP_TASK`,
+  schedutil jumps to the top clock whenever a realtime task runs, which is
+  most of the remaining time there. The AXP717 has no discharge current
+  reading, so measure draw as charge lost over equal long runs (`ghazal
+  observe power`).
 - Check status icons with the desktop snapshot power override at normal and
   compact sizes (docs/standalone.md). The software renderer has no Path support
   unless explicitly enabled; embedded-font symbols avoid adding that dependency.
