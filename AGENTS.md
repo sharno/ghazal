@@ -301,9 +301,19 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   the layout gate is the only runtime gate), and how long `vm-smoke` takes there
   (about 30 s in Docker's QEMU). If the runners lack uinput, run
   the input test inside the QEMU machine instead.
-- `scripts/acceptance.sh` has not yet run on hardware: confirm the menu path
-  from `observe launch`, the wrapper bind over the store path, the PPSSPP flow
-  and every threshold (16 colours, 3.5 s boot) on the RG40XX-V v2.
+- `scripts/acceptance.sh` ran on the RG40XX-V v2 against a fresh image built from
+  main: Game Boy, GBA, SNES, Mega Drive, PlayStation and PSP games, 69 checks
+  passed and the PSP save state was skipped by design, in 2 min 7 s. The menu path
+  from `observe launch`, the wrapper bind over the store path and the saves under
+  `/tmp/ghazal-acceptance` all worked; nothing was left mounted or in `SAVES`
+  (only History and the PPSSPP folder's mtime change). A SNES title and a PlayStation
+  BIOS frame had 23 distinct colours against the 16 minimum, so a dark intro could
+  trip that threshold; judge a failure there by the `--evidence` frame.
+- The layout gate reads the shipped profile's `[[system.alternative]]` cores (25
+  in all), Moonlight's binary and mapping, and treats `/opt/ghazal/*` and
+  `/usr/bin/busybox` as image-provided. PortMaster's runtime is not checked in CI:
+  `ghazal ports check` on the handheld does it. Boot services that need a BusyBox
+  applet the image has no link for must call `busybox <applet>`.
 - `vm-smoke` covers the `ghazal` binary on a stock kernel with `config/qemu`
   only. Booting the real image (H700 kernel, runtime, emulators) in QEMU is not
   possible; hardware acceptance stays the proof for those.
@@ -312,6 +322,13 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
+
+- Release gates in CI: `release-tests` and `vm-smoke` (`.github/workflows/images.yml`)
+  have never run on GitHub; only `check.yml` has. The same gates passed locally on
+  main (layout, headless input with the real RetroArch, QEMU smoke) and
+  `scripts/acceptance.sh` passed on the handheld. Unknown: whether
+  `ubuntu-24.04-arm` has `/dev/uinput`, and whether a first tag build gets
+  through `publish` (it needs both jobs).
 
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the
