@@ -37,6 +37,8 @@ pub struct Needs {
 pub struct MenuPath {
     pub keys: Vec<MenuKey>,
     pub port: u16,
+    /// RetroArch confirms with its B button; see [`MenuKey`].
+    pub ok_on_b: bool,
 }
 
 impl LaunchSpec {
@@ -104,12 +106,16 @@ impl LaunchSpec {
         Ok(Some(path.clone()))
     }
 
-    fn retroarch_config(config: &FrontendConfig) -> Result<Vec<OsString>> {
-        let selected = match Self::user_config(config)? {
+    /// The file RetroArch starts with: the user's config, else the first template.
+    fn selected_config(config: &FrontendConfig) -> Result<Option<PathBuf>> {
+        Ok(match Self::user_config(config)? {
             Some(path) => Some(path),
             None => config.retroarch.configs.iter().find(|path| path.is_file()).cloned(),
-        };
-        Ok(selected.map_or_else(Vec::new, |path| vec!["-c".into(), path.into()]))
+        })
+    }
+
+    fn retroarch_config(config: &FrontendConfig) -> Result<Vec<OsString>> {
+        Ok(Self::selected_config(config)?.map_or_else(Vec::new, |path| vec!["-c".into(), path.into()]))
     }
 
     pub fn retroarch_settings(config: &FrontendConfig) -> Result<Self> {
@@ -124,10 +130,12 @@ impl LaunchSpec {
     /// RetroArch's own menu without a game; `keys` are pressed once it is up.
     fn retroarch_menu(config: &FrontendConfig, keys: &[MenuKey]) -> Result<Self> {
         let ra = &config.retroarch;
-        let mut args = Self::retroarch_config(config)?;
+        let selected = Self::selected_config(config)?;
+        let mut args: Vec<OsString> = selected.iter().flat_map(|path| ["-c".into(), path.clone().into()]).collect();
         args.extend(ra.extra_args.iter().map(OsString::from));
         args.push("--menu".into());
-        let menu = (!keys.is_empty()).then(|| MenuPath { keys: keys.to_vec(), port: ra.command_port });
+        let ok_on_b = selected.as_deref().is_none_or(confirms_with_b);
+        let menu = (!keys.is_empty()).then(|| MenuPath { keys: keys.to_vec(), port: ra.command_port, ok_on_b });
         Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(),
             env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), after: config.launch_after.clone(), cpu: CpuLoad::Light,
             needs: Needs { online: None, menu } })
@@ -174,7 +182,7 @@ impl LaunchSpec {
             .with_context(|| format!("starting {}", self.program.display()))?;
         drop(cmd);
         let mut session = crate::emulator::Session::register(child)?;
-        if let Some(menu) = &self.needs.menu { retroarch_menu::open(menu.keys.clone(), menu.port); }
+        if let Some(menu) = &self.needs.menu { retroarch_menu::open(menu.keys.clone(), menu.port, menu.ok_on_b); }
         on_started();
         let status = session.wait()?;
         let report = pump.map(crate::logging::LogPump::finish).transpose()?.unwrap_or_default();
@@ -192,6 +200,12 @@ impl LaunchSpec {
 /// network is saved, since an offline handheld would wait for nothing.
 fn wifi_wait(config: &FrontendConfig, iwd_state: &Path) -> Option<Duration> {
     crate::network::configured(iwd_state).then(|| Duration::from_secs(config.retroarch.online_wait))
+}
+
+/// RetroArch's menu confirms with its B button unless `menu_swap_ok_cancel_buttons`
+/// is "false". The key is absent from a fresh config, and RetroArch 1.22 defaults it to true.
+fn confirms_with_b(config_file: &Path) -> bool {
+    std::fs::read_to_string(config_file).ok().is_none_or(|text| retroarch_cfg::value(&text, "menu_swap_ok_cancel_buttons") != Some("false"))
 }
 
 /// RetroAchievements is switched on in RetroArch's user config.
@@ -303,7 +317,7 @@ mod tests {
                 account_seed = "{d}/seed.cfg"
                 online_wait = 3
                 [retroarch.menu_paths]
-                achievements = ["up", "a"]
+                achievements = ["up", "ok"]
                 [netplay]
                 append_config = "{d}/netplay.cfg"
                 [netplay.retroarch]
@@ -423,7 +437,11 @@ mod tests {
         let spec = LaunchSpec::retroarch_achievements(&config).unwrap();
         assert_eq!(strings(&spec).last().unwrap(), "--menu");
         let menu = spec.needs.menu.unwrap();
-        assert_eq!((menu.keys, menu.port), (vec![MenuKey::Up, MenuKey::A], 55355));
+        assert_eq!((menu.keys, menu.port), (vec![MenuKey::Up, MenuKey::Ok], 55355));
+        // The test card's config says nothing about swapping OK and Cancel: RetroArch's default applies.
+        assert!(menu.ok_on_b);
+        std::fs::write(card.0.join("user.cfg"), "menu_swap_ok_cancel_buttons = \"false\"\n").unwrap();
+        assert!(!LaunchSpec::retroarch_achievements(&config).unwrap().needs.menu.unwrap().ok_on_b);
         // The plain settings entry presses nothing.
         assert!(LaunchSpec::retroarch_settings(&config).unwrap().needs.menu.is_none());
     }

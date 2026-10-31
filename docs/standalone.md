@@ -479,7 +479,11 @@ keys of `[retroarch.menu_paths] achievements` in `frontend.toml` through
 RetroArch's network command port (`network_cmd_enable`), which lands on
 Settings → Achievements. RetroArch has no command line option for a menu page,
 so the path is data: it counts entries from the end of each list (Up wraps) and
-comes from RetroArch 1.22's menu source. If a page differs, the player is still
+comes from RetroArch 1.22's menu source. Its keys are `up`, `down`, `left`,
+`right`, `ok` and `back`: RetroArch's commands are RetroPad buttons, and its
+`menu_swap_ok_cancel_buttons` (true by default in 1.22, read from the user
+config) makes `MENU_B` confirm and `MENU_A` go back. The helper talks to
+RetroArch over `127.0.0.1`, which the `loopback` service raises at boot. If a page differs, the player is still
 in RetroArch's menu, and the path is the thing to change. Enter the username
 and password there and quit RetroArch. RetroArch signs in when a game loads,
 keeps a login token and clears the password; both are written to

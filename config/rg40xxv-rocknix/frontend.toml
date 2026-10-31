@@ -44,8 +44,10 @@ online_wait = 8
 # Configuration File, Information, then Settings (5 presses), and in Settings
 # Up from the top reaches Logging, Directory, User, then Achievements (4 presses).
 # Derived from RetroArch 1.22's menu source; adjust here if the layout differs.
+# Keys: up, down, left, right, ok, back. `ok` is the button that confirms in
+# RetroArch's menu, which Ghazal maps from its `menu_swap_ok_cancel_buttons`.
 [retroarch.menu_paths]
-achievements = ["up", "up", "up", "up", "up", "a", "up", "up", "up", "up", "a"]
+achievements = ["up", "up", "up", "up", "up", "ok", "up", "up", "up", "up", "ok"]
 
 # Game actions (X on a game) can host or join a netplay session; Applications ->
 # Join netplay finds hosts by itself. A host answers a LAN broadcast with the

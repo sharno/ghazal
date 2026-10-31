@@ -124,7 +124,7 @@ mod tests {
         // The Achievements account entry presses keys through this port.
         assert_eq!(value(template, "network_cmd_enable"), Some("true"));
         assert_eq!(value(template, "network_cmd_port"), Some(frontend.retroarch.command_port.to_string().as_str()));
-        assert_eq!(frontend.retroarch.menu_paths.achievements.last(), Some(&crate::frontend::retroarch_menu::MenuKey::A));
+        assert_eq!(frontend.retroarch.menu_paths.achievements.last(), Some(&crate::frontend::retroarch_menu::MenuKey::Ok));
         assert_eq!(frontend.netplay.port, crate::frontend::netplay::DEFAULT_PORT);
     }
 

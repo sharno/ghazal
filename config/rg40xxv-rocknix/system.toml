@@ -126,6 +126,13 @@ exec = ["/usr/bin/udevadm", "settle", "--timeout=10"]
 after = ["udev-trigger"]
 marks = "/run/ghazal/udev-settled"
 start = "background"
+# Nothing else raises `lo`, and 127.0.0.1 is unusable while it is down: RetroArch's
+# command port (Achievements account), `ssh -R` and local proxies need it.
+[[supervisor.service]]
+name = "loopback"
+kind = "oneshot"
+exec = ["/usr/bin/ip", "link", "set", "lo", "up"]
+start = "background"
 [[supervisor.service]]
 name = "dbus"
 exec = ["/usr/bin/dbus-daemon", "--config-file=/etc/dbus-1/system.conf", "--nofork", "--nopidfile"]

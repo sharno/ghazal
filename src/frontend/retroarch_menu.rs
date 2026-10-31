@@ -14,13 +14,21 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum MenuKey { Up, Down, Left, Right, A, B }
+pub enum MenuKey { Up, Down, Left, Right, Ok, Back }
 
 impl MenuKey {
-    fn command(self) -> &'static str {
-        match self {
-            Self::Up => "MENU_UP", Self::Down => "MENU_DOWN", Self::Left => "MENU_LEFT",
-            Self::Right => "MENU_RIGHT", Self::A => "MENU_A", Self::B => "MENU_B",
+    /// The command RetroArch's menu reads as this key. Its commands are
+    /// RetroPad buttons, and `menu_swap_ok_cancel_buttons` (on by default)
+    /// makes B the button that confirms and A the one that goes back; with
+    /// `ok_on_b` unset it is the other way round.
+    fn command(self, ok_on_b: bool) -> &'static str {
+        match (self, ok_on_b) {
+            (Self::Up, _) => "MENU_UP",
+            (Self::Down, _) => "MENU_DOWN",
+            (Self::Left, _) => "MENU_LEFT",
+            (Self::Right, _) => "MENU_RIGHT",
+            (Self::Ok, true) | (Self::Back, false) => "MENU_B",
+            (Self::Ok, false) | (Self::Back, true) => "MENU_A",
         }
     }
 }
@@ -37,22 +45,22 @@ const KEY_GAP: Duration = Duration::from_millis(180);
 
 /// Presses `keys` in RetroArch's menu from a detached thread. Failures are
 /// logged, never fatal: the menu is usable by hand either way.
-pub fn open(keys: Vec<MenuKey>, port: u16) {
+pub fn open(keys: Vec<MenuKey>, port: u16, ok_on_b: bool) {
     if keys.is_empty() { return; }
     let spawned = std::thread::Builder::new().name("ghazal-ra-menu".into()).spawn(move || {
-        if let Err(error) = press(&keys, port) { eprintln!("ghazal: opening RetroArch's menu page: {error}"); }
+        if let Err(error) = press(&keys, port, ok_on_b) { eprintln!("ghazal: opening RetroArch's menu page: {error}"); }
     });
     if let Err(error) = spawned { eprintln!("ghazal: starting the menu helper: {error}"); }
 }
 
-fn press(keys: &[MenuKey], port: u16) -> std::io::Result<()> {
+fn press(keys: &[MenuKey], port: u16, ok_on_b: bool) -> std::io::Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:0")?;
     socket.connect(("127.0.0.1", port))?;
     socket.set_read_timeout(Some(PROBE_INTERVAL))?;
     wait_until_listening(&socket)?;
     std::thread::sleep(SETTLE);
     keys.iter().try_for_each(|key| {
-        socket.send(key.command().as_bytes())?;
+        socket.send(key.command(ok_on_b).as_bytes())?;
         std::thread::sleep(KEY_GAP);
         Ok(())
     })
@@ -78,8 +86,9 @@ mod tests {
 
     #[test]
     fn keys_use_retroarchs_command_names() {
-        let keys: Vec<MenuKey> = serde_json::from_str(r#"["up","down","left","right","a","b"]"#).unwrap();
-        assert_eq!(keys.iter().map(|key| key.command()).collect::<Vec<_>>(), ["MENU_UP", "MENU_DOWN", "MENU_LEFT", "MENU_RIGHT", "MENU_A", "MENU_B"]);
+        let keys: Vec<MenuKey> = serde_json::from_str(r#"["up","down","left","right","ok","back"]"#).unwrap();
+        assert_eq!(keys.iter().map(|key| key.command(true)).collect::<Vec<_>>(), ["MENU_UP", "MENU_DOWN", "MENU_LEFT", "MENU_RIGHT", "MENU_B", "MENU_A"]);
+        assert_eq!(keys.iter().map(|key| key.command(false)).collect::<Vec<_>>(), ["MENU_UP", "MENU_DOWN", "MENU_LEFT", "MENU_RIGHT", "MENU_A", "MENU_B"]);
         assert!(serde_json::from_str::<Vec<MenuKey>>(r#"["start"]"#).is_err());
     }
 
@@ -103,7 +112,7 @@ mod tests {
             }
             received
         });
-        press(&[MenuKey::Up, MenuKey::A, MenuKey::Down], port).unwrap();
-        assert_eq!(fake.join().unwrap(), ["MENU_UP", "MENU_A", "MENU_DOWN"]);
+        press(&[MenuKey::Up, MenuKey::Ok, MenuKey::Down], port, true).unwrap();
+        assert_eq!(fake.join().unwrap(), ["MENU_UP", "MENU_B", "MENU_DOWN"]);
     }
 }

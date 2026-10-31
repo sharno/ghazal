@@ -93,10 +93,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   (RetroArch's own Netplay menu does both), and checking both ROMs' CRC before joining.
 - Validate charge-only startup on hardware. U-Boot already includes the AXP717
   charge-only patch (`nix/uboot.nix`); do not describe it as wholly unimplemented.
-- Loopback: on a booted device `ip link show lo` reports `lo` DOWN and sshd
-  cannot listen on `127.0.0.1` (`ssh -R` fails with `Cannot assign requested
-  address`) although Syncthing holds `127.0.0.1:8384`. Find what brings it up
-  or down before relying on localhost sockets.
+- Loopback: nothing raised `lo`, so 127.0.0.1 failed with `Cannot assign
+  requested address` (sshd `-R`, the Achievements account helper). A background
+  `loopback` oneshot (`ip link set lo up`, system.toml) now does it; confirm
+  after a reboot that `ip addr show lo` has 127.0.0.1 and `ssh -R` works.
 - There is no user-facing factory-reset flow. If added, define which OS settings
   it resets and preserve games, saves and identities unless explicitly selected.
 
