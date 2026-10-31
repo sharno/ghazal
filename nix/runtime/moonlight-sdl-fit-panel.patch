@@ -1,0 +1,24 @@
+--- a/src/sdl.c
++++ b/src/sdl.c
+@@ -43,7 +43,9 @@
+     exit(1);
+   }
+ 
+-  fullscreen_flags = fullscreen?SDL_WINDOW_FULLSCREEN:0;
++  // A handheld panel cannot switch to the stream's resolution: fullscreen at the
++  // display's own mode and let the renderer scale the stream to fit.
++  fullscreen_flags = fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0;
+   window = SDL_CreateWindow("Moonlight", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, SDL_WINDOW_OPENGL | fullscreen_flags);
+   if(!window) {
+     fprintf(stderr, "SDL: could not create window - exiting\n");
+@@ -55,6 +57,10 @@
+     printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
+     exit(1);
+   }
++
++  // Keep the stream's aspect ratio (black bars) and filter when scaling down.
++  SDL_RenderSetLogicalSize(renderer, width, height);
++  SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+ 
+   bmp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING, width, height);
+   if (!bmp) {
