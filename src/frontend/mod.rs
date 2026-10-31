@@ -2,6 +2,7 @@
 
 pub mod app;
 mod activity;
+mod bluetooth;
 pub mod config;
 pub mod emulator;
 pub mod emulator_choice;

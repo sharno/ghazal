@@ -32,7 +32,9 @@ initramfs and udev-ordered services). It is the sum of:
 - SPL and U-Boot: about 2.1 s, mostly reading the 15.6 MB kernel from the card
   at ~21 MB/s. Every MB removed from the kernel saves ~50 ms; options the
   handheld never uses are disabled in `nix/h700-kernel.nix`. An LZ4 kernel
-  boots but is 0.14 s slower: U-Boot decompresses at only ~32 MB/s.
+  boots but is 0.14 s slower: U-Boot decompresses at only ~32 MB/s. Built-in
+  Bluetooth (core, LE, HID, the RTL UART transport) added 0.53 MB, ~25 ms: the
+  one cost every user pays for a feature some never enable.
 - Kernel: about 0.35 s to mounting root. Root waits for every driver probe, so
   slow probes are kept out of it: fbcon takes over the display only when the
   console is first written (the menu powers the panel on instead), the Wi-Fi
@@ -51,6 +53,8 @@ initramfs and udev-ordered services). It is the sum of:
   and folder creation on the data card. Started earlier, they read ~10 MB of
   libraries while the menu's own code is still being paged in from the card,
   which cost ~0.45 s. The frontend draws before scanning the library.
+  Bluetooth is not among them unless the user turned it on: its controller
+  stays unpowered and `bluetoothd` unstarted ([Bluetooth](bluetooth.md)).
 
 `ghazal observe boot` prints the first frame's kernel uptime (also in
 `/run/ghazal/first-frame-ready` and the kernel log), the firmware time
@@ -267,7 +271,8 @@ activity restores brightness; an emulator or SSH session inhibits idle actions.
 Physical wake, display/audio/input recovery and battery drain require acceptance
 before enabling suspend. Launch targets are RetroArch games, standalone PPSSPP
 and [PortMaster ports](ports.md); muOS applications and themes are not. Current
-frontend/daemon controls do not yet expose Bluetooth pairing or HDMI switching.
+frontend/daemon controls do not yet expose HDMI switching. Bluetooth
+controllers pair from Configuration → Bluetooth ([Bluetooth](bluetooth.md)).
 
 ## Recovery and logs
 

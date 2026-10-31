@@ -68,10 +68,18 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
   game launch/exit, save retention and clean shutdown.
-- Bluetooth pairing/audio, HDMI hotplug with display/audio switching and USB
-  gadget modes have no standalone integration yet. Bluetooth is also trimmed
-  from the production kernel; adding it needs an explicit kernel and userspace
-  plan that preserves startup performance. HDMI audio needs the disabled H616
+- Bluetooth controllers are implemented (docs/bluetooth.md) but only the
+  adapter's power and scanning could be checked on the RG40XX-V v2. Still to
+  verify with real pads: pairing and reconnecting a DualShock 4, DualSense,
+  Switch Pro, Xbox (BLE) and 8BitDo pad, the menu and RetroArch taking them
+  (player order, autoconfig, hotkeys), the boot-time cost of the built-in stack
+  (KERNEL +0.53 MB, ~25 ms expected; also `bt_init` and the unused `start`
+  attribute path) and idle power. Bluetooth audio (A2DP) is a documented plan
+  only. Check that `hci_uart_h5`'s `start` attribute survives the RG40XX H and
+  CubeXX device trees, and the `JustWorksRepairing = confirm` agent path
+  with a pad that lost its keys.
+- HDMI hotplug with display/audio switching and USB gadget modes have no
+  standalone integration yet. HDMI audio needs the disabled H616
   AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
   probe in a host-only MUSB build, which also loses USB host.
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
@@ -161,7 +169,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   from a kept build tree (`ar t built-in.a | xargs size`), not thin archives.
   U-Boot's own ~1.4 s (SPL, DRAM, environment) and its slow decompression look
   like caches being off; changing U-Boot needs a spare card.
-- Root mounting waits for every probe: keep sleeps out of probe paths.
+- Root mounting waits for every probe: keep sleeps out of probe paths. The
+  Bluetooth controller's 0.6 s power-up is therefore not in the probe:
+  userspace starts it through a `start` attribute (nix/hci-h5-start-attribute.patch).
   Userspace time is mostly paging in the ghazal binary (~6.5 MB of 10.6);
   shrinking it or improving code locality is the next lever. Read-ahead tuning
   did not help.

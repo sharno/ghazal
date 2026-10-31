@@ -1,4 +1,5 @@
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
@@ -14,6 +15,10 @@ const ABS_HAT0Y: u16 = 17;
 
 struct Pad {
     device: Device,
+    path: PathBuf,
+    /// The handheld's own controls. Losing them restarts the menu; a Bluetooth or USB
+    /// pad that disconnects is just dropped.
+    builtin: bool,
     /// (min, max) of ABS_X / ABS_Y if the device has an analog stick.
     stick: [Option<(i32, i32)>; 2],
     /// Current digital direction per axis (-1, 0, 1) for hat0 x/y and stick x/y.
@@ -22,6 +27,55 @@ struct Pad {
 }
 
 enum Gate { WaitingForNeutral, Ready }
+
+/// How an input device takes part in the menu.
+#[derive(Debug, PartialEq)]
+enum Role {
+    /// The handheld's gamepad.
+    Builtin,
+    /// A gamepad that comes and goes: Bluetooth or USB.
+    Extra,
+    /// Volume, power and the like: only tells a held Menu it is part of a chord.
+    Companion,
+}
+
+fn role(builtin_name: Option<&str>, name: &str, gamepad: bool) -> Role {
+    match builtin_name {
+        Some(filter) if name.contains(filter) => Role::Builtin,
+        Some(_) if gamepad => Role::Extra,
+        None if gamepad => Role::Builtin,
+        Some(_) | None => Role::Companion,
+    }
+}
+
+/// New device nodes in /dev/input: a Bluetooth or USB pad being connected.
+struct Hotplug(OwnedFd);
+
+impl Hotplug {
+    fn open() -> Option<Self> {
+        // SAFETY: a plain syscall; the descriptor is wrapped in an OwnedFd at once.
+        let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if fd < 0 {
+            return None;
+        }
+        // SAFETY: fd is a fresh, valid descriptor that nothing else owns.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: the path is a NUL-terminated literal and fd is an inotify descriptor.
+        let watch = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), c"/dev/input".as_ptr(), libc::IN_CREATE) };
+        (watch >= 0).then_some(Self(fd))
+    }
+
+    /// Discards the pending notifications; true if there were any.
+    fn drain(&self) -> bool {
+        let mut buffer = [0u8; 1024];
+        let mut any = false;
+        // SAFETY: reads into a buffer we own, up to its length, from a descriptor we own.
+        while unsafe { libc::read(self.0.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) } > 0 {
+            any = true;
+        }
+        any
+    }
+}
 
 pub struct Input {
     pads: Vec<Pad>,
@@ -32,6 +86,9 @@ pub struct Input {
     /// Exclusive grab while in the foreground (device.toml input.grab).
     grab: bool,
     grabbed: bool,
+    /// device.toml's name filter for the handheld's own pad; other gamepads are extra.
+    builtin_name: Option<String>,
+    hotplug: Option<Hotplug>,
 }
 
 impl Input {
@@ -49,32 +106,26 @@ impl Input {
     }
 
     fn try_open(dev: &DeviceConfig) -> Result<Self> {
+        let builtin_name = dev.input.gamepad.clone();
         let mut pads = Vec::new();
         let mut companions = Vec::new();
         for (path, device) in evdev::enumerate() {
             let name = device.name().unwrap_or("").to_string();
-            let wanted = match &dev.input.gamepad {
-                Some(filter) => name.contains(filter.as_str()),
-                None => is_gamepad(&device),
-            };
-            if !wanted {
-                if device.supported_events().contains(EventType::KEY) && set_nonblocking(&device).is_ok() {
-                    companions.push(device);
+            match role(builtin_name.as_deref(), &name, is_gamepad(&device)) {
+                Role::Companion => {
+                    if device.supported_events().contains(EventType::KEY) && set_nonblocking(&device).is_ok() {
+                        companions.push(device);
+                    }
                 }
-                continue;
+                Role::Builtin => pads.push(Pad::open(path, device, &name, true)?),
+                // A stray pad must never keep the menu from starting.
+                Role::Extra => match Pad::open(path, device, &name, false) {
+                    Ok(pad) => pads.push(pad),
+                    Err(error) => eprintln!("ghazal: input {name}: {error:#}"),
+                },
             }
-            set_nonblocking(&device)?;
-            let abs = device.get_abs_state().ok();
-            let has_abs = |code: u16| device.supported_absolute_axes().is_some_and(|a| a.contains(evdev::AbsoluteAxisType(code)));
-            let range = |code: u16| {
-                let info = abs.as_ref()?[code as usize];
-                (has_abs(code) && info.maximum > info.minimum).then_some((info.minimum, info.maximum))
-            };
-            let stick = [range(ABS_X), range(ABS_Y)];
-            eprintln!("ghazal: using input {} ({name}) stick={stick:?}", path.display());
-            pads.push(Pad { device, stick, axis_state: [0; 4], gate: Gate::WaitingForNeutral });
         }
-        if pads.is_empty() {
+        if !pads.iter().any(|pad| pad.builtin) {
             bail!("no gamepad {:?} in /dev/input (see `ghazal probe-input`)", dev.input.gamepad);
         }
 
@@ -86,7 +137,7 @@ impl Input {
             ("up", Button::Up), ("down", Button::Down), ("left", Button::Left), ("right", Button::Right),
         ];
         let map = names.iter().filter_map(|(n, b)| dev.button(n).map(|code| (code, *b))).collect();
-        let mut input = Self { pads, companions, map, grab: dev.input.grab, grabbed: false };
+        let mut input = Self { pads, companions, map, grab: dev.input.grab, grabbed: false, builtin_name, hotplug: Hotplug::open() };
         input.acquire()?;
         Ok(input)
     }
@@ -94,16 +145,40 @@ impl Input {
     /// Fresh descriptors have no gameplay backlog. Held controls must return to
     /// neutral before this frontend session accepts any input.
     fn acquire(&mut self) -> Result<()> {
-        for pad in &mut self.pads {
-            pad.gate = if pad.neutral()? { Gate::Ready } else { Gate::WaitingForNeutral };
-            if self.grab {
-                if let Err(e) = pad.device.grab() {
-                    eprintln!("ghazal: grab failed: {e}");
-                }
+        let grab = self.grab;
+        let mut builtin_failure = None;
+        self.pads.retain_mut(|pad| match pad.acquire(grab) {
+            Ok(()) => true,
+            Err(error) if pad.builtin => {
+                builtin_failure = Some(error);
+                true
+            }
+            Err(error) => {
+                eprintln!("ghazal: input {}: {error:#}", pad.path.display());
+                false
+            }
+        });
+        if let Some(error) = builtin_failure {
+            return Err(error);
+        }
+        self.grabbed = grab;
+        Ok(())
+    }
+
+    /// Picks up gamepads connected since the last look: a Bluetooth controller
+    /// that just paired, or a USB one.
+    fn adopt_new_pads(&mut self) {
+        for (path, device) in evdev::enumerate() {
+            let name = device.name().unwrap_or("").to_string();
+            if !is_gamepad(&device) || self.pads.iter().any(|pad| pad.path == path) || role(self.builtin_name.as_deref(), &name, true) != Role::Extra {
+                continue;
+            }
+            let adopted = Pad::open(path, device, &name, false).and_then(|mut pad| pad.acquire(self.grab).map(|()| pad));
+            match adopted {
+                Ok(pad) => self.pads.push(pad),
+                Err(error) => eprintln!("ghazal: new input {name}: {error:#}"),
             }
         }
-        self.grabbed = self.grab;
-        Ok(())
     }
 
     pub fn release(&mut self) {
@@ -122,6 +197,7 @@ impl Input {
             .iter()
             .map(|p| p.device.as_raw_fd())
             .chain(self.companions.iter().map(Device::as_raw_fd))
+            .chain(self.hotplug.iter().map(|hotplug| hotplug.0.as_raw_fd()))
             .map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 })
             .collect();
         if let Some(fd) = wake_fd { fds.push(libc::pollfd { fd, events: libc::POLLIN, revents: 0 }); }
@@ -140,10 +216,12 @@ impl Input {
             bail!("levels notification descriptor failed");
         }
         // The supervisor restarts the menu, which reopens the gamepad.
-        if fds[..self.pads.len()].iter().any(hung) { bail!("gamepad disconnected"); }
-        // A removed keyboard reports POLLHUP without POLLIN forever: drop it, or
-        // poll() would never sleep again.
+        if self.pads.iter().zip(&fds).any(|(pad, fd)| pad.builtin && hung(fd)) { bail!("gamepad disconnected"); }
+        // A removed keyboard or Bluetooth pad reports POLLHUP without POLLIN forever:
+        // drop it, or poll() would never sleep again.
+        let mut pad_gone: Vec<bool> = fds[..self.pads.len()].iter().map(hung).collect();
         let gone: Vec<bool> = fds[self.pads.len()..][..self.companions.len()].iter().map(hung).collect();
+        let hotplugged = self.hotplug.as_ref().is_some_and(|hotplug| fds[self.pads.len() + self.companions.len()].revents & libc::POLLIN != 0 && hotplug.drain());
 
         for (device, fd) in self.companions.iter_mut().zip(&fds[self.pads.len()..]) {
             if fd.revents & libc::POLLIN == 0 {
@@ -160,13 +238,15 @@ impl Input {
         }
         let mut index = 0;
         self.companions.retain(|_| { index += 1; !gone[index - 1] });
-        for (pad, fd) in self.pads.iter_mut().zip(&fds) {
-            if fd.revents & libc::POLLIN == 0 {
+        for (index, (pad, fd)) in self.pads.iter_mut().zip(&fds).enumerate() {
+            if fd.revents & libc::POLLIN == 0 || pad_gone[index] {
                 continue;
             }
             let events: Vec<_> = match pad.device.fetch_events() {
                 Ok(events) => events.collect(),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                // The extra pad disappeared between poll and read.
+                Err(_) if !pad.builtin => { pad_gone[index] = true; continue; }
                 Err(e) => return Err(e.into()),
             };
             if matches!(pad.gate, Gate::WaitingForNeutral) {
@@ -212,11 +292,41 @@ impl Input {
                 }
             }
         }
+        let mut index = 0;
+        self.pads.retain(|_| { index += 1; !pad_gone[index - 1] });
+        if hotplugged {
+            self.adopt_new_pads();
+        }
         Ok(())
     }
 }
 
 impl Pad {
+    fn open(path: PathBuf, device: Device, name: &str, builtin: bool) -> Result<Self> {
+        set_nonblocking(&device)?;
+        let abs = device.get_abs_state().ok();
+        let has_abs = |code: u16| device.supported_absolute_axes().is_some_and(|a| a.contains(evdev::AbsoluteAxisType(code)));
+        let range = |code: u16| {
+            let info = abs.as_ref()?[code as usize];
+            (has_abs(code) && info.maximum > info.minimum).then_some((info.minimum, info.maximum))
+        };
+        let stick = [range(ABS_X), range(ABS_Y)];
+        eprintln!("ghazal: using input {} ({name}) stick={stick:?}", path.display());
+        Ok(Self { device, path, builtin, stick, axis_state: [0; 4], gate: Gate::WaitingForNeutral })
+    }
+
+    /// Starts listening: held controls must first return to neutral, and the
+    /// device is grabbed if device.toml asks for it.
+    fn acquire(&mut self, grab: bool) -> Result<()> {
+        self.gate = if self.neutral()? { Gate::Ready } else { Gate::WaitingForNeutral };
+        if grab {
+            if let Err(e) = self.device.grab() {
+                eprintln!("ghazal: grab failed: {e}");
+            }
+        }
+        Ok(())
+    }
+
     fn neutral(&self) -> Result<bool> {
         if self.device.get_key_state()?.iter().next().is_some() { return Ok(false); }
         if self.device.supported_absolute_axes().is_some() {
@@ -320,5 +430,20 @@ pub fn probe() -> Result<()> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extra_gamepads_never_stand_in_for_the_handhelds_own() {
+        assert_eq!(role(Some("H700 Gamepad"), "H700 Gamepad", true), Role::Builtin);
+        assert_eq!(role(Some("H700 Gamepad"), "Wireless Controller", true), Role::Extra);
+        assert_eq!(role(Some("H700 Gamepad"), "gpio-keys", false), Role::Companion);
+        // Without a name filter every gamepad is the handheld's.
+        assert_eq!(role(None, "Any Pad", true), Role::Builtin);
+        assert_eq!(role(None, "Keys", false), Role::Companion);
     }
 }

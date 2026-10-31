@@ -146,6 +146,25 @@ after = ["dbus"]
 wait_for = ["/run/dbus/system_bus_socket"]
 restart = "always"
 start = "background"
+# Bluetooth is dormant until the user turns it on (Configuration → Bluetooth): the
+# kernel leaves the controller unpowered until `ghazal bluetooth` starts it, and
+# bluetoothd waits for the marker that does so. `bluetooth-restore` brings it back
+# after a reboot when it was on.
+[[supervisor.service]]
+name = "bluetoothd"
+exec = ["/usr/lib/bluetooth/bluetoothd", "-n"]
+after = ["dbus"]
+wait_for = ["/run/dbus/system_bus_socket", "/run/ghazal/bluetooth-requested"]
+restart = "always"
+start = "background"
+optional = true
+[[supervisor.service]]
+name = "bluetooth-restore"
+kind = "oneshot"
+exec = ["/opt/ghazal/ghazal", "bluetooth", "restore"]
+after = ["dbus"]
+wait_for = ["/run/dbus/system_bus_socket"]
+start = "background"
 [[supervisor.service]]
 name = "ssh-host-key"
 kind = "oneshot"

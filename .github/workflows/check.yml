@@ -37,6 +37,10 @@ jobs:
         run: |
           cargo build --locked --manifest-path tools/update-lab/Cargo.toml
           nix shell --inputs-from . nixpkgs#rauc nixpkgs#openssl nixpkgs#squashfsTools nixpkgs#dbus nixpkgs#ubootTools -c bash -c 'sudo env PATH="$PATH" "$PWD/tools/update-lab/target/debug/ghazal-update-lab" --install'
+      - name: Verify the Bluetooth D-Bus client against a real dbus-daemon
+        run: |
+          dbus=$(nix build --no-link --print-out-paths --inputs-from . 'nixpkgs#dbus^out')
+          GHAZAL_TEST_DBUS_DAEMON="$dbus/bin/dbus-daemon" cargo test --locked -- --ignored bluetooth
       - name: Verify storage transactions with the pinned formatter
         run: |
           sudo apt-get update -qq

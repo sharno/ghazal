@@ -101,6 +101,7 @@ GHAZALROOT/                # either OS slot; matching boot files update together
     ├── lib/ghazal/
     │   ├── settings.toml     # brightness and volume
     │   ├── frontend-settings.toml
+    │   ├── bluetooth.toml    # whether Bluetooth was on, restored at boot
     │   ├── data-card         # auto / tf1 / tf2 preference
     │   ├── last-data-card    # card used last boot; only then is TF2 awaited
     │   ├── machine-id
@@ -108,6 +109,7 @@ GHAZALROOT/                # either OS slot; matching boot files update together
     │   ├── retroarch-account.cfg # provisioned RetroAchievements login, until the next RetroArch start
     │   └── update-channel
     ├── lib/iwd/              # provisioned Wi-Fi credentials
+    ├── lib/bluetooth/        # Bluetooth pairing keys (BlueZ)
     ├── lib/rauc/             # update status
     └── log/ghazal/           # bounded service and emulator logs
 ```

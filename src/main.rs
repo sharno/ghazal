@@ -1,6 +1,7 @@
 //! ghazal: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
 
 mod acceptance;
+mod bluetooth;
 mod daemon;
 mod debug;
 mod device;
@@ -50,6 +51,7 @@ COMMANDS:
   check                  validate configs and service binaries
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
+  bluetooth CMD...       status, on, off, scan, devices, pair|connect|disconnect|forget ADDRESS
   observe audio|boot|frame|press|plan|launch|recent-benchmark|moonlight-hosts  inspect and exercise the real device
   ports run SCRIPT|install|prepare|check|ldd FILE  run PortMaster ports, install PortMaster, check what ports need
 
@@ -94,6 +96,7 @@ fn run() -> Result<()> {
         "update" => update::run(rest),
         "ssh-key" => debug::ssh_key(),
         "kernel-log" => debug::kernel_log(),
+        "bluetooth" => bluetooth::run(rest),
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
         "observe" if rest == ["moonlight-hosts"] => frontend::observe_moonlight_hosts(),

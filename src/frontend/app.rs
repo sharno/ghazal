@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::activity::{Activity, Catalog, Collection, GameId, LoadError};
+use super::bluetooth;
 use super::config::{FrontendConfig, Launch};
 use super::emulator_choice::Choices;
 use super::emulator_picker::{self, Picker, Step};
@@ -51,6 +52,7 @@ enum View {
     Information,
     Updates,
     Wifi,
+    Bluetooth,
     /// Hosts to join; leaving returns to that game list, or to Applications.
     Netplay(Option<GameList>),
 }
@@ -127,6 +129,7 @@ enum MenuItem {
     PortMaster,
     InstallPortMaster,
     Wifi,
+    Bluetooth,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
     Moonlight,
@@ -167,6 +170,7 @@ impl MenuItem {
             Self::PortMaster => "PortMaster",
             Self::InstallPortMaster => "Install PortMaster",
             Self::Wifi => "Wi-Fi",
+            Self::Bluetooth => "Bluetooth",
             Self::Lights(preset) => preset.menu_label(),
             Self::Moonlight => "Moonlight game streaming",
             Self::Achievements => "Achievements",
@@ -197,6 +201,8 @@ const OPTION_ITEMS: [MenuItem; 4] = [MenuItem::Startup, MenuItem::Thumbnails, Me
 const APPLICATION_ITEMS: [MenuItem; 4] = [MenuItem::Moonlight, MenuItem::Rescan, MenuItem::DownloadThumbnails, MenuItem::JoinNetplay];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
+/// The Bluetooth worker reports every second; this is how soon the screen notices.
+const BLUETOOTH_POLL: Duration = Duration::from_millis(150);
 
 type Hints = &'static [(&'static str, &'static str)];
 const MENU_HINTS: Hints = &[("A", "Select"), ("B", "Close")];
@@ -262,6 +268,8 @@ pub struct App {
     moonlight: Option<moonlight::Moonlight>,
     configuration_cursor: usize,
     updater: crate::update::Menu,
+    /// Open only while Configuration → Bluetooth is on screen: it owns a worker thread.
+    bluetooth: Option<bluetooth::Screen>,
     information_cursor: usize,
     information_rows: Vec<Row>,
     /// RetroAchievements as RetroArch's config has it; read when Configuration opens.
@@ -354,6 +362,7 @@ impl App {
             moonlight: None,
             configuration_cursor: 0,
             updater: crate::update::Menu::default(),
+            bluetooth: None,
             information_cursor: 0,
             information_rows: Vec::new(),
             achievements: Achievements::default(),
@@ -516,7 +525,7 @@ impl App {
                         MenuItem::Lights(_) => { self.step_lights(button != Button::Left); self.rows_for = None; }
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
-                        MenuItem::SystemUpdate | MenuItem::Wifi if button == Button::A => { self.activate(item); }
+                        MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         MenuItem::Achievements if button == Button::A => { self.cycle_achievements(); self.rows_for = None; }
                         MenuItem::AchievementsAccount if button == Button::A => return self.activate(item),
@@ -535,6 +544,10 @@ impl App {
                 button => self.updater.cursor = navigate(self.updater.cursor, 4, button),
             },
             View::Wifi => self.wifi_button(button),
+            View::Bluetooth => match self.bluetooth.as_mut().map(|screen| screen.press(button)) {
+                Some(bluetooth::Press::Stay(notice)) => if let Some(notice) = notice { self.show(notice) },
+                Some(bluetooth::Press::Leave) | None => { self.bluetooth = None; self.view = View::Configuration; }
+            },
             View::Information => match button {
                 Button::B => self.view = View::Home,
                 button => self.information_cursor = navigate(self.information_cursor, self.information_rows.len(), button),
@@ -723,6 +736,7 @@ impl App {
             self.rows_for = None;
         }
         self.poll_wifi(now);
+        self.poll_bluetooth();
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -734,6 +748,18 @@ impl App {
             self.refresh_status(now);
         }
         self.sync();
+    }
+
+    fn poll_bluetooth(&mut self) {
+        let Some(screen) = &mut self.bluetooth else { return };
+        let (changed, notices) = screen.poll();
+        if changed { self.rows_for = None; }
+        notices.into_iter().for_each(|notice| self.show(notice));
+    }
+
+    fn show(&mut self, notice: crate::bluetooth::model::Notice) {
+        if notice.error { self.error(notice.text) } else { self.notice(&notice.text) }
+        self.rows_for = None;
     }
 
     fn receive_scan(&mut self) {
@@ -876,6 +902,7 @@ impl App {
             || matches!(self.join, Some(Join::Scanning(_)));
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
+        if self.bluetooth.is_some() { deadline = deadline.min(Instant::now() + BLUETOOTH_POLL); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
         if let Some(wake) = self.wifi.as_ref().and_then(|wifi| wifi.next_deadline(Instant::now())) { deadline = deadline.min(wake); }
         deadline
@@ -925,6 +952,7 @@ impl App {
     fn configuration_items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings, MenuItem::Achievements, MenuItem::AchievementsAccount];
         if wifi::available() { items.push(MenuItem::Wifi); }
+        if crate::bluetooth::available() { items.push(MenuItem::Bluetooth); }
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -1044,6 +1072,13 @@ impl App {
                 None
             },
             MenuItem::Wifi => { self.open_wifi(); None }
+            MenuItem::Bluetooth => {
+                match bluetooth::Screen::open() {
+                    Ok(screen) => { self.bluetooth = Some(screen); self.view = View::Bluetooth; self.rows_for = None; }
+                    Err(error) => self.error(format!("Bluetooth: {error:#}")),
+                }
+                None
+            }
             MenuItem::RetroArchSettings => match LaunchSpec::retroarch_settings(&self.config) {
                 Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
                 Err(error) => { self.error(format!("RetroArch settings: {error:#}")); None }
@@ -1351,6 +1386,7 @@ impl App {
                 let row = self.wifi_view.as_ref()?.rows.get(index)?;
                 Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
             }
+            View::Bluetooth => { let line = self.bluetooth.as_ref()?.line(index)?; Row { label: line.label.into(), detail: line.detail.into(), glyph: line.glyph.into() } }
             View::Information => self.information_rows.get(index)?.clone(),
             View::Netplay(_) => {
                 let Some(Join::Choosing(hosts)) = &self.join else { return None };
@@ -1386,6 +1422,7 @@ impl App {
             (None, View::Configuration) => CONFIGURATION_HINTS,
             (None, View::Updates) => OPTIONS_HINTS,
             (None, View::Wifi) => self.wifi_view.as_ref().map_or(INFORMATION_HINTS, |view| if self.ui.window().size().width < 560 { view.narrow_hints } else { view.hints }),
+            (None, View::Bluetooth) => self.bluetooth.as_ref().map_or(OPTIONS_HINTS, bluetooth::Screen::hints),
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -1444,6 +1481,7 @@ impl App {
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
             View::Wifi => self.wifi_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
+            View::Bluetooth => self.bluetooth.as_ref().map_or((0, 0), |screen| (screen.cursor(), screen.len())),
             View::Information => (self.information_cursor, self.information_rows.len()),
             View::Netplay(_) => match &self.join {
                 Some(Join::Choosing(hosts)) => (hosts.cursor, hosts.len()),
@@ -1480,6 +1518,7 @@ impl App {
             View::Configuration => "Configuration",
             View::Updates => "System update",
             View::Wifi => "Wi-Fi",
+            View::Bluetooth => "Bluetooth",
             View::Information => "Information",
             View::Netplay(_) => "Join netplay",
         }.into());

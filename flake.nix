@@ -64,7 +64,7 @@
           packages = {
             inherit ghazal uboot uboot-ddr3 image-builder h700-kernel h700-debug-kernel;
             runtime = runtime.tree;
-            inherit (runtime) mesa retroarch ppsspp moonlight decode-bench;
+            inherit (runtime) mesa retroarch ppsspp moonlight decode-bench bluez;
             vm-initrd = vm.initrd;
             vm = vm.runner;
             inherit release-check vm-smoke;
