@@ -19,6 +19,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   ten rolling numbered states, separate from the automatic resume state.
 - Change brightness, volume, stick lights (RG40XX H/V, RG CubeXX) and persistent
   RetroArch settings from Configuration.
+- Earn RetroAchievements and play RetroArch games together over Wi-Fi: host a
+  netplay session or pick a host on the network from a game's actions.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a
   lower CPU clock than demanding ones.
 - Use one SD card for everything, or separate OS and games/data cards.
@@ -43,6 +45,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 |---|---|
 | Open / back | A / B |
 | Favorite a game | Y |
+| Game actions (host or join netplay) | X |
 | Volume | Volume Up / Down |
 | Brightness | Menu + Volume Up / Down |
 | RetroArch menu during a game | Menu + X |
@@ -51,7 +54,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 
 Choose **Configuration → Startup** for menu or last-game startup.
 **Configuration → RetroArch settings** opens the native emulator settings menu;
-changes persist on the data card.
+changes persist on the data card. **Configuration → Achievements** switches
+RetroAchievements on once an account is set up under **Achievements account**.
 
 ## Beta status
 

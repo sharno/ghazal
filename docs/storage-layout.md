@@ -45,7 +45,8 @@ GHAZALDATA/                 # or the root of your TF2 partition
 └── .ghazal/
     ├── activity.toml     # Collection and History
     ├── thumbnails/       # downloaded art and missing-art markers
-    ├── retroarch/        # native settings and per-core options
+    ├── retroarch/        # native settings, per-core options, RetroAchievements login and badges
+    ├── netplay-hosts.txt # optional extra netplay hosts, one `address[:port] [name]` per line
     ├── home/             # writable home for libretro cores
     ├── cache/            # disposable emulator caches
     └── syncthing/        # this card's Syncthing identity and database
@@ -93,6 +94,7 @@ GHAZALROOT/                # either OS slot; matching boot files update together
     │   ├── last-data-card    # card used last boot; only then is TF2 awaited
     │   ├── machine-id
     │   ├── ssh/              # authorized_keys and SSH host identity
+    │   ├── retroarch-account.cfg # provisioned RetroAchievements login, until the next RetroArch start
     │   └── update-channel
     ├── lib/iwd/              # provisioned Wi-Fi credentials
     ├── lib/rauc/             # update status

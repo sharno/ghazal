@@ -77,6 +77,20 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
+- RetroAchievements and netplay are implemented but unvalidated on a handheld
+  (docs/standalone.md, RetroAchievements and netplay). Check: sign-in over Wi-Fi
+  and an unlock toast in a game; the first-boot account merge from
+  `provision.toml`; Configuration → Achievements account lands on RetroArch's
+  Achievements page (the key path in `[retroarch.menu_paths]` was derived from
+  1.22's menu source: Restart must be listed, else one Up fewer); hosting and
+  joining between two handhelds by broadcast discovery, by `netplay-hosts.txt`
+  and from Applications; the wait for Wi-Fi after a Last Game startup. RetroArch
+  facts the code relies on: `--connect` takes `address|port|session`, not
+  `address:port`; `cheevos_hardcore_mode_enable` and `netplay_nat_traversal`
+  default to on and `netplay_public_announce` to true; an appended config is
+  saved into the user config on exit unless `config_save_on_exit` is false in it.
+  Not done: entering a netplay password or a relay session from Ghazal's menu
+  (RetroArch's own Netplay menu does both), and checking both ROMs' CRC before joining.
 - Validate charge-only startup on hardware. U-Boot already includes the AXP717
   charge-only patch (`nix/uboot.nix`); do not describe it as wholly unimplemented.
 - There is no user-facing factory-reset flow. If added, define which OS settings

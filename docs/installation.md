@@ -59,10 +59,14 @@ data_card = "auto" # "tf1" for one card; "tf2" to require the games card
 [wifi]
 ssid = "Your network name"
 password = "Your network password"
+
+[retroarch] # optional RetroAchievements account, see docs/standalone.md
+cheevos_username = "Your RetroAchievements user"
+cheevos_password = "Your RetroAchievements password"
 ```
 
 Use a complete public key from your computer's `.pub` file, never its private
-key. Omit `[wifi]` or the key list if not needed. The image contains no personal
+key. Omit `[wifi]`, `[retroarch]` or the key list if not needed. The image contains no personal
 credentials and has no default SSH password. On boot these settings are stored
 on the persistent system-state filesystem and the provisioning file is removed from the boot volume.
 You can create a new `provision.toml` on a later boot to replace these settings.
