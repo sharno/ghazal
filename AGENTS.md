@@ -118,7 +118,7 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   over equal long runs (`ghazal observe power`).
 - Emulator choice (X in a game list, docs/standalone.md) is implemented but
   not yet checked on a handheld: launch a game with each shipped alternative
-  (retroarch.log shows `-L <core>`), then confirm the pin, the system default
+  (frontend.log shows `-L <core>`), then confirm the pin, the system default
   and the clock policy of the chosen emulator survive a reboot. The
   alternatives' `cpu` floors reuse their default's and are unmeasured: time each
   with the null-video method before trusting them. Saves and states are filed
