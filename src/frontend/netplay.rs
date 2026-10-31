@@ -96,10 +96,11 @@ pub fn nickname(hostname: &str, machine_id: &str) -> String {
     }
 }
 
-/// This handheld's nickname, from `/etc/hostname` and the machine id.
+/// This handheld's nickname, from the kernel's hostname (init sets it; there is
+/// no `/etc/hostname`) and the machine id.
 pub fn local_nickname() -> String {
     let read = |path| std::fs::read_to_string(path).unwrap_or_default();
-    nickname(&read("/etc/hostname"), &read("/etc/machine-id"))
+    nickname(&read("/proc/sys/kernel/hostname"), &read("/etc/machine-id"))
 }
 
 /// RetroArch's command line for a netplay session. `append` is the settings
