@@ -74,6 +74,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   plan that preserves startup performance. HDMI audio needs the disabled H616
   AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
   probe in a host-only MUSB build, which also loses USB host.
+- On-device Wi-Fi setup (Configuration → Wi-Fi, docs/wifi.md) drives iwd
+  through iwctl and has an on-screen keyboard (`ui/keyboard.slint`, reusable).
+  Its parsers were checked against iwd 3.12 output captured from the
+  handheld and its screen logic against a fake radio, but joining, a refused
+  password, forgetting, hidden networks and cancelling are not yet exercised on
+  hardware. iwctl 3.12 accepts `--` and `--passphrase=-x` and waits (rather
+  than fails) while iwd is down, which the screen turns into "service is not
+  running" after 8 s. Still to check on the device: iwd's wording for each
+  failure (`KNOWN_FAILURES` in `backend.rs` guesses, e.g. a refused password)
+  and a powered-off adapter. Enterprise networks, a radio switch and non-ASCII
+  input are not done.
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
