@@ -92,11 +92,12 @@ let
       ln -s ${target} "$out/${link}"
     '') links)}
     # RetroArch's joypad profiles, with the H700 pad's own: it sends BTN_WEST
-    # for X and BTN_NORTH for Y, unlike the generic Xbox ordering.
+    # for X and BTN_NORTH for Y, unlike the generic Xbox ordering. RetroArch
+    # only searches the joypad driver's folder (udev/), not the root.
     mkdir -p $out/usr/share/libretro
     cp -r ${pkgs.retroarch-joypad-autoconfig}/share/libretro/autoconfig $out/usr/share/libretro/
-    chmod u+w $out/usr/share/libretro/autoconfig
-    cp ${profile + "/gamepad.cfg"} "$out/usr/share/libretro/autoconfig/H700 Gamepad.cfg"
+    chmod u+w $out/usr/share/libretro/autoconfig/udev
+    cp ${profile + "/gamepad.cfg"} "$out/usr/share/libretro/autoconfig/udev/H700 Gamepad.cfg"
     # udev applies only Ghazal's rules (written by the image builder).
     mkdir -p $out/etc/udev/rules.d
     for rules in ${udev}/lib/udev/rules.d/*.rules; do
