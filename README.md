@@ -13,7 +13,9 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 ## What it does
 
 - Browse systems and games, keep favorites and recently played games, and display box art.
-- Play through RetroArch and standalone PPSSPP on supported devices.
+- Play through RetroArch and standalone PPSSPP on supported devices, and pick
+  another emulator for a single game or a whole system (for example Snes9x 2010
+  or PPSSPP's libretro core).
 - Start at the menu or resume the last game on boot.
 - Automatically save and resume supported RetroArch games. Manual saves retain
   ten rolling numbered states, separate from the automatic resume state.
@@ -43,6 +45,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 |---|---|
 | Open / back | A / B |
 | Favorite a game | Y |
+| Choose a game's emulator | X |
 | Volume | Volume Up / Down |
 | Brightness | Menu + Volume Up / Down |
 | RetroArch menu during a game | Menu + X |

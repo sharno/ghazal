@@ -8,6 +8,8 @@ bios_dir = "/mnt/games/BIOS"
 thumbnail_cache = "/mnt/games/.ghazal/thumbnails"
 muos_catalogue = "/mnt/games/MUOS/info/catalogue"
 activity_file = "/mnt/games/.ghazal/activity.toml"
+# Emulators chosen per game and per system (X in a game list).
+emulators_file = "/mnt/games/.ghazal/emulators.toml"
 
 # udev starts with the background services after the menu's first frame; a
 # Last Game startup must not launch before it has catalogued the gamepad.
@@ -27,6 +29,17 @@ env = { HOME = "/mnt/games/.ghazal/home", XDG_CONFIG_HOME = "/mnt/games/.ghazal"
 # intro, emulation plus ~2.7 ms of presentation fits a 60 Hz frame below
 # 480 MHz for light systems and below 720 MHz for moderate ones; heavier scenes
 # raise the clock above the floor. Unlisted systems run at full clock.
+#
+# A system's own `core` or `command` is its default emulator. Each
+# `[[system.alternative]]` adds an emulator the player can pick in a game list
+# (X), for one game or for the whole system; it takes the same keys (`core` or
+# `command`, `env`, `log`, `cpu`), plus `name` for a standalone command (what a
+# saved choice refers to; the program's file name when unset) and `label`, the
+# name the picker shows. An alternative's `cpu` is rated separately and, unrated,
+# runs at full clock. Floors below were measured on the system's own core only:
+# an alternative gets the same floor when it is no heavier, which is unverified.
+# Saves are kept per core (SAVES/*/<core name>), so a game's saves do not follow
+# it to another emulator.
 [[system]]
 name = "Game Boy"
 dirs = ["GB", "Game Boy", "Nintendo Game Boy", "Nintendo - Game Boy"]
@@ -48,48 +61,84 @@ name = "Game Boy Advance"
 dirs = ["GBA", "Game Boy Advance", "Nintendo Game Boy Advance"]
 extensions = ["gba", "zip", "7z"]
 core = "mgba_libretro.so"
+label = "mGBA"
 cpu = "moderate"
 art = { libretro = "Nintendo - Game Boy Advance", muos = "Nintendo Game Boy Advance" }
+
+[[system.alternative]]
+core = "vba_next_libretro.so"
+label = "VBA-Next"
+cpu = "moderate"
 
 [[system]]
 name = "NES"
 dirs = ["NES", "FC", "Famicom", "Nintendo NES", "Nintendo - Nintendo Entertainment System (Headered)"]
 extensions = ["nes", "fds", "unf", "zip", "7z"]
 core = "fceumm_libretro.so"
+label = "FCEUmm"
 cpu = "light"
 art = { libretro = "Nintendo - Nintendo Entertainment System", muos = "Nintendo NES - Famicom" }
+
+[[system.alternative]]
+core = "nestopia_libretro.so"
+label = "Nestopia"
+cpu = "moderate"
 
 [[system]]
 name = "SNES"
 dirs = ["SNES", "SFC", "Super Famicom", "Nintendo SNES", "Nintendo - Super Nintendo Entertainment System"]
 extensions = ["sfc", "smc", "zip", "7z"]
 core = "snes9x_libretro.so"
+label = "Snes9x"
 cpu = "moderate"
 art = { libretro = "Nintendo - Super Nintendo Entertainment System", muos = "Nintendo SNES - SFC" }
+
+[[system.alternative]]
+core = "snes9x2010_libretro.so"
+label = "Snes9x 2010"
+cpu = "moderate"
 
 [[system]]
 name = "Mega Drive / Genesis"
 dirs = ["MD", "GENESIS", "Mega Drive", "Sega Genesis"]
 extensions = ["md", "gen", "bin", "smd", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+label = "Genesis Plus GX"
 cpu = "light"
 art = { libretro = "Sega - Mega Drive - Genesis", muos = "Sega Mega Drive - Genesis" }
+
+[[system.alternative]]
+core = "picodrive_libretro.so"
+label = "PicoDrive"
+cpu = "moderate"
 
 [[system]]
 name = "Master System"
 dirs = ["MS", "SMS", "Master System", "Sega Master System"]
 extensions = ["sms", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+label = "Genesis Plus GX"
 cpu = "light"
 art = { libretro = "Sega - Master System - Mark III", muos = "Sega Master System" }
+
+[[system.alternative]]
+core = "picodrive_libretro.so"
+label = "PicoDrive"
+cpu = "moderate"
 
 [[system]]
 name = "Game Gear"
 dirs = ["GG", "Game Gear", "Sega Game Gear"]
 extensions = ["gg", "zip", "7z"]
 core = "genesis_plus_gx_libretro.so"
+label = "Genesis Plus GX"
 cpu = "light"
 art = { libretro = "Sega - Game Gear", muos = "Sega Game Gear" }
+
+[[system.alternative]]
+core = "picodrive_libretro.so"
+label = "PicoDrive"
+cpu = "moderate"
 
 [[system]]
 name = "PC Engine"
@@ -166,10 +215,18 @@ extensions = ["iso", "cso", "pbp", "chd"]
 # libretro core, and shares its game saves (nix/runtime/ppsspp.nix sets the
 # paths); the pause menu's Exit or Menu + Start quits. SDL maps the H700 pad
 # from this line; the cache holds Mesa's compiled shaders.
+label = "PPSSPP (standalone)"
 command = ["/usr/bin/ppsspp", "--pause-menu-exit", "{rom}"]
 env = { HOME = "/root", XDG_RUNTIME_DIR = "/run", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache", SDL_GAMECONTROLLERCONFIG = "1900f6a24b480000df14000000010000,H700 Gamepad,platform:Linux,x:b3,a:b1,b:b0,y:b2,back:b8,guide:b10,start:b9,dpleft:b15,dpdown:b14,dpright:b16,dpup:b13,leftshoulder:b4,lefttrigger:b6,rightshoulder:b5,righttrigger:b7,leftstick:b11,rightstick:b12,leftx:a0,lefty:a1,rightx:a2,righty:a3," }
 log = "/var/log/ghazal/ppsspp.log"
 art = { libretro = "Sony - PlayStation Portable", muos = "Sony PlayStation Portable" }
+
+# The libretro core shares game saves with standalone PPSSPP but not its
+# save states. Handhelds with a rotated panel run only this one (the image
+# builder drops the standalone emulator and this alternative's duplicate).
+[[system.alternative]]
+core = "ppsspp_libretro.so"
+label = "PPSSPP (libretro)"
 
 [[system]]
 name = "Dreamcast"
@@ -209,8 +266,14 @@ name = "Mega CD"
 dirs = ["MDCD", "SEGACD"]
 extensions = ["cue", "chd", "m3u"]
 core = "picodrive_libretro.so"
+label = "PicoDrive"
 requires_any = ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
 art = { libretro = "Sega - Mega-CD - Sega CD", muos = "Sega Mega CD - Sega CD" }
+
+# Both cores read the same BIOS files from the BIOS folder.
+[[system.alternative]]
+core = "genesis_plus_gx_libretro.so"
+label = "Genesis Plus GX"
 
 [[system]]
 name = "Game & Watch"

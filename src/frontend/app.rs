@@ -6,6 +6,8 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::activity::{Activity, Catalog, Collection, GameId, LoadError};
 use super::config::FrontendConfig;
+use super::emulator_choice::Choices;
+use super::emulator_picker::{self, Picker, Step};
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
@@ -153,9 +155,18 @@ const HOME_HINTS: Hints = &[("A", "Open"), ("B", "Explore"), ("≡", "Menu")];
 const SYSTEM_HINTS: Hints = &[("A", "Open"), ("B", "Back"), ("≡", "Menu")];
 const CONFIGURATION_HINTS: Hints = &[("A", "Change"), ("◀▶", "Adjust"), ("B", "Back")];
 const INFORMATION_HINTS: Hints = &[("B", "Back")];
-const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("◀▶", "System"), ("≡", "Menu")];
-const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")];
-const COMPACT_GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite")];
+const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Emulator"), ("◀▶", "System"), ("≡", "Menu")];
+const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Emulator"), ("≡", "Menu")];
+const COMPACT_GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Emulator")];
+
+/// What the UI's overlay list shows (`Overlay` in ui/app.slint's `menu-*` properties).
+struct Overlay {
+    title: String,
+    labels: Vec<String>,
+    cursor: usize,
+    /// Rows may be long (emulator names), so the panel is wider.
+    wide: bool,
+}
 
 struct Toast {
     text: String,
@@ -185,6 +196,10 @@ pub struct App {
     settings: Settings,
     startup: StartupState,
     catalog: Catalog,
+    /// Which emulator runs each game (see `emulator_choice`).
+    emulators: Choices,
+    /// The emulator picker, when open over a game list.
+    picker: Option<Picker>,
     scan: Option<Scan>,
     view: View,
     /// Cursor in the systems list.
@@ -193,7 +208,7 @@ pub struct App {
     game_cursors: BTreeMap<GameList, usize>,
     menu: Option<MenuState>,
     /// Labels currently in the UI's menu model.
-    menu_labels: Vec<&'static str>,
+    menu_labels: Vec<String>,
     art: Option<Loader>,
     /// The game whose art is shown or loading, and the pending request.
     art_for: Option<(GameList, usize)>,
@@ -240,6 +255,8 @@ impl App {
             main_items.push(MenuItem::Quit);
         }
         let settings = Settings::load(&config.settings_file);
+        // Unusable choices must not keep the menu from starting: games run with their systems' defaults.
+        let (emulators, emulators_warning) = Choices::open(&config.emulators_file());
         let startup = StartupState::WaitingForLibrary(settings.startup);
         let home_items = HomeItem::entries(daemon_status.is_some());
         let art = Loader::new().inspect_err(|error| eprintln!("ghazal: art loader: {error:#}")).ok();
@@ -259,6 +276,8 @@ impl App {
             startup,
             // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
             catalog: Catalog::new(Library::from_systems(Vec::new()), activity),
+            emulators,
+            picker: None,
             scan: None,
             view: View::Home,
             system_cursor: 0,
@@ -282,6 +301,7 @@ impl App {
         app.start_scan(false);
         if let Ok(warning) = std::fs::read_to_string("/run/ghazal/provision-warning") { app.error(warning); }
         if let Some(warning) = activity_warning { app.error(warning); }
+        if let Some(warning) = emulators_warning { app.error(warning); }
         app.refresh_status(Instant::now());
         app.refresh_levels();
         app.sync();
@@ -319,7 +339,7 @@ impl App {
             self.error("Last game is unavailable on this card; staying in Main Menu".into());
             return None;
         };
-        match LaunchSpec::new(&self.config, system, game) {
+        match LaunchSpec::new(&self.config, self.emulators.resolve(system, game), game) {
             Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) }),
             Err(error) => { self.error(format!("Starting last game: {error:#}")); None }
         }
@@ -340,6 +360,10 @@ impl App {
     fn handle(&mut self, button: Button) -> Option<Effect> {
         if self.view == View::Updates && self.updater.working() { return None; }
         if crate::update::busy() { return None; }
+        if let Some(picker) = self.picker.take() {
+            self.press_in_picker(picker, button);
+            return None;
+        }
         if let Some(MenuState { page, cursor }) = self.menu {
             let items = self.page_items(page);
             match button {
@@ -417,6 +441,7 @@ impl App {
                     Button::B => self.view = list.parent(),
                     Button::A => return self.launch(list, cursor),
                     Button::Y => self.toggle_favorite(list, cursor),
+                    Button::X => self.open_emulator_picker(list, cursor),
                     // Left/Right in a system's games jump to the neighbouring system.
                     Button::Left | Button::Right => if let GameList::System(system) = list {
                         let next = step(system, self.catalog.library().systems().len(), if button == Button::Left { -1 } else { 1 }, true);
@@ -433,12 +458,33 @@ impl App {
     fn launch(&mut self, list: GameList, cursor: usize) -> Option<Effect> {
         let (system, game) = self.game_at(list, cursor)?;
         let id = GameId::new(system, game);
-        match LaunchSpec::new(&self.config, system, game) {
+        match LaunchSpec::new(&self.config, self.emulators.resolve(system, game), game) {
             Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) }),
             Err(error) => {
                 self.error(format!("{error:#}"));
                 None
             }
+        }
+    }
+
+    /// X in a game list: offer the emulators of the selected game's system.
+    fn open_emulator_picker(&mut self, list: GameList, cursor: usize) {
+        let Some((system, game)) = self.game_at(list, cursor) else { return };
+        match Picker::open(system, game, &self.emulators) {
+            Ok(picker) => self.picker = Some(picker),
+            Err(reason) => self.notice(&reason),
+        }
+    }
+
+    /// A button while the picker is open. The library may have been rescanned
+    /// since it opened; its game is then gone and the picker closes.
+    fn press_in_picker(&mut self, picker: Picker, button: Button) {
+        let Some((system, game)) = picker.game().resolve(self.catalog.library()) else { return };
+        match picker.press(button, system, game, &mut self.emulators) {
+            Step::Open(picker) => self.picker = Some(picker),
+            Step::Closed => {}
+            Step::Chosen(message) => { self.notice(&message); self.rows_for = None; }
+            Step::Failed(message) => self.error(message),
         }
     }
 
@@ -521,6 +567,7 @@ impl App {
             self.view = View::Systems;
         }
         self.catalog.replace_library(library);
+        self.picker = None;
         self.system_cursor = self.system_cursor.min(self.system_entries().saturating_sub(1));
         if self.view == View::Information { self.refresh_information(); }
         self.rows_for = None;
@@ -863,18 +910,19 @@ impl App {
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
                 let favorite = if self.catalog.is_favorite(&GameId::new(system, game)) { "★" } else { "" };
-                // Collections mix systems, so name the game's system.
-                let detail = match list {
-                    GameList::System(_) => favorite.to_owned(),
-                    _ => format!("{favorite} {}", system.name).trim_start().to_owned(),
-                };
+                // Collections mix systems, so name the game's system; a game pinned to an emulator names it.
+                let system_name = (!matches!(list, GameList::System(_))).then_some(system.name.as_str());
+                let pinned = self.emulators.pinned(system, game).map(|emulator| emulator.label.as_str());
+                let detail = [(!favorite.is_empty()).then_some(favorite), system_name, pinned].into_iter().flatten().collect::<Vec<_>>().join(" ");
                 Row { label: game.title.as_str().into(), detail: detail.into(), glyph: "".into() }
             }
         })
     }
 
     fn hints(&self) -> Hints {
-        if self.menu.is_none() && self.ui.window().size().width < 400 && matches!(self.view, View::Games(_)) {
+        let compact = self.ui.window().size().width < 400;
+        if self.picker.is_some() { return if compact { emulator_picker::COMPACT_HINTS } else { emulator_picker::HINTS }; }
+        if self.menu.is_none() && compact && matches!(self.view, View::Games(_)) {
             return COMPACT_GAME_HINTS;
         }
         match (self.menu.map(|m| m.page), self.view) {
@@ -889,6 +937,19 @@ impl App {
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
         }
+    }
+
+    /// The list floating over the screen: the emulator picker, else the menu.
+    fn overlay(&self) -> Option<Overlay> {
+        if let Some(picker) = &self.picker {
+            let (system, game) = picker.game().resolve(self.catalog.library())?;
+            let view = picker.view(system, game, &self.emulators);
+            return Some(Overlay { title: view.title, labels: view.rows, cursor: view.cursor, wide: true });
+        }
+        let MenuState { page, cursor } = self.menu?;
+        let title = match page { MenuPage::Main => "Menu", MenuPage::Options => "Options" }.to_owned();
+        let labels = self.page_items(page).iter().map(|item| item.label(&self.settings).to_owned()).collect();
+        Some(Overlay { title, labels, cursor, wide: false })
     }
 
     /// Pushes state into the UI. Slint only repaints what actually changed.
@@ -939,14 +1000,15 @@ impl App {
             _ => format!("No games found in {}", self.config.rom_roots.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")),
         }.into());
         ui.set_selected(cursor as i32);
-        ui.set_menu_selected(self.menu.map_or(-1, |m| m.cursor as i32));
-        if let Some(MenuState { page, .. }) = self.menu {
-            let labels: Vec<&'static str> = self.page_items(page).iter().map(|item| item.label(&self.settings)).collect();
+        let overlay = self.overlay();
+        ui.set_menu_selected(overlay.as_ref().map_or(-1, |overlay| overlay.cursor as i32));
+        if let Some(Overlay { title, labels, wide, .. }) = overlay {
             if labels != self.menu_labels {
-                ui.set_menu_items(ModelRc::new(VecModel::from(labels.iter().map(|l| SharedString::from(*l)).collect::<Vec<_>>())));
+                ui.set_menu_items(ModelRc::new(VecModel::from(labels.iter().map(|l| SharedString::from(l.as_str())).collect::<Vec<_>>())));
                 self.menu_labels = labels;
             }
-            ui.set_menu_title(match page { MenuPage::Main => "Menu", MenuPage::Options => "Options" }.into());
+            ui.set_menu_title(title.into());
+            ui.set_menu_wide(wide);
         }
         let show_art = self.settings.show_thumbnails && matches!(self.view, View::Games(_)) && total > 0;
         ui.set_art_visible(show_art);

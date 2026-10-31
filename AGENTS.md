@@ -116,6 +116,16 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   (system.toml) cut that to 0% with 60 fps held for GB, NES, SNES and GBA.
   The AXP717 has no discharge current reading, so measure draw as charge lost
   over equal long runs (`ghazal observe power`).
+- Emulator choice (X in a game list, docs/standalone.md) is implemented but
+  not yet checked on a handheld: launch a game with each shipped alternative
+  (retroarch.log shows `-L <core>`), then confirm the pin, the system default
+  and the clock policy of the chosen emulator survive a reboot. The
+  alternatives' `cpu` floors reuse their default's and are unmeasured: time each
+  with the null-video method before trusting them. Saves and states are filed
+  per core name, so switching cores starts without the game's battery save;
+  copying `.srm` files between compatible cores is not done. Not built: gpsp
+  (ROCKNIX's H700 build is 32-bit ARM with a 32-bit dynarec; a generic aarch64
+  build has no dynarec) and PS1 alternatives (`beetle-psx-lr`, `swanstation-lr`).
 - Check status icons with the desktop snapshot power override at normal and
   compact sizes (docs/standalone.md). The software renderer has no Path support
   unless explicitly enabled; embedded-font symbols avoid adding that dependency.
