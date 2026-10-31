@@ -32,6 +32,8 @@ pub struct FrontendConfig {
     /// udev's database, which RetroArch and SDL need to find the gamepad.
     #[serde(default)]
     pub launch_after: Vec<PathBuf>,
+    /// PortMaster support; absent where there is none (see docs/ports.md).
+    pub ports: Option<crate::ports::Config>,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }
@@ -86,6 +88,8 @@ pub struct SystemEntry {
     /// shows games that can only fail to start.
     pub requires_any: Vec<PathBuf>,
     pub art: ArtSources,
+    /// How many folders below the system's own to look for games.
+    pub depth: usize,
 }
 
 /// Where a system's box art comes from.
@@ -134,7 +138,12 @@ struct RawSystemEntry {
     requires_any: Vec<PathBuf>,
     #[serde(default)]
     art: ArtSources,
+    #[serde(default = "default_depth")]
+    depth: usize,
 }
+
+/// Game folders nest (a disc image beside its tracks, a game per folder).
+fn default_depth() -> usize { 3 }
 
 impl TryFrom<RawSystemEntry> for SystemEntry {
     type Error = String;
@@ -148,7 +157,7 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
             (Some(_), Some(_)) => return Err(format!("system {:?} sets both core and command", raw.name)),
             (None, None) => return Err(format!("system {:?} needs a core or a command", raw.name)),
         };
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, cpu: raw.cpu, requires_any: raw.requires_any, art: raw.art })
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, launch, cpu: raw.cpu, requires_any: raw.requires_any, art: raw.art, depth: raw.depth })
     }
 }
 

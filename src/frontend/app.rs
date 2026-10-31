@@ -13,6 +13,7 @@ use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
 use crate::daemon::ctl;
 use crate::hw::battery;
+use crate::ports;
 use crate::ui::{AppWindow, Hint, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
@@ -30,7 +31,7 @@ pub enum Effect {
     Quit,
 }
 
-pub enum LaunchPurpose { Game(GameId), RetroArchSettings }
+pub enum LaunchPurpose { Game(GameId), RetroArchSettings, PortMaster }
 
 #[derive(Clone, Copy, PartialEq)]
 enum View {
@@ -99,6 +100,8 @@ enum MenuItem {
     Startup,
     RetroArchSettings,
     SystemUpdate,
+    PortMaster,
+    InstallPortMaster,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
 }
@@ -124,6 +127,8 @@ impl MenuItem {
             },
             Self::RetroArchSettings => "RetroArch settings",
             Self::SystemUpdate => "System update",
+            Self::PortMaster => "PortMaster",
+            Self::InstallPortMaster => "Install PortMaster",
             Self::Lights(preset) => preset.menu_label(),
         }
     }
@@ -168,6 +173,24 @@ struct Scan {
     announce: bool,
 }
 
+/// The Applications entry for PortMaster: launch it, or install it first.
+struct PortsMenu {
+    dir: std::path::PathBuf,
+    state: ports::PortMaster,
+    install: Option<std::sync::mpsc::Receiver<ports::Progress>>,
+    /// What the install is doing, shown again whenever the toast expires.
+    step: &'static str,
+    /// PortMaster installs and removes ports: list them again when it exits.
+    rescan_on_return: bool,
+}
+
+impl PortsMenu {
+    fn new(config: &FrontendConfig) -> Option<Self> {
+        let dir = config.ports.as_ref()?.ports_dir(&config.rom_roots)?;
+        Some(Self { state: ports::portmaster_state(&dir), dir, install: None, step: "", rescan_on_return: false })
+    }
+}
+
 /// All frontend state. After every change `sync()` pushes it into the Slint window,
 /// which decides how it looks (ui/app.slint).
 pub struct App {
@@ -199,6 +222,7 @@ pub struct App {
     art_for: Option<(GameList, usize)>,
     art_pending: Option<u64>,
     download: Option<std::sync::mpsc::Receiver<Progress>>,
+    ports: Option<PortsMenu>,
     toast: Option<Toast>,
     levels: Option<crate::levels::Levels>,
     /// None on boards without stick lights.
@@ -243,6 +267,7 @@ impl App {
         let startup = StartupState::WaitingForLibrary(settings.startup);
         let home_items = HomeItem::entries(daemon_status.is_some());
         let art = Loader::new().inspect_err(|error| eprintln!("ghazal: art loader: {error:#}")).ok();
+        let ports = PortsMenu::new(&config);
 
         let mut app = Self {
             config,
@@ -269,6 +294,7 @@ impl App {
             art_for: None,
             art_pending: None,
             download: None,
+            ports,
             toast: None,
             levels: None,
             lights: daemon_status.as_deref().and_then(ctl::lights),
@@ -362,7 +388,7 @@ impl App {
                     HomeItem::Explore => self.view = View::Systems,
                     HomeItem::Collection => self.view = View::Games(GameList::Favorites),
                     HomeItem::History => self.view = View::Games(GameList::Recent),
-                    HomeItem::Applications => self.view = View::Applications,
+                    HomeItem::Applications => { self.refresh_ports(); self.view = View::Applications; }
                     HomeItem::Configuration => self.view = View::Configuration,
                     HomeItem::Information => { self.refresh_information(); self.view = View::Information; }
                     HomeItem::Reboot => return self.power("reboot"),
@@ -378,8 +404,8 @@ impl App {
             },
             View::Applications => match button {
                 Button::B => self.view = View::Home,
-                Button::A => return self.activate(APPLICATION_ITEMS[self.application_cursor]),
-                button => self.application_cursor = navigate(self.application_cursor, APPLICATION_ITEMS.len(), button),
+                Button::A => return self.application_items().get(self.application_cursor).copied().and_then(|item| self.activate(item)),
+                button => self.application_cursor = navigate(self.application_cursor, self.application_items().len(), button),
             },
             View::Configuration => match button {
                 Button::B => self.view = View::Home,
@@ -453,7 +479,14 @@ impl App {
     }
 
     pub fn session_started(&mut self, purpose: LaunchPurpose) {
-        let LaunchPurpose::Game(game) = purpose else { return };
+        let game = match purpose {
+            LaunchPurpose::Game(game) => game,
+            LaunchPurpose::PortMaster => {
+                if let Some(ports) = &mut self.ports { ports.rescan_on_return = true; }
+                return;
+            }
+            LaunchPurpose::RetroArchSettings => return,
+        };
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
         if let Err(error) = self.catalog.launched(game.clone()) {
@@ -477,6 +510,10 @@ impl App {
             eprintln!("ghazal: emulator session: {e:#}");
             self.error(format!("{e:#}"));
         }
+        if self.ports.as_mut().is_some_and(|ports| std::mem::take(&mut ports.rescan_on_return)) {
+            self.refresh_ports();
+            self.start_scan(false);
+        }
         self.refresh_status(Instant::now());
         self.sync();
     }
@@ -489,9 +526,14 @@ impl App {
         self.receive_scan();
         self.receive_art();
         self.receive_download();
+        self.receive_ports_install();
         if self.updater.poll() { self.rows_for = None; }
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
+        }
+        // An install takes a while: keep saying so.
+        if let Some(step) = self.ports.as_ref().filter(|ports| ports.install.is_some()).map(|ports| ports.step) {
+            if self.toast.is_none() { self.notice(step); }
         }
         if now >= self.status_checked + STATUS_REFRESH {
             self.refresh_status(now);
@@ -581,6 +623,43 @@ impl App {
         }
     }
 
+    fn receive_ports_install(&mut self) {
+        let Some(ports) = &mut self.ports else { return };
+        let Some(progress) = &ports.install else { return };
+        let outcome = loop {
+            match progress.try_recv() {
+                Ok(ports::Progress::Step(step)) => ports.step = step,
+                Ok(ports::Progress::Done) => break Some(Ok(())),
+                Ok(ports::Progress::Failed(error)) => break Some(Err(error)),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break Some(Err("the installer stopped unexpectedly".into())),
+            }
+        };
+        let Some(outcome) = outcome else { return };
+        ports.install = None;
+        self.refresh_ports();
+        match outcome {
+            Ok(()) => self.notice("PortMaster installed: open it from Applications"),
+            Err(error) => self.error(format!("Installing PortMaster: {error}")),
+        }
+    }
+
+    fn refresh_ports(&mut self) {
+        if let Some(ports) = &mut self.ports { ports.state = ports::portmaster_state(&ports.dir); }
+        self.rows_for = None;
+    }
+
+    /// The Applications entries: PortMaster is offered where the profile has it.
+    fn application_items(&self) -> Vec<MenuItem> {
+        let mut items = APPLICATION_ITEMS.to_vec();
+        match self.ports.as_ref().map(|ports| ports.state) {
+            Some(ports::PortMaster::Installed) => items.push(MenuItem::PortMaster),
+            Some(ports::PortMaster::Missing) => items.push(MenuItem::InstallPortMaster),
+            None => {}
+        }
+        items
+    }
+
     /// Asks the loader for the selected game's art when the selection changes.
     fn request_art(&mut self, cursor: usize) {
         let View::Games(list) = self.view else { return };
@@ -593,7 +672,7 @@ impl App {
     }
 
     pub fn next_deadline(&self) -> Instant {
-        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some();
+        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some() || self.ports.as_ref().is_some_and(|ports| ports.install.is_some());
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
@@ -771,6 +850,27 @@ impl App {
                 }
                 None
             }
+            MenuItem::PortMaster => {
+                let launch = match (&self.ports, &self.config.ports) {
+                    (Some(menu), Some(config)) => ports::launch_spec(&self.config, config, &ports::portmaster_script(&menu.dir)),
+                    _ => return None,
+                };
+                match launch {
+                    Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::PortMaster }),
+                    Err(error) => { self.error(format!("PortMaster: {error:#}")); None }
+                }
+            }
+            MenuItem::InstallPortMaster => {
+                if self.ports.as_ref().is_none_or(|ports| ports.install.is_some()) {
+                    self.notice("Already installing PortMaster");
+                    return None;
+                }
+                match ports::install_in_background(&self.config) {
+                    Ok(progress) => if let Some(ports) = &mut self.ports { ports.install = Some(progress); ports.step = "Installing PortMaster…"; },
+                    Err(error) => self.error(format!("Installing PortMaster: {error:#}")),
+                }
+                None
+            }
             MenuItem::Sleep => self.power("suspend"),
             MenuItem::Restart => self.power("reboot"),
             MenuItem::PowerOff => self.power("poweroff"),
@@ -848,7 +948,7 @@ impl App {
                 let list = GameList::System(index);
                 Row { label: self.list_title(list).into(), detail: self.game_count(list).to_string().into(), glyph: "".into() }
             }
-            View::Applications => Row { label: APPLICATION_ITEMS.get(index)?.label(&self.settings).into(), detail: "".into(), glyph: "".into() },
+            View::Applications => Row { label: self.application_items().get(index)?.label(&self.settings).into(), detail: "".into(), glyph: "".into() },
             View::Configuration => {
                 let item = *self.configuration_items().get(index)?;
                 let detail = match (item, self.levels) {
@@ -897,7 +997,7 @@ impl App {
             View::Home => (self.home_cursor, self.home_items.len()),
             View::Systems => (self.system_cursor, self.system_entries()),
             View::Games(list) => (self.cursor(list), self.game_count(list)),
-            View::Applications => (self.application_cursor, APPLICATION_ITEMS.len()),
+            View::Applications => (self.application_cursor, self.application_items().len()),
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
             View::Information => (self.information_cursor, self.information_rows.len()),

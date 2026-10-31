@@ -12,6 +12,7 @@ mod install;
 mod logging;
 mod levels;
 mod observe;
+mod ports;
 mod profile;
 mod supervisor;
 mod sys;
@@ -47,6 +48,7 @@ COMMANDS:
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
   observe audio|boot|frame|press|recent-benchmark  inspect and exercise the real device
+  ports run SCRIPT|install|prepare|check|ldd FILE  run PortMaster ports, install PortMaster, check what ports need
 
 Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $GHAZAL_CONFIG_DIR,
 etc/ next to the binary, the binary's directory, or /etc/ghazal; built-in defaults otherwise.";
@@ -92,6 +94,7 @@ fn run() -> Result<()> {
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
         "observe" => observe::run(&profile.device()?, rest),
+        "ports" => ports::cli(&profile, rest),
         "rescue" => init::rescue(),
         "data-directories" => init::data_directories(),
         "frontend" => run_frontend(&profile, rest),
