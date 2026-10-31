@@ -157,7 +157,8 @@ stdenv.mkDerivation {
       ${./h700-charge-current.patch} \
       ${./serial-8250-fifo-size.patch} \
       ${./sunxi-mmc-pwrseq-async.patch} \
-      ${./sun8i-panic-scanout.patch}; do
+      ${./sun8i-panic-scanout.patch} \
+      ${./sun4i-usb-phy-typec-source.patch}; do
       patch -p1 < "$patch"
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/

@@ -57,11 +57,13 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   bit 3, `0xe3` sink or DRP) reports no attach, and with it on and the
   handheld's VBUS blocked a fresh plug-in still got no VBUS. Charge from
   USB-A through an A-to-C cable.
-- The OTG ID line (PI4) reads a USB-C source's Rp as a USB device. With a
-  C-to-C charger attached, the PHY turns the 5 V boost on and off about once
-  a second, feeding VBUS into the charger and draining the battery. Host
-  mode should stop re-enabling VBUS when enabling it drops the ID line;
-  check that OTG devices still get power.
+- The OTG ID line (PI4) reads a USB-C source's Rp as a USB device, and
+  driving VBUS into the source drops it again. Without
+  `nix/sun4i-usb-phy-typec-source.patch` the port toggles the 5 V boost about
+  once a second while a C-to-C charger is plugged in. With it, a charger gets
+  one ~0.1 s pulse per plug-in (verified on the RG40XX-V v2). Not yet
+  checked: an OTG device still gets VBUS (it must keep ID asserted for the
+  first second).
 - CI builds all 19 catalog variants with both RAM bootloaders, but physical
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,

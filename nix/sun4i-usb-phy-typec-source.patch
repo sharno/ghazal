@@ -1,0 +1,126 @@
+phy: sun4i-usb: stop powering VBUS into a Type-C source on the ID line
+
+The H700 Anbernics wire the Type-C CC line to the OTG ID GPIO and have no
+Rd. A USB-C charger or PC port (Rp on CC) asserts ID like an OTG device, so
+host mode drives 5 V into it. ID then drops, VBUS goes off, ID rises again,
+and the port toggles VBUS about once a second while the cable stays in,
+draining the battery into the source.
+
+If ID drops within a second of entering host mode, treat the partner as a
+source and stay in peripheral mode until ID drops again (unplug). A source
+costs one short VBUS pulse per plug-in; a device that keeps ID asserted is
+powered as before. These boards cannot charge from a USB-C source either way.
+
+--- a/drivers/phy/allwinner/phy-sun4i-usb.c
++++ b/drivers/phy/allwinner/phy-sun4i-usb.c
+@@ -95,6 +95,28 @@
+  */
+ #define DEBOUNCE_TIME			msecs_to_jiffies(50)
+ #define POLL_TIME			msecs_to_jiffies(250)
++
++/*
++ * Measured on an RG40XX-V with a USB-C charger: ID drops within ~0.4 s of
++ * host mode driving VBUS into it and rises again within ~0.5 s of VBUS
++ * going off.
++ */
++#define SOURCE_DETECT_TIME		msecs_to_jiffies(1000)
++#define SOURCE_REASSERT_TIME		msecs_to_jiffies(2000)
++
++/*
++ * What is on the other end of the ID line. Boards such as the H700
++ * Anbernics wire the Type-C CC line to the ID GPIO and have no Rd, so a
++ * charger or PC port (Rp on CC) reads as an OTG device. Driving VBUS into
++ * it drops ID, and plain ID following would switch VBUS on and off about
++ * once a second for as long as the source stays plugged in.
++ */
++enum sun4i_usb_phy0_partner {
++	PHY0_PARTNER_NONE,	/* ID released: peripheral mode */
++	PHY0_PARTNER_DEVICE,	/* ID asserted: host mode since partner_since */
++	PHY0_PARTNER_REJECTED,	/* ID dropped soon after host mode drove VBUS */
++	PHY0_PARTNER_SOURCE,	/* a source re-asserted ID: stay peripheral */
++};
+ 
+ struct sun4i_usb_phy_cfg {
+ 	int hsic_index;
+@@ -138,6 +160,8 @@
+ 	int vbus_det_irq;
+ 	int id_det;
+ 	int vbus_det;
++	enum sun4i_usb_phy0_partner partner;
++	unsigned long partner_since;
+ 	struct delayed_work detect;
+ };
+ 
+@@ -359,6 +383,7 @@
+ 		/* Force ISCR and cable state updates */
+ 		data->id_det = -1;
+ 		data->vbus_det = -1;
++		data->partner = PHY0_PARTNER_NONE;
+ 		queue_delayed_work(system_percpu_wq, &data->detect, 0);
+ 	}
+ 
+@@ -561,6 +586,7 @@
+ 	}
+ 
+ 	data->id_det = -1; /* Force reprocessing of id */
++	data->partner = PHY0_PARTNER_NONE;
+ 	data->force_session_end = true;
+ 	queue_delayed_work(system_percpu_wq, &data->detect, 0);
+ 
+@@ -617,6 +643,47 @@
+ 	writel(regval, data->base + REG_PHY_OTGCTL);
+ }
+ 
++/*
++ * Advance the partner state on the ID GPIO's level (0 = asserted) and
++ * return the ID to act on. A source costs one short VBUS pulse per plug-in:
++ * host mode is how it is told apart from a device, which keeps ID asserted.
++ */
++static int sun4i_usb_phy0_track_partner(struct sun4i_usb_phy_data *data,
++					int id_det)
++{
++	unsigned long now = jiffies;
++	enum sun4i_usb_phy0_partner next = data->partner;
++
++	switch (data->partner) {
++	case PHY0_PARTNER_NONE:
++		if (id_det == 0)
++			next = PHY0_PARTNER_DEVICE;
++		break;
++	case PHY0_PARTNER_DEVICE:
++		if (id_det == 1)
++			next = time_before(now, data->partner_since + SOURCE_DETECT_TIME) ?
++			       PHY0_PARTNER_REJECTED : PHY0_PARTNER_NONE;
++		break;
++	case PHY0_PARTNER_REJECTED:
++		/* A late re-assert is a new plug-in, not the rejected source */
++		if (id_det == 0)
++			next = time_before(now, data->partner_since + SOURCE_REASSERT_TIME) ?
++			       PHY0_PARTNER_SOURCE : PHY0_PARTNER_DEVICE;
++		break;
++	case PHY0_PARTNER_SOURCE:
++		if (id_det == 1)
++			next = PHY0_PARTNER_NONE;
++		break;
++	}
++
++	if (next != data->partner) {
++		data->partner = next;
++		data->partner_since = now;
++	}
++
++	return data->partner == PHY0_PARTNER_DEVICE ? 0 : 1;
++}
++
+ static void sun4i_usb_phy0_id_vbus_det_scan(struct work_struct *work)
+ {
+ 	struct sun4i_usb_phy_data *data =
+@@ -640,6 +707,8 @@
+ 		return;
+ 	}
+ 
++	id_det = sun4i_usb_phy0_track_partner(data, id_det);
++
+ 	/* Disable internal VBUS reg if there is an external VBUS */
+ 	if (vbus_det != 0 && phy->vbus && phy->regulator_on) {
+ 		regulator_disable(phy->vbus);
