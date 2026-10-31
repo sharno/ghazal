@@ -12,3 +12,5 @@ mod settings;
 mod thumbnails;
 
 pub fn benchmark_recent(config: &config::FrontendConfig) -> anyhow::Result<()> { activity::benchmark(config) }
+
+pub fn observe_moonlight_hosts() -> anyhow::Result<()> { moonlight::observe_hosts() }

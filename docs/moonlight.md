@@ -5,8 +5,8 @@ Applications → **Moonlight game streaming** streams a PC game from a
 to the handheld. The picture is H.264 decoded in software on the four
 Cortex-A53 cores; the pad, audio and display are the handheld's own.
 
-Status: the whole flow is in, but it has not run against a real host yet. Parts
-that no one has seen working are marked *unverified* below.
+Status: the whole flow is in, but it has not run against a real host yet. What
+no one has seen working is listed under "Not verified, not done" at the end.
 
 ## Using it
 
@@ -47,9 +47,9 @@ downscaled with a linear filter, which looks smoother but costs decoder time.
 In a stream the pad is an Xbox-style controller with the buttons named as on
 the device (A, B, X, Y by label), Select as Back, Start as Start and Menu as
 the Guide button. The volume and brightness hotkeys work as everywhere.
-Rumble is forwarded if the host asks for it. There is no keyboard or mouse
-input; the Desktop app is therefore of little use without a Bluetooth or USB
-mouse (SDL picks up any evdev device).
+Rumble is forwarded if the host asks for it. The handheld has no keyboard or
+mouse, so the Desktop app is hard to use without a USB or Bluetooth one (SDL
+passes any evdev mouse and keyboard through to the host).
 
 ## How it is built
 
@@ -164,18 +164,27 @@ cat 360p60.h264 | ssh root@DEVICE 'cat > /tmp/360p60.h264'
 ssh root@DEVICE '/tmp/decode-bench /tmp/360p60.h264 4 3'
 ```
 
+`ghazal observe moonlight-hosts` runs the menu's network search once and prints
+what answered (name, address and port), without the menu; the browse was checked
+against a real mDNS responder on a laptop, which answered with a host's name,
+address and port as the parser expects.
+
 Without a host, the menu side can be exercised up to the point of a host:
-Applications → Moonlight → Find hosts (the search reports "No hosts found"), Add
-host by IP address (any address), Games and apps (fails with
-`Can't connect to server`, within about five seconds), Pair (shows the PIN and
-waits; B cancels), and Stream settings.
+Applications → Moonlight → Find hosts (the search reports "No hosts found" when
+nothing answers), Add host by IP address (any address), Games and apps (fails
+with `Can't connect to server`, within about five seconds), Pair (shows the PIN
+and waits; B cancels), and Stream settings.
 
 `tools/fake-host/fake_host.py` stands in for a host that is already paired: it
 answers `serverinfo` and `applist` on Sunshine's ports 47989 and 47984. Run it on
 a computer on the same network (commands in its header), add that computer's
 address as a host, and Games and apps lists Desktop, Steam Big Picture and
 Half-Life 2: Episode One, in that order. Started without `--paired` it makes the
-menu say "Not paired with ... yet: choose Pair". It cannot pair or stream.
+menu say "Not paired with ... yet: choose Pair". It cannot pair or stream, but
+starting a stream against it fails only at the launch request, after Moonlight
+has opened its SDL window, so it also shows whether the display handover and the
+SDL/GLES setup work (the toast then reports the failed launch and the menu must
+come back with its controls).
 
 With a Sunshine host: pair, list, stream at 640x360@60, then 1280x720@60, and
 read `/var/log/ghazal/moonlight.log`. Moonlight's `-debug` output is not
@@ -188,8 +197,10 @@ enabled; add `-verbose` to `cli::stream` for a session when diagnosing.
   uses), audio through ALSA's `default` PCM, the pad mapping, and the letterboxed
   scaling are all untested on the device.
 - mDNS answers from Sunshine on Windows and Linux: the browse sends a
-  unicast-response query from an ephemeral port and listens for the reply. A
-  host that answers only by multicast is not found; add it by address.
+  unicast-response query from an ephemeral port and listens for the reply (a
+  macOS responder answered it; the handheld's Wi-Fi and Sunshine itself have not
+  been tried). A host that answers only by multicast is not found; add it by
+  address.
 - The audio buffer is Moonlight's 4096 samples (about 85 ms at 48 kHz); lowering
   it is the first thing to try if sound lags the picture, once measured.
 - Wi-Fi power saving is on (`iw dev wlan0 get power_save`) and can add latency
@@ -199,8 +210,8 @@ enabled; add `-verbose` to `cli::stream` for a session when diagnosing.
   not the limit for the bitrates offered here.
 - HEVC and AV1 are not built; software decoding of them is slower and the host is
   asked for H.264 only.
-- Hostnames cannot be typed in the menu, and Moonlight Embedded offers no
-  mouse/keyboard path here, no HDR and no surround sound.
+- Hostnames cannot be typed in the menu (edit `moonlight.toml`), and there is no
+  HDR or surround sound.
 - RG28XX (left-rotated panel) has no Moonlight entry: the image builder drops
   `[moonlight]` for it, as it does PPSSPP's standalone command, because SDL's
   output cannot rotate.

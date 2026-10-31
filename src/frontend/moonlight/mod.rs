@@ -47,6 +47,15 @@ const HELPER_LIMIT: Duration = Duration::from_secs(25);
 const PAIR_LIMIT: Duration = Duration::from_secs(180);
 const REACHABLE_WITHIN: Duration = Duration::from_millis(1500);
 
+/// `ghazal observe moonlight-hosts`: what the menu's search finds, to check
+/// mDNS on the real network without the menu.
+pub fn observe_hosts() -> anyhow::Result<()> {
+    let found = discover::browse(SCAN_WINDOW).map_err(anyhow::Error::msg)?;
+    if found.is_empty() { println!("no host answered"); }
+    for host in found { println!("{}\t{}:{}", host.name, host.address, host.port); }
+    Ok(())
+}
+
 /// What the UI shows for one row of the list.
 pub struct RowText {
     pub label: String,
@@ -288,7 +297,8 @@ impl Moonlight {
             Screen::AddHost(editor) => self.press_add(editor, button),
             Screen::Host { host, cursor } => self.press_host(host, cursor, button),
             // Backing out drops the job, which cancels it.
-            Screen::Working { host, .. } | Screen::Pairing { host, .. } if button == Button::B => (Screen::Host { host, cursor: 0 }, Step::Stay),
+            Screen::Working { host, .. } if button == Button::B => (Screen::Host { host, cursor: 0 }, Step::Stay),
+            Screen::Pairing { host, .. } if button == Button::B => (Screen::Host { host, cursor: PAIR_ROW }, Step::Stay),
             waiting @ (Screen::Working { .. } | Screen::Pairing { .. }) => (waiting, Step::Stay),
             Screen::Apps { host, apps, cursor } => self.press_apps(host, apps, cursor, button),
             Screen::Settings { cursor } => self.press_settings(cursor, button),
@@ -745,7 +755,7 @@ esac
         app.handle(Button::A);
         assert!(matches!(app.screen, Screen::Pairing { .. }));
         app.handle(Button::B);
-        assert!(matches!(app.screen, Screen::Host { host: 0, cursor: 0 }));
+        assert!(matches!(app.screen, Screen::Host { host: 0, cursor: PAIR_ROW }));
         assert!(!app.busy());
     }
 
