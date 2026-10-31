@@ -92,6 +92,9 @@ GHAZAL_SNAPSHOT_POWER=discharging GHAZAL_SNAPSHOT_SIZE=480x640 cargo sim --snaps
 Snapshots use a fixed 50% battery when the power override is supplied. The override
 is desktop-only and accepts `charging` or `discharging`; it never changes hardware
 readings, daemon policy or update safety checks. Omit it to observe host status.
+`GHAZAL_SNAPSHOT_HDMI=disconnected|unused|active|mirror` shows the HDMI entry in
+Configuration and Information, and `GHAZAL_SNAPSHOT_NOTICE=1` the screen the
+handheld shows while a game runs on HDMI.
 
 Create a private `secrets/` directory containing `ssid`, `passphrase` and
 `authorized_keys` (one SSH public key per line). SSID and passphrase files each
@@ -255,7 +258,11 @@ Physical wake, display/audio/input recovery and battery drain require acceptance
 before enabling suspend. Initial scope is RetroArch
 games; existing PortMaster applications, standalone emulators and muOS themes
 are not launch targets. Current frontend/daemon controls do not yet expose
-Bluetooth pairing or HDMI switching.
+Bluetooth pairing.
+
+Configuration → HDMI sends the menu and games to a connected display, with the
+handheld's screen off (Auto) or showing the menu too (Mirror); see [HDMI](hdmi.md).
+`ghazal observe hdmi` prints the connector, its modes and the sound card.
 
 ## Recovery and logs
 

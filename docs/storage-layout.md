@@ -74,7 +74,8 @@ GHAZALBOOT/
 GHAZALROOT/                # either OS slot; matching boot files update together
 ├── boot/
 │   ├── KERNEL
-│   └── dtb.img
+│   ├── dtb.img
+│   └── overlays/ghazal-hdmi-audio.dtbo   # applied when a game first goes to HDMI
 ├── opt/ghazal/ghazal        # static runtime: init, supervisor, daemon and menu
 ├── etc/ghazal/
 │   ├── device.toml

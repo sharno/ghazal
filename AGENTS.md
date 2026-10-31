@@ -68,12 +68,20 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
   game launch/exit, save retention and clean shutdown.
-- Bluetooth pairing/audio, HDMI hotplug with display/audio switching and USB
-  gadget modes have no standalone integration yet. Bluetooth is also trimmed
-  from the production kernel; adding it needs an explicit kernel and userspace
-  plan that preserves startup performance. HDMI audio needs the disabled H616
-  AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
-  probe in a host-only MUSB build, which also loses USB host.
+- Bluetooth pairing/audio and USB gadget modes have no standalone integration
+  yet. Bluetooth is also trimmed from the production kernel; adding it needs an
+  explicit kernel and userspace plan that preserves startup performance. Keep
+  `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to probe in a host-only
+  MUSB build, which also loses USB host.
+- HDMI output is implemented and documented in docs/hdmi.md but has never run
+  with a display attached. Its checklist is the acceptance test. Open points:
+  the menu is scaled from the panel's size rather than drawn natively; the
+  HDMI sound card comes from ROCKNIX's vendor audio-hub driver, ported to 7.2
+  only far enough to build, and is created on first use through a configfs
+  device-tree overlay (kernel patches in `nix/`) so it cannot take card 0 or
+  add boot time; a game keeps running on a pulled cable until Menu + Start.
+  The kernel Image grew by 2 KiB (15,550,472 to 15,552,520 bytes); measure the
+  boot time with `ghazal observe boot` on a clean-shutdown boot.
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
