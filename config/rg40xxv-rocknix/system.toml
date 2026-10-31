@@ -28,6 +28,10 @@ storage = {}
 data-mount = {}
 [[init.step]]
 mkdir = "/run/dbus"
+# Realtime tasks get the clock their load needs instead of the top one
+# (UCLAMP_TASK in nix/h700-kernel.nix).
+[[init.step]]
+write = { path = "/proc/sys/kernel/sched_util_clamp_min_rt_default", value = "0" }
 [[init.step]]
 mkdir = "/run/sshd"
 

@@ -222,7 +222,10 @@ so fast-forward and heavier scenes still reach the top clock. Up to 1008 MHz
 the tested RG40XX-V's CPU stays at its lowest voltage (0.9 V, against 1.1 V at
 1416 MHz), which is where the saving comes from. Unrated systems run at
 `performance`, muOS's policy for every game. Boot keeps the kernel's
-`performance` default until the first frame. The red LED lights at low battery.
+`performance` default until the first frame. Realtime interrupt threads (Wi-Fi
+SDIO, GPU jobs) wake hundreds of times a second in a game; the kernel's
+utilization clamping with a zero realtime floor keeps them from raising the
+clock to the top step. The red LED lights at low battery.
 
 The RG40XX-V's stock firmware charges every H700 model at 1.5 A while
 running; the device tree now does too (it was 1.024 A). The daemon logs each

@@ -110,10 +110,12 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   and spent ~80% of the time there instead of at 1416 MHz. The tested unit
   keeps 0.9 V up to 1008 MHz and needs 1.1 V at 1320–1416 MHz; other speed
   bins differ (`vdd-cpu` microvolts per step). Without `UCLAMP_TASK`,
-  schedutil jumps to the top clock whenever a realtime task is runnable; that
-  may explain the ~15–20% still spent at 1416 MHz (unconfirmed). The AXP717
-  has no discharge current reading, so measure draw as charge lost over equal
-  long runs (`ghazal observe power`).
+  schedutil jumps to the top clock whenever a realtime task is runnable: in a
+  game the Wi-Fi SDIO and Panfrost job IRQ threads wake ~280 times a second,
+  which kept 13–22% of the time at 1416 MHz. A zero RT clamp floor
+  (system.toml) cut that to 0% with 60 fps held for GB, NES, SNES and GBA.
+  The AXP717 has no discharge current reading, so measure draw as charge lost
+  over equal long runs (`ghazal observe power`).
 - Check status icons with the desktop snapshot power override at normal and
   compact sizes (docs/standalone.md). The software renderer has no Path support
   unless explicitly enabled; embedded-font symbols avoid adding that dependency.

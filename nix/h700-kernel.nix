@@ -108,9 +108,12 @@ let
   # (~0.3 s) runs inside the probe pass that root mounting waits for.
   # A panic draws the log tail over the current frame (DRM_PANIC), so a photo
   # of the screen is a bug report; U-Boot binds fbcon early on retried boots.
+  # Without utilization clamping, schedutil runs the top clock (1.1 V on the
+  # RG40XX-V) whenever a realtime task is runnable; system.toml zeroes the RT
+  # floor so games stay on the 0.9 V steps.
   values = { NR_CPUS = "4"; LOG_BUF_SHIFT = "16"; WATCHDOG_OPEN_TIMEOUT = "60"; BLK_DEV_LOOP_MIN_COUNT = "0"; };
   strings = { DRM_PANIC_SCREEN = "kmsg"; };
-  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" ];
+  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" "UCLAMP_TASK" ];
   # Former modules the device does use: iwd needs these AF_ALG algorithms.
   required = [ "CRYPTO_USER_API_AEAD" "CRYPTO_ARC4" "HID_PLAYSTATION"
     "MSDOS_PARTITION" "BLK_DEV_LOOP" "MD" "BLK_DEV_DM" "DM_VERITY"
