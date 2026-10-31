@@ -74,17 +74,6 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   plan that preserves startup performance. HDMI audio needs the disabled H616
   AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
   probe in a host-only MUSB build, which also loses USB host.
-- On-device Wi-Fi setup (Configuration → Wi-Fi, docs/wifi.md) drives iwd
-  through iwctl and has an on-screen keyboard (`ui/keyboard.slint`, reusable).
-  Its parsers were checked against iwd 3.12 output captured from the
-  handheld and its screen logic against a fake radio, but joining, a refused
-  password, forgetting, hidden networks and cancelling are not yet exercised on
-  hardware. iwctl 3.12 accepts `--` and `--passphrase=-x` and waits (rather
-  than fails) while iwd is down, which the screen turns into "service is not
-  running" after 8 s. Still to check on the device: iwd's wording for each
-  failure (`KNOWN_FAILURES` in `backend.rs` guesses, e.g. a refused password)
-  and a powered-off adapter. Enterprise networks, a radio switch and non-ASCII
-  input are not done.
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
@@ -225,6 +214,14 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Build the static binary on any host with `cargo build --release --target
   aarch64-unknown-linux-musl` (rust-lld; see .cargo/config.toml). Unit tests and
   the desktop build need Linux.
+- In a nix container, `nix develop` makes rustup unpack a ~1.5 GB toolchain
+  into every fresh container, and parallel runs fill the shared Docker disk
+  (builds then fail with ENOSPC, even `docker run`). Keep `CARGO_HOME` and the
+  target dir in named volumes and take the toolchain from nix instead:
+  `nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#clippy
+  nixpkgs#gcc -c cargo test`, with `CARGO_PROFILE_DEV_DEBUG=0` to keep the
+  target small. Tests and both clippy runs pass that way (CI uses rustup's
+  stable). `iwctl` blocks while iwd is down, so time-limit any probe of it.
 - Test on the inactive slot: mount it (or remount the booted B root
   read-write and rename files into place), then `fw_setenv BOOT_ORDER "B A"`.
   Keep slot A as the known-good fallback and use `BOOT_B_LEFT=1` for kernels.
@@ -243,6 +240,16 @@ validated. Remove an entry once it has been checked on a handheld.
   of every alternative beyond one captured intro frame with PCM running. The
   Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
   have only been run for a few seconds each.
+- Wi-Fi setup (Configuration → Wi-Fi, docs/wifi.md, with the reusable
+  on-screen keyboard in `ui/keyboard.slint`): the parsers were checked against
+  iwd 3.12 output captured from the handheld and the screen logic against a
+  fake radio, but joining, a refused password, forgetting, hidden networks and
+  cancelling have not run on hardware. iwctl 3.12 accepts `--` and
+  `--passphrase=-x`, and waits (rather than fails) while iwd is down, which the
+  screen turns into "service is not running" after 8 s. Still to see on the
+  device: iwd's wording for each failure (`KNOWN_FAILURES` in `backend.rs`
+  guesses, e.g. for a refused password) and a powered-off adapter. Not done:
+  enterprise networks, a radio switch, non-ASCII input.
 
 ## Keeping this backlog accurate
 
