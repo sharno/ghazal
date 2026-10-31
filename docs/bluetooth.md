@@ -5,10 +5,14 @@ beside the handheld's own controls. The RG40XX-V's RTL8821CS puts its Bluetooth
 on a UART (the Wi-Fi is on SDIO). Nothing Bluetooth runs until the user turns it
 on, so a device that never uses it pays nothing at boot.
 
-Status: implemented end to end; on the RG40XX-V v2 only the adapter's power and
-scanning have been checked, because no controller was at hand. Pairing and
-playing with real controllers, and A2DP audio, are still to be tested or built
-(see [Audio](#audio-a2dp-is-not-implemented)).
+Status: implemented end to end, but **off in every image**: the kernel's
+Bluetooth stack is behind `bluetoothKernel` in `flake.nix` (default `false`),
+because a kernel with it has not yet booted on a handheld. Everything else (the
+menu screen, the CLI, BlueZ in the runtime, the udev rule, hot-plugged pads in
+the menu) ships and stays dormant: with no controller bound the menu hides
+Bluetooth. Set `bluetoothKernel = true` to build the kernel below into the
+images and test it. Pairing and playing with real controllers, and A2DP audio,
+are still to be tested or built (see [Audio](#audio-a2dp-is-not-implemented)).
 
 ## From controller to game
 
@@ -25,6 +29,7 @@ paired pad → uhid → /dev/input/eventN  menu: evdev_input.rs · games: RetroA
 
 ### Kernel
 
+With `bluetoothKernel = true` (`nix/h700-kernel.nix`'s `bluetooth` argument),
 Bluetooth is built in with no modules: the core with LE, the three-wire UART
 transport with the Realtek protocol, HIDP and UHID for HID over Bluetooth, and
 the HID drivers for Nintendo (Switch Pro, Joy-Con) and Microsoft pads.

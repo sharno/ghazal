@@ -24,8 +24,6 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   RetroArch settings from Configuration.
 - Earn RetroAchievements and play RetroArch games together over Wi-Fi: host a
   netplay session or pick a host on the network from a game's actions.
-- Pair Bluetooth gamepads from Configuration → Bluetooth and play with them
-  beside the handheld's own controls.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a
   lower CPU clock than demanding ones.
 - Stream PC games from Sunshine or GeForce Experience with Moonlight

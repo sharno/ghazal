@@ -8,7 +8,10 @@
 #
 # `debug = true` adds PM/tracing/ramoops for suspend diagnostics; see
 # docs/kernel-debugging.md.
-{ lib, stdenv, fetchurl, buildPackages, rocknix, debug ? false }:
+#
+# `bluetooth = true` builds in the Bluetooth stack for the RTL8821CS (docs/bluetooth.md).
+# It is off until a kernel with it has booted on a handheld: flake.nix picks it.
+{ lib, stdenv, fetchurl, buildPackages, rocknix, debug ? false, bluetooth ? false }:
 let
   # Wi-Fi, cfg80211 and the panel driver are built in and request firmware
   # before the root filesystem exists, so their firmware is embedded in the
@@ -35,7 +38,10 @@ let
   # With modules disabled, ROCKNIX's `=m` options would become built in, so
   # every unwanted one is listed here. U-Boot reads the Image at ~21 MB/s, so
   # each MB removed saves ~50 ms of every boot.
-  unused = [
+  unused = lib.optionals (!bluetooth) [
+    # Bluetooth, and the ECDH it selects, stay out until a kernel with them has booted.
+    "BT" "CRYPTO_ECDH" "CRYPTO_ECC"
+  ] ++ [
     "VIRTUALIZATION" "KVM" "PCI" "SCSI" "ATA" "MEDIA_SUPPORT" "NFS_FS" "NFSD"
     "BTRFS_FS" "F2FS_FS" "NTFS3_FS" "OVERLAY_FS" "NETFILTER" "BRIDGE"
     "NET_DSA" "WIREGUARD" "TUN" "VETH" "NLMON" "USB_ACM" "USB_WDM"
@@ -80,9 +86,6 @@ let
     "ARM_SCMI_PROTOCOL" "CRYPTO_DEV_CCREE" "MHI_BUS" "IOMMUFD" "TYPEC"
     "SERIAL_AMBA_PL011" "SERIAL_XILINX_PS_UART" "SERIAL_FSL_LPUART"
     "SERIAL_FSL_LINFLEXUART" "INPUT_MOUSE" "SND_SEQUENCER" "DRM_ITE_IT6263"
-    # Bluetooth vendor extensions, LED triggers and L2CAP credit-based flow
-    # control: controllers and audio need none of them.
-    "BT_MSFTEXT" "BT_AOSPEXT" "BT_LEDS" "BT_LE_L2CAP_ECRED"
     # Every catalog panel uses panel-mipi-dpi-spi. USB_GADGET stays: the OTG
     # port's dr_mode = "otg" fails to probe in a host-only MUSB build.
     "DRM_PANEL_SIMPLE"
@@ -100,6 +103,10 @@ let
     "PINCTRL_SUN50I_A64_R" "PINCTRL_SUN50I_A100" "PINCTRL_SUN50I_A100_R"
     "PINCTRL_SUN50I_H5" "PINCTRL_SUN50I_H6" "PINCTRL_SUN50I_H6_R"
     "PINCTRL_SUN55I_A523" "PINCTRL_SUN55I_A523_R"
+  ] ++ lib.optionals bluetooth [
+    # Bluetooth vendor extensions, LED triggers and L2CAP credit-based flow
+    # control: controllers and audio need none of them.
+    "BT_MSFTEXT" "BT_AOSPEXT" "BT_LEDS" "BT_LE_L2CAP_ECRED"
   ];
   # 4 cores; a 64 KiB log holds a whole boot (the kernel-log service persists it).
   # A kernel or init hang resets the board unless userspace opens the watchdog
@@ -116,16 +123,18 @@ let
   strings = { DRM_PANIC_SCREEN = "kmsg"; };
   enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" "UCLAMP_TASK" ];
   # Former modules the device does use: iwd needs these AF_ALG algorithms.
+  required = [ "CRYPTO_USER_API_AEAD" "CRYPTO_ARC4" "HID_PLAYSTATION"
+    "MSDOS_PARTITION" "BLK_DEV_LOOP" "MD" "BLK_DEV_DM" "DM_VERITY"
+    "SQUASHFS" "SQUASHFS_ZSTD" "SQUASHFS_ZLIB" "CRYPTO_SHA256"
+    "WATCHDOG" "SUNXI_WATCHDOG" ]
   # Bluetooth: the core with LE (BT selects the ECDH and CMAC SMP needs), the
   # RTL8821CS's three-wire UART transport, HID over Bluetooth through both
   # BlueZ's uhid and the kernel's HIDP, and the controllers' own HID drivers
   # (hid-playstation, already here, covers DualShock 4 and DualSense).
-  required = [ "CRYPTO_USER_API_AEAD" "CRYPTO_ARC4" "HID_PLAYSTATION"
+  ++ lib.optionals bluetooth [
     "BT" "BT_BREDR" "BT_LE" "BT_HIDP" "BT_HCIUART" "BT_HCIUART_RTL" "BT_HCIUART_3WIRE" "BT_RTL"
     "UHID" "HID_NINTENDO" "HID_MICROSOFT"
-    "MSDOS_PARTITION" "BLK_DEV_LOOP" "MD" "BLK_DEV_DM" "DM_VERITY"
-    "SQUASHFS" "SQUASHFS_ZSTD" "SQUASHFS_ZLIB" "CRYPTO_SHA256"
-    "WATCHDOG" "SUNXI_WATCHDOG" ];
+  ];
   debugOptions = [
     "PM_DEBUG" "PM_ADVANCED_DEBUG" "PM_SLEEP_DEBUG" "PSTORE_RAM" "PSTORE_CONSOLE"
     "PSTORE_PMSG" "DETECT_HUNG_TASK" "STACKTRACE" "FTRACE" "FUNCTION_TRACER" "DYNAMIC_DEBUG"
@@ -168,8 +177,7 @@ stdenv.mkDerivation {
       ${./serial-8250-fifo-size.patch} \
       ${./sunxi-mmc-pwrseq-async.patch} \
       ${./sun8i-panic-scanout.patch} \
-      ${./sun4i-usb-phy-typec-source.patch} \
-      ${./hci-h5-start-attribute.patch}; do
+      ${./sun4i-usb-phy-typec-source.patch}${lib.optionalString bluetooth " \\\n      ${./hci-h5-start-attribute.patch}"}; do
       patch -p1 < "$patch"
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/

@@ -68,16 +68,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
   game launch/exit, save retention and clean shutdown.
-- Bluetooth controllers are implemented (docs/bluetooth.md) but only the
-  adapter's power and scanning could be checked on the RG40XX-V v2. Still to
-  verify with real pads: pairing and reconnecting a DualShock 4, DualSense,
-  Switch Pro, Xbox (BLE) and 8BitDo pad, the menu and RetroArch taking them
-  (player order, autoconfig, hotkeys), the boot-time cost of the built-in stack
-  (KERNEL +0.53 MB, ~25 ms expected; also `bt_init` and the unused `start`
-  attribute path) and idle power. Bluetooth audio (A2DP) is a documented plan
-  only. Check that `hci_uart_h5`'s `start` attribute survives the RG40XX H and
-  CubeXX device trees, and the `JustWorksRepairing = confirm` agent path
-  with a pad that lost its keys.
+- Bluetooth controllers are implemented (docs/bluetooth.md) but the kernel's
+  Bluetooth stack is off in every image (`bluetoothKernel = false` in
+  `flake.nix`): see Untested features. Once it is on, verify with real pads:
+  pairing and reconnecting a DualShock 4, DualSense, Switch Pro, Xbox (BLE) and
+  8BitDo pad, the menu and RetroArch taking them (player order, autoconfig,
+  hotkeys), the boot-time cost of the built-in stack (KERNEL +0.53 MB, ~25 ms
+  expected; also `bt_init`, the ECDH self-test and the unused `start` attribute
+  path) and idle power. Bluetooth audio (A2DP) is a documented plan only. Check
+  that `hci_uart_h5`'s `start` attribute survives the RG40XX H and CubeXX device
+  trees, and the `JustWorksRepairing = confirm` agent path with a pad that lost
+  its keys.
 - HDMI hotplug with display/audio switching and USB gadget modes have no
   standalone integration yet. HDMI audio needs the disabled H616
   AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
@@ -408,6 +409,28 @@ validated. Remove an entry once it has been checked on a handheld.
   The key path on a card whose RetroArch menu differs (for example hidden
   advanced settings) is untried. `observe frame` shows RetroArch's GL menu stale
   after a page change (title and footer lag the list): check the footer text.
+- Bluetooth controllers (docs/bluetooth.md): nothing of it has run on a handheld,
+  and the kernel part is switched off (`bluetoothKernel = false` in `flake.nix`;
+  with it off the kernel is byte-for-byte the one that boots today except for its
+  own store path embedded in the vDSO, and the menu hides Bluetooth). Why: the
+  merged tree built (kernel, BlueZ, runtime tree, image) and passed the unit
+  tests, the real-`dbus-daemon` tests, the runtime layout gate and `vm-smoke`, but
+  the one image built with the Bluetooth kernel (slot B, `BOOT_B_LEFT=1`) never
+  answered on the network in the 12 minutes after its first boot. That may be the
+  kernel, Wi-Fi, a low battery or nothing to do with it: it was not determined.
+  `vm-smoke` uses a stock kernel, so no check has run the H700 kernel with
+  Bluetooth. To test it, in this order, because the kernel is what changed: set
+  `bluetoothKernel = true`, build and flash slot B with `BOOT_B_LEFT=1`; check it
+  boots and the boot time (~2.95 s expected, +25 ms from the bigger kernel); that
+  `dmesg` shows only the core registrations and no `hci0`;
+  `/sys/bus/serial/drivers/hci_uart_h5/serial0-0/start` reads 0 and no
+  `bluetoothd` runs; then a game, the menu pad and Menu + Start (the udev
+  `input_id` rule and the menu's hotplug code touch the built-in pad). Only then
+  `ghazal bluetooth on`, the first time the RTL8821CS powers up and loads its
+  firmware (a driver fault there is a kernel oops, and `panic=10` freezes this
+  handheld). After that: scan, pair, reconnect and play with the pads in the
+  hardware coverage entry. When it works, make the flag `true`, drop this entry
+  and restore the README bullet.
 
 ## Keeping this backlog accurate
 

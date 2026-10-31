@@ -34,8 +34,11 @@
           cross = if system == "aarch64-linux" then pkgs else pkgs.pkgsCross.aarch64-multiplatform;
           uboot = cross.callPackage ./nix/uboot.nix { inherit rocknix; };
           uboot-ddr3 = cross.callPackage ./nix/uboot.nix { inherit rocknix; memory = "DDR3"; };
-          h700-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; };
-          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; debug = true; };
+          # Bluetooth is in the kernel source (nix/h700-kernel.nix, docs/bluetooth.md) but off in
+          # every image until a kernel with it has booted on a handheld: set this to true to test it.
+          bluetoothKernel = false;
+          h700-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; bluetooth = bluetoothKernel; };
+          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; debug = true; bluetooth = bluetoothKernel; };
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
             inherit ghazal uboot uboot-ddr3 runtime;
             kernel = h700-kernel;

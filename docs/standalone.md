@@ -272,7 +272,8 @@ Physical wake, display/audio/input recovery and battery drain require acceptance
 before enabling suspend. Launch targets are RetroArch games, standalone PPSSPP
 and [PortMaster ports](ports.md); muOS applications and themes are not. Current
 frontend/daemon controls do not yet expose HDMI switching. Bluetooth
-controllers pair from Configuration → Bluetooth ([Bluetooth](bluetooth.md)).
+controllers pair from Configuration → Bluetooth once the kernel option is on
+([Bluetooth](bluetooth.md)).
 
 ## Recovery and logs
 
