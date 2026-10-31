@@ -86,9 +86,17 @@ the service is not running, with Try again.
 iwctl 3.12 behaviour this relies on, checked off the device: `--` ends option
 parsing (without it a name such as `-foo` is "invalid option"), `--passphrase=-abc`
 is accepted, bad options exit 1, and a missing iwd means waiting, not failing.
-Not yet checked on hardware: the exact wording of each failure (the table
-`KNOWN_FAILURES` in `backend.rs` matches iwd's messages by text) and whether a
-failed `connect` exits non-zero; both are handled either way.
+Checked on the handheld: an unknown network name gives `Invalid network name
+'X'`, and a connect that needs a passphrase under `--dont-ask` gives `No Agent
+registered` (the screen treats it like a refused password and asks again). Not
+yet checked on hardware: the wording for a refused password (`KNOWN_FAILURES`
+in `backend.rs` matches iwd's messages by text and assumes `Operation failed`)
+and whether a failed `connect` exits non-zero; both are handled either way.
+
+To see the unavailable state without dropping an SSH session over Wi-Fi, stop
+iwd instead of killing it: `kill -STOP <iwd pid>` leaves the kernel link up,
+and `kill -CONT` brings it back (keep a detached `sleep 60; kill -CONT` as a
+safety net, BusyBox `setsid` needs `busybox setsid sh -c ...`).
 
 The desktop simulator (`cargo sim`) uses a pretend radio so it never touches
 the host's Wi-Fi: networks to join, a saved one, a hidden one, and the password

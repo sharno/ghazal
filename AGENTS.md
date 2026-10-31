@@ -299,15 +299,24 @@ validated. Remove an entry once it has been checked on a handheld.
   feel and `ANALOG_STICKS` (1 from ROCKNIX's table). The card's old stock-OS scripts in
   `ROMS/PORTS` list under Ports and fail when launched (they name `/mnt/vendor/...`).
 - Wi-Fi setup (Configuration → Wi-Fi, docs/wifi.md, with the reusable
-  on-screen keyboard in `ui/keyboard.slint`): the parsers were checked against
-  iwd 3.12 output captured from the handheld and the screen logic against a
-  fake radio, but joining, a refused password, forgetting, hidden networks and
-  cancelling have not run on hardware. iwctl 3.12 accepts `--` and
-  `--passphrase=-x`, and waits (rather than fails) while iwd is down, which the
-  screen turns into "service is not running" after 8 s. Still to see on the
-  device: iwd's wording for each failure (`KNOWN_FAILURES` in `backend.rs`
-  guesses, e.g. for a refused password) and a powered-off adapter. Not done:
-  enterprise networks, a radio switch, non-ASCII input.
+  on-screen keyboard in `ui/keyboard.slint`). Checked on the RG40XX-V over its
+  own SSH link (only that one saved network, two neighbours' networks in range,
+  so nothing was joined): the list with bars and WPA/Open, scan (`Scanning...`
+  then a refreshed list), the keyboard for an unsaved network (dots, reveal,
+  shift layer, "at least 8 characters", Menu cancels), the hidden-name keyboard,
+  the forget and disconnect confirms (default No, B leaves them alone), the
+  worker thread existing only while the screen is open, Menu opening the Start
+  menu from the list, a game launching afterwards, and iwd stopped with SIGSTOP
+  (the link survives; opening the screen shows "Wi-Fi service is not running"
+  after 8 s and Try again recovers; with the screen already open a scan only
+  toasts "Scan failed: Wi-Fi did not answer in time" and keeps the list).
+  Never run on hardware: joining (open or WPA), a refused password (iwd's
+  wording for it is still the guess "Operation failed"), cancelling mid-connect,
+  forgetting and disconnecting for real, a hidden network that exists, and a
+  powered-off adapter. iwctl on the device says `Invalid network name 'X'` for
+  an unknown name and `No Agent registered` when a passphrase is needed but
+  `--dont-ask` is set (both mapped). Not done: enterprise networks, a radio
+  switch, non-ASCII input.
 
 ## Keeping this backlog accurate
 

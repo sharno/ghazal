@@ -159,6 +159,9 @@ static KNOWN_FAILURES: &[(&str, Failure)] = &[
     ("already connected", Failure::AlreadyConnected),
     ("already in progress", Failure::Busy),
     ("operation failed", Failure::Rejected),
+    // iwd needs a passphrase and `--dont-ask` gave it no agent to ask: the saved
+    // profile is gone or does not fit the network. Same remedy as a refusal.
+    ("no agent registered", Failure::Rejected),
     ("operation aborted", Failure::Cancelled),
     ("not connected", Failure::NotConnected),
     ("not supported", Failure::Unsupported),
@@ -330,8 +333,10 @@ mod tests {
         for (text, success, expected) in [
             ("Operation failed\n", true, Failure::Rejected),
             ("Operation failed\n", false, Failure::Rejected),
+            ("No Agent registered\n", false, Failure::Rejected),
             ("\x1b[1;31mOperation aborted\x1b[0m\n", false, Failure::Cancelled),
             ("No network with specified parameters was found\n", false, Failure::Missing),
+            ("Invalid network name 'Gone'\n", false, Failure::Missing),
             ("Operation already in progress\n", false, Failure::Busy),
             ("garbled", false, Failure::Other("garbled".into())),
         ] {
