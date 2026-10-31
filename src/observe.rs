@@ -22,7 +22,8 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
             println!("{}: actual={:?} range={}..{}", audio.control, volume.read()?, volume.min, volume.max);
             crate::hw::alsa::verify(audio)
         }
-        Some("frame") if args.len() == 2 => capture(&device.display.card, Path::new(&args[1])),
+        Some("frame") if args.len() == 2 => capture(&device.display.card, Path::new(&args[1]), false),
+        Some("frame") if args.len() == 3 && args[2] == "hdmi" => capture(&device.display.card, Path::new(&args[1]), true),
         Some("boot") if args.len() == 1 => {
             let frame = fs::read_to_string("/run/ghazal/first-frame-ready")?;
             print!("{frame}");
@@ -35,7 +36,7 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
         Some("hdmi") if args.len() == 1 => hdmi(device),
         Some("press") if args.len() == 2 => press(device, &args[1]),
         Some("power") if args.len() == 2 => power(device, args[1].parse().context("power takes a duration in seconds")?),
-        _ => bail!("usage: ghazal observe audio | boot | hdmi | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...]"),
+        _ => bail!("usage: ghazal observe audio | boot | hdmi | frame OUTPUT.ppm [hdmi] | power SECONDS | press BUTTON[+BUTTON...]"),
     }
 }
 
@@ -114,7 +115,17 @@ impl AsFd for Card { fn as_fd(&self) -> BorrowedFd<'_> { self.0.as_fd() } }
 impl drm::Device for Card {}
 impl ControlDevice for Card {}
 
-fn active_framebuffer(path: &Path) -> Result<(Card, framebuffer::PlanarInfo)> {
+/// The framebuffer on the CRTC that drives an HDMI connector.
+fn hdmi_framebuffer(card: &Card, resources: &drm::control::ResourceHandles) -> Option<framebuffer::Handle> {
+    resources.connectors().iter()
+        .filter_map(|&handle| card.get_connector(handle, false).ok())
+        .filter(|connector| matches!(connector.interface(), drm::control::connector::Interface::HDMIA | drm::control::connector::Interface::HDMIB))
+        .find_map(|connector| card.get_encoder(connector.current_encoder()?).ok()?.crtc())
+        .and_then(|crtc| card.get_crtc(crtc).ok())
+        .and_then(|info| info.framebuffer().filter(|_| info.mode().is_some()))
+}
+
+fn active_framebuffer(path: &Path, hdmi: bool) -> Result<(Card, framebuffer::PlanarInfo)> {
     let mut paths = if path.is_dir() {
         fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?.into_iter()
             .map(|entry| entry.path()).filter(|path| path.file_name().is_some_and(|name| {
@@ -129,6 +140,13 @@ fn active_framebuffer(path: &Path) -> Result<(Card, framebuffer::PlanarInfo)> {
             Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => continue,
             Err(error) => return Err(error).context("reading display resources"),
         };
+        if hdmi {
+            if let Some(handle) = hdmi_framebuffer(&card, &resources) {
+                let framebuffer = card.get_planar_framebuffer(handle)?;
+                return Ok((card, framebuffer));
+            }
+            continue;
+        }
         for crtc in resources.crtcs() {
             let info = card.get_crtc(*crtc)?;
             if let Some(handle) = info.framebuffer().filter(|_| info.mode().is_some()) {
@@ -175,8 +193,8 @@ impl Drop for Mapping {
     }
 }
 
-fn capture(card_path: &Path, output: &Path) -> Result<()> {
-    let (card, framebuffer) = active_framebuffer(card_path)?;
+fn capture(card_path: &Path, output: &Path, hdmi: bool) -> Result<()> {
+    let (card, framebuffer) = active_framebuffer(card_path, hdmi)?;
     // ARGB8888 (e.g. PPSSPP's scanout) has the same layout; alpha is ignored.
     if !matches!(framebuffer.pixel_format(), DrmFourcc::Xrgb8888 | DrmFourcc::Argb8888) || framebuffer.modifier().is_some_and(|modifier| modifier != DrmModifier::Linear) {
         bail!("capture requires linear XRGB8888 or ARGB8888, got {:?}/{:?}", framebuffer.pixel_format(), framebuffer.modifier());
