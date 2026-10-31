@@ -19,7 +19,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::frontend::config::FrontendConfig;
-use crate::frontend::launcher::LaunchSpec;
+use crate::frontend::launcher::{Engine, LaunchSpec};
 use crate::profile::Profile;
 
 pub use install::Progress;
@@ -91,6 +91,7 @@ pub fn portmaster_state(ports_dir: &Path) -> PortMaster {
 /// A frontend launch of one port script (or PortMaster's own launcher).
 pub fn launch_spec(config: &FrontendConfig, ports: &Config, script: &Path) -> Result<LaunchSpec> {
     Ok(LaunchSpec {
+        engine: Engine::Standalone,
         program: std::env::current_exe().context("finding the ghazal binary")?,
         args: vec!["ports".into(), "run".into(), script.into()],
         log: Some(ports.log.clone()),

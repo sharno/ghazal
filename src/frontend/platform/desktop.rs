@@ -18,6 +18,7 @@ use crate::device::DeviceConfig;
 use crate::frontend::app::{App, Effect};
 use crate::frontend::config::FrontendConfig;
 use crate::frontend::input::{Button, Key, Repeater};
+use crate::hdmi::{Connection, Layout, Status};
 
 /// RG40XXV panel resolution.
 const WIDTH: u32 = 640;
@@ -67,6 +68,13 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     if let Some(Effect::Launch { spec, .. }) = app.take_startup_effect() {
         eprintln!("ghazal: would start last game {} {:?}", spec.program.display(), spec.args);
     }
+    // Host stand-ins for what the device reads from hardware, to check how they look.
+    if let Ok(state) = std::env::var("GHAZAL_SNAPSHOT_HDMI") {
+        app.set_hdmi(snapshot_hdmi(&state)?, None);
+    }
+    if std::env::var_os("GHAZAL_SNAPSHOT_NOTICE").is_some() {
+        app.set_notice(Some(("Playing on HDMI", "Menu + Start quits the game. This screen returns when it ends.")));
+    }
     let mut frame = 0;
     let mut save = |screen: &mut Screen, app: &App| -> Result<()> {
         match std::env::var("GHAZAL_SNAPSHOT_POWER") {
@@ -104,6 +112,17 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         save(&mut screen, &app)?;
     }
     Ok(())
+}
+
+fn snapshot_hdmi(state: &str) -> Result<Status> {
+    let (connection, layout, mode) = match state {
+        "disconnected" => (Connection::Disconnected, Layout::Panel, None),
+        "unused" => (Connection::Connected, Layout::Panel, None),
+        "active" => (Connection::Connected, Layout::Hdmi, Some((1280, 720))),
+        "mirror" => (Connection::Connected, Layout::Mirror, Some((1280, 720))),
+        _ => bail!("snapshot HDMI must be disconnected, unused, active or mirror"),
+    };
+    Ok(Status { connection, layout, mode })
 }
 
 fn parse_button(name: &str) -> Option<Button> {

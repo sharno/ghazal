@@ -14,6 +14,8 @@ use evdev::{Device, EventType, InputEventKind, SwitchType};
 use serde::{Deserialize, Serialize};
 
 use crate::device::DeviceConfig;
+use crate::hdmi::connector::{Connector, DRM_CLASS};
+use crate::hdmi::{self, Connection, Outputs, Sound};
 use crate::hw::{self, battery, lights, Hardware};
 use crate::system::{Action, PowerMethod, SystemConfig};
 
@@ -70,7 +72,17 @@ pub struct Daemon<'a> {
     muted_from: Option<u8>,
     settings_dirty: Option<Instant>,
     lights: LightsState,
+    /// The headphone jack's last reading; the speaker plays only when nothing else carries the sound.
+    headphones: bool,
+    /// Off while HDMI shows the picture and the frontend asked for a dark panel.
+    panel_lit: bool,
+    sound: Sound,
+    /// While the panel is dark or HDMI carries sound, when the cable is next checked.
+    hdmi_check: Option<Instant>,
 }
+
+/// A frontend that is busy in a game cannot notice the cable being pulled; the daemon can.
+const HDMI_CHECK: Duration = Duration::from_secs(2);
 
 pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
     sys.validate()?;
@@ -107,6 +119,10 @@ pub fn run(dev: &DeviceConfig, sys: &SystemConfig) -> Result<()> {
         muted_from: None,
         settings_dirty: None,
         lights: LightsState::Unpowered,
+        headphones: false,
+        panel_lit: true,
+        sound: Sound::Speaker,
+        hdmi_check: None,
     };
     // The speaker plays unless a jack reports headphones during the first scan.
     d.follow_jack(false);
@@ -129,6 +145,7 @@ impl Daemon<'_> {
                 self.check_idle(now);
             }
             self.check_power_hold(now);
+            self.check_hdmi(now);
             if self.settings_dirty.is_some_and(|at| now >= at + Duration::from_millis(500)) {
                 self.save();
             }
@@ -210,10 +227,59 @@ impl Daemon<'_> {
     }
 
     /// The codec feeds the speaker amplifier and the jack from one output.
-    fn follow_jack(&self, headphones: bool) {
+    fn follow_jack(&mut self, headphones: bool) {
+        self.headphones = headphones;
+        self.apply_speaker();
+    }
+
+    /// The speaker plays unless headphones or HDMI carry the sound.
+    fn apply_speaker(&self) {
         if let Some(speaker) = &self.hw.speaker {
-            if let Err(error) = speaker.set(!headphones) { eprintln!("ghazal-daemon: speaker switch: {error:#}"); }
+            if let Err(error) = speaker.set(!self.headphones && self.sound == Sound::Speaker) { eprintln!("ghazal-daemon: speaker switch: {error:#}"); }
         }
+    }
+
+    /// Applies what the frontend wants of the panel and the sound route, and answers with what
+    /// was possible: HDMI sound needs its card, which is created on first use.
+    fn set_outputs(&mut self, wanted: Outputs) -> Outputs {
+        self.sound = match (wanted.sound, self.dev.audio.as_ref().and_then(|audio| audio.hdmi.as_ref())) {
+            (Sound::Hdmi, Some(config)) => match hdmi::audio::enable(config) {
+                Ok(()) => Sound::Hdmi,
+                Err(error) => {
+                    eprintln!("ghazal-daemon: HDMI sound unavailable, staying on the speaker: {error:#}");
+                    Sound::Speaker
+                }
+            },
+            _ => Sound::Speaker,
+        };
+        self.panel_lit = wanted.panel_lit;
+        self.apply_speaker();
+        self.apply_brightness(self.shown_brightness());
+        self.hdmi_check = (!self.panel_lit || self.sound == Sound::Hdmi).then(|| Instant::now() + HDMI_CHECK);
+        Outputs { panel_lit: self.panel_lit, sound: self.sound }
+    }
+
+    /// Safety net for a game that is running on HDMI: when the cable goes away
+    /// the handheld's screen and speaker come back, so the device is never mute and dark.
+    fn check_hdmi(&mut self, now: Instant) {
+        let Some(at) = self.hdmi_check else { return };
+        if now < at { return; }
+        let connected = Connector::find_hdmi(std::path::Path::new(DRM_CLASS), None).is_some_and(|connector| connector.connection() == Connection::Connected);
+        if connected {
+            self.hdmi_check = Some(now + HDMI_CHECK);
+            return;
+        }
+        eprintln!("ghazal-daemon: HDMI display gone; lighting the panel and using the speaker");
+        self.hdmi_check = None;
+        self.panel_lit = true;
+        self.sound = Sound::Speaker;
+        self.apply_speaker();
+        self.apply_brightness(self.shown_brightness());
+    }
+
+    /// The level the backlight shows when lit: dimming still applies.
+    fn shown_brightness(&self) -> u8 {
+        if self.dimmed { self.sys.daemon.idle.dim_to.min(self.settings.brightness) } else { self.settings.brightness }
     }
 
     fn clear_keys(&mut self) {
@@ -228,6 +294,7 @@ impl Daemon<'_> {
         t = t.min(self.inputs_scanned + INPUT_RESCAN);
         if let Some(at) = self.settings_dirty { t = t.min(at + Duration::from_millis(500)); }
         if let LightsState::WarmingUp { until, .. } = self.lights { t = t.min(until); }
+        if let Some(at) = self.hdmi_check { t = t.min(at); }
         // check_idle runs at most once a second; an earlier wake would spin until then.
         let idle_due = |deadline: Instant| deadline.max(self.idle_checked + Duration::from_secs(1));
         if idle.dim_after > 0 && !self.dimmed {
@@ -544,6 +611,8 @@ impl Daemon<'_> {
     }
 
     fn apply_brightness(&mut self, percent: u8) {
+        // A dark panel stays dark through dimming, hotkeys and wake-ups alike.
+        let percent = if self.panel_lit { percent } else { 0 };
         if let Some(b) = &mut self.hw.backlight {
             if let Err(e) = b.set_percent(percent) {
                 eprintln!("ghazal-daemon: brightness: {e:#}");

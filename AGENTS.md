@@ -79,10 +79,16 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   that `hci_uart_h5`'s `start` attribute survives the RG40XX H and CubeXX device
   trees, and the `JustWorksRepairing = confirm` agent path with a pad that lost
   its keys.
-- HDMI hotplug with display/audio switching and USB gadget modes have no
-  standalone integration yet. HDMI audio needs the disabled H616
-  AHUB driver. Keep `USB_GADGET`: the OTG port's `dr_mode = "otg"` fails to
-  probe in a host-only MUSB build, which also loses USB host.
+- USB gadget modes have no standalone integration yet. Keep `USB_GADGET`: the
+  OTG port's `dr_mode = "otg"` fails to probe in a host-only MUSB build, which
+  also loses USB host.
+- HDMI output is implemented and documented in docs/hdmi.md but has never run
+  with a display attached. Its checklist is the acceptance test. Open points:
+  the menu is scaled from the panel's size rather than drawn natively; a game
+  keeps running on a pulled cable until Menu + Start. HDMI sound is behind
+  `hdmiAudioKernel = false` in `flake.nix` (see Untested features): until a
+  kernel with the audio hub has booted, HDMI carries video only and the
+  handheld's speaker plays the game.
 - Stick lights (RG40XX H/V, RG CubeXX) send muOS's serial frames; the daemon
   and menu path is verified, the visible colours are not yet confirmed on a
   device. Headphone switching was verified with a virtual jack device only.
@@ -431,6 +437,26 @@ validated. Remove an entry once it has been checked on a handheld.
   handheld). After that: scan, pair, reconnect and play with the pads in the
   hardware coverage entry. When it works, make the flag `true`, drop this entry
   and restore the README bullet.
+- HDMI output (docs/hdmi.md): it has never run with a display, and the merged
+  tree has not run on a handheld at all (the handheld was unreachable when it
+  was integrated), so even the no-cable behaviour (boot time ~2.95 s, menu,
+  game launch, Menu + Start, audio, the 2 s connector poll after the first
+  frame) is only covered by unit tests and builds. HDMI sound's kernel part is
+  switched off (`hdmiAudioKernel = false` in `flake.nix`): with it off the
+  kernel carries none of the audio hub driver, configfs overlays or DT changes,
+  `ghazal-hdmi-audio.dtbo` is absent from the image, and a request for HDMI
+  sound fails cleanly to the speaker (`daemon.log`). Why: the kernel with the
+  hub driver (ROCKNIX's vendor port plus three fixes for 7.2, never run) has not
+  booted on a handheld. To test, in this order: (1) the default image, no
+  cable: the regression list above and Configuration → HDMI showing "No
+  display"; (2) the checklist in docs/hdmi.md with a display, video only, sound
+  on the speaker; (3) set `hdmiAudioKernel = true`, build and flash slot B with
+  `BOOT_B_LEFT=1`; check it boots, boot time (the Image grows by 2 KiB),
+  `/proc/asound/cards` lists only the codec and no `ahub` platform device
+  exists; then, attended, `ghazal ctl output panel=off sound=hdmi` applies the
+  overlay (the first run of the hub driver on 7.2: check `dmesg`, then
+  `/proc/asound/cards` for `HDMI` at index 1, then listen on the display).
+  When it works, make the flag `true` and drop this entry.
 
 ## Keeping this backlog accurate
 

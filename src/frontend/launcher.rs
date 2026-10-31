@@ -14,7 +14,12 @@ use super::retroarch_menu::{self, MenuKey};
 use crate::device::CpuLoad;
 use crate::retroarch_cfg::{self, Achievements, Mode};
 
+/// Which kind of program a launch starts; routing settings reach each differently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Engine { RetroArch, Standalone }
+
 pub struct LaunchSpec {
+    pub engine: Engine,
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub log: Option<PathBuf>,
@@ -87,7 +92,7 @@ impl LaunchSpec {
         args.extend(["-L".into(), core.into(), game.path.clone().into()]);
 
         let env = ra.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full, needs: Needs { online, menu: None } })
+        Ok(Self { engine: Engine::RetroArch, program: ra.bin.clone(), args, log: ra.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full, needs: Needs { online, menu: None } })
     }
 
     /// RetroArch's writable config, created from the template on first use.
@@ -136,7 +141,7 @@ impl LaunchSpec {
         args.push("--menu".into());
         let ok_on_b = selected.as_deref().is_none_or(confirms_with_b);
         let menu = (!keys.is_empty()).then(|| MenuPath { keys: keys.to_vec(), port: ra.command_port, ok_on_b });
-        Ok(Self { program: ra.bin.clone(), args, log: ra.log.clone(),
+        Ok(Self { engine: Engine::RetroArch, program: ra.bin.clone(), args, log: ra.log.clone(),
             env: ra.env.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), after: config.launch_after.clone(), cpu: CpuLoad::Light,
             needs: Needs { online: None, menu } })
     }
@@ -145,7 +150,22 @@ impl LaunchSpec {
         let mut argv = command.argv.iter().map(|arg| if arg == "{rom}" { game.path.clone().into_os_string() } else { arg.into() });
         let program = PathBuf::from(argv.next().expect("config rejects an empty command"));
         let env = command.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        Self { program, args: argv.collect(), log: command.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full, needs: Needs::default() }
+        Self { engine: Engine::Standalone, program, args: argv.collect(), log: command.log.clone(), env, after: Vec::new(), cpu: CpuLoad::Full, needs: Needs::default() }
+    }
+
+    /// Sends the program's sound to HDMI's ALSA `device`: RetroArch through an
+    /// appended configuration, SDL programs through `AUDIODEV` (they open ALSA's
+    /// default otherwise, which is the speaker). A route that cannot be written
+    /// is logged and the game starts on the speaker.
+    pub fn with_hdmi_sound(mut self, device: &str, retroarch_override: &Path) -> Self {
+        match self.engine {
+            Engine::RetroArch => match crate::sys::write_atomic(retroarch_override, format!("audio_device = \"{device}\"\n").as_bytes()) {
+                Ok(()) => add_appendconfig(&mut self.args, retroarch_override),
+                Err(error) => eprintln!("ghazal: sound route for RetroArch: {error:#}"),
+            },
+            Engine::Standalone => self.env.push(("AUDIODEV".into(), device.into())),
+        }
+        self
     }
 
     /// Runs the emulator to completion. The caller must release the display and input first.
@@ -193,6 +213,20 @@ impl LaunchSpec {
         if let Some(warning) = report.save_warning { bail!("{warning}"); }
         if let Some(reason) = report.stream_ended { bail!("{reason}"); }
         Ok(status)
+    }
+}
+
+/// RetroArch's `--appendconfig` takes several files joined with `|`; a second option may
+/// replace the first. Netplay already passes one, so the route joins it.
+fn add_appendconfig(args: &mut Vec<OsString>, file: &Path) {
+    match args.iter().position(|arg| arg == "--appendconfig") {
+        Some(at) if at + 1 < args.len() => {
+            let mut joined = std::mem::take(&mut args[at + 1]);
+            joined.push("|");
+            joined.push(file);
+            args[at + 1] = joined;
+        }
+        _ => args.insert(0, format!("--appendconfig={}", file.display()).into()),
     }
 }
 
@@ -444,5 +478,33 @@ mod tests {
         assert!(!LaunchSpec::retroarch_achievements(&config).unwrap().needs.menu.unwrap().ok_on_b);
         // The plain settings entry presses nothing.
         assert!(LaunchSpec::retroarch_settings(&config).unwrap().needs.menu.is_none());
+    }
+
+    #[test]
+    fn hdmi_sound_reaches_each_engine_its_own_way() {
+        let override_file = std::env::temp_dir().join(format!("ghazal-route-{}.cfg", std::process::id()));
+        let command = Standalone { name: "ppsspp".into(), argv: vec!["/usr/bin/ppsspp".into(), "{rom}".into()], env: Default::default(), log: None };
+        let game = Game { title: "GoW".into(), path: "/ROMS/PSP/a.iso".into() };
+
+        let hdmi = LaunchSpec::standalone(&command, &game).with_hdmi_sound("plughw:HDMI,0", &override_file);
+        assert_eq!(hdmi.env, [("AUDIODEV".to_owned(), "plughw:HDMI,0".to_owned())]);
+
+        let mut retroarch = LaunchSpec::standalone(&command, &game);
+        retroarch.engine = Engine::RetroArch;
+        retroarch.args = vec!["-c".into(), "/etc/ghazal/retroarch.cfg".into(), "-L".into(), "/core.so".into(), "/rom".into()];
+        let routed = retroarch.with_hdmi_sound("plughw:HDMI,0", &override_file);
+        assert_eq!(routed.args[0], OsString::from(format!("--appendconfig={}", override_file.display())));
+        assert_eq!(routed.args[1], OsString::from("-c"), "the original arguments follow unchanged");
+        assert_eq!(std::fs::read_to_string(&override_file).unwrap(), "audio_device = \"plughw:HDMI,0\"\n");
+        std::fs::remove_file(&override_file).unwrap();
+    }
+
+    #[test]
+    fn the_sound_route_joins_netplays_appended_config() {
+        let mut args: Vec<OsString> = ["-c", "/etc/retroarch.cfg", "--appendconfig", "/run/ghazal/retroarch-netplay.cfg", "--host", "-L", "/core.so", "/rom"].map(OsString::from).to_vec();
+        add_appendconfig(&mut args, Path::new("/run/ghazal/retroarch-route.cfg"));
+        assert_eq!(args[3], OsString::from("/run/ghazal/retroarch-netplay.cfg|/run/ghazal/retroarch-route.cfg"));
+        assert_eq!(args.iter().filter(|arg| *arg == "--appendconfig").count(), 1);
+        assert_eq!(args.len(), 8);
     }
 }

@@ -19,6 +19,7 @@ use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
 use super::wifi;
 use crate::daemon::ctl;
+use crate::hdmi;
 use crate::hw::battery;
 use crate::ports;
 use crate::retroarch_cfg::{Achievements, Mode};
@@ -144,6 +145,8 @@ enum MenuItem {
     ChooseEmulator,
     HostNetplay,
     JoinGameNetplay,
+    /// Shown only on boards with an HDMI connector.
+    Hdmi(hdmi::Policy),
 }
 
 impl MenuItem {
@@ -179,6 +182,7 @@ impl MenuItem {
             Self::PlayGame => "Play",
             Self::ChooseEmulator => "Emulator",
             Self::HostNetplay => "Host netplay",
+            Self::Hdmi(policy) => policy.label(),
         }
     }
 }
@@ -303,6 +307,8 @@ pub struct App {
     /// None on boards without stick lights.
     lights: Option<crate::hw::lights::Preset>,
     levels_visible_until: Option<Instant>,
+    /// None on boards without HDMI, which hides its entry.
+    hdmi: Option<hdmi::Status>,
     status_checked: Instant,
     activity_reported: Option<Instant>,
     /// Which view the row model currently shows, so it's only rebuilt on change.
@@ -389,6 +395,7 @@ impl App {
             levels: None,
             lights: daemon_status.as_deref().and_then(ctl::lights),
             levels_visible_until: None,
+            hdmi: None,
             status_checked: Instant::now(),
             activity_reported: None,
             rows_for: None,
@@ -523,6 +530,7 @@ impl App {
                     match item {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
                         MenuItem::Lights(_) => { self.step_lights(button != Button::Left); self.rows_for = None; }
+                        MenuItem::Hdmi(_) => self.step_hdmi(button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
                         MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth if button == Button::A => { self.activate(item); }
@@ -956,7 +964,36 @@ impl App {
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
+        if self.hdmi.is_some() { items.push(MenuItem::Hdmi(self.settings.hdmi)); }
         items
+    }
+
+    pub fn hdmi_policy(&self) -> hdmi::Policy { self.settings.hdmi }
+
+    /// What the screens are doing about HDMI; a failure reaches the user as a toast.
+    pub fn set_hdmi(&mut self, status: hdmi::Status, error: Option<String>) {
+        self.hdmi = Some(status);
+        if let Some(error) = error { self.error(format!("HDMI: {error}")); }
+        if self.view == View::Information { self.refresh_information(); }
+        self.rows_for = None;
+    }
+
+    /// Replaces the whole menu with a message while it is shown only on the
+    /// handheld's own screen (a game running on HDMI); `None` brings the menu back.
+    pub fn set_notice(&mut self, notice: Option<(&str, &str)>) {
+        let (title, detail) = notice.unwrap_or(("", ""));
+        self.ui.set_notice(title.into());
+        self.ui.set_notice_detail(detail.into());
+    }
+
+    fn step_hdmi(&mut self, forward: bool) {
+        let mut settings = self.settings.clone();
+        settings.hdmi = settings.hdmi.step(forward);
+        match settings.save(&self.config.settings_file) {
+            Ok(()) => self.settings = settings,
+            Err(error) => self.error(format!("Saving HDMI setting: {error:#}")),
+        }
+        self.rows_for = None;
     }
 
     fn step_lights(&mut self, forward: bool) {
@@ -997,6 +1034,7 @@ impl App {
             ("LAN address", address),
             ("Data card", std::fs::read_to_string("/run/ghazal/data-source").map(|source| source.trim().to_owned()).unwrap_or_else(|_| "Unavailable".into())),
             ("Uptime", uptime),
+            ("HDMI", self.hdmi.map_or_else(|| "Not on this device".to_owned(), hdmi::Status::describe)),
             ("Systems", self.catalog.library().systems().len().to_string()),
             ("Games", self.catalog.library().game_count().to_string()),
         ].into_iter().map(|(label, detail)| Row { label: label.into(), detail: detail.into(), glyph: "".into() }).collect();
@@ -1144,6 +1182,7 @@ impl App {
             MenuItem::Quit => Some(Effect::Quit),
             MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
             MenuItem::Lights(_) => { self.step_lights(true); None }
+            MenuItem::Hdmi(_) => { self.step_hdmi(true); None }
             MenuItem::Moonlight => {
                 match moonlight::Moonlight::open(&self.config) {
                     Some(session) => { self.moonlight = Some(session); self.view = View::Moonlight; self.relay_moonlight_notice(); }
@@ -1377,6 +1416,7 @@ impl App {
                     (MenuItem::Brightness, Some(levels)) => format!("{}%", u8::from(levels.brightness)),
                     (MenuItem::Volume, Some(levels)) => format!("{}%", u8::from(levels.volume)),
                     (MenuItem::Achievements, _) => self.achievements.detail(),
+                    (MenuItem::Hdmi(_), _) => self.hdmi.map_or_else(String::new, hdmi::Status::describe),
                     _ => String::new(),
                 };
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }

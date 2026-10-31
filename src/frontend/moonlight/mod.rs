@@ -21,7 +21,7 @@ use std::time::Duration;
 use super::app::navigate;
 use super::config::{self, FrontendConfig};
 use super::input::Button;
-use super::launcher::LaunchSpec;
+use super::launcher::{Engine, LaunchSpec};
 use crate::device::CpuLoad;
 use cli::{Done, Listed, Pin};
 use discover::Found;
@@ -281,6 +281,7 @@ impl Moonlight {
         let entry = self.store.hosts.get(host).ok_or("That host is no longer in the list")?;
         if !reachable(entry) { return Err(format!("{} is not reachable", entry.name)); }
         Ok(LaunchSpec {
+            engine: Engine::Standalone,
             program: self.config.bin.clone(),
             args: cli::stream(&self.config, entry, app, &self.store.stream),
             log: self.config.log.clone(),

@@ -200,6 +200,9 @@ export component AppWindow inherits Window {
     in property <bool> levels-visible;
     in property <int> brightness-level;
     in property <int> volume-level;
+    /// A message that replaces the whole menu, e.g. while a game runs on HDMI.
+    in property <string> notice;
+    in property <string> notice-detail;
 
     background: Theme.bg;
     default-font-family: "DejaVu Sans";
@@ -456,6 +459,30 @@ export component AppWindow inherits Window {
             spacing: 12px;
             LevelBar { label: "Volume"; percent: root.volume-level; }
             LevelBar { label: "Brightness"; percent: root.brightness-level; }
+        }
+    }
+
+    if root.notice != "": Rectangle {
+        background: Theme.bg;
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            padding: Theme.pad;
+            Text {
+                text: root.notice;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                font-size: Theme.compact ? 20px : 28px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            Text {
+                text: root.notice-detail;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                font-size: Theme.compact ? 14px : 18px;
+                color: Theme.dim;
+            }
         }
     }
 }

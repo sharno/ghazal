@@ -113,6 +113,17 @@ pub struct Display {
     /// DRM device for `output = "kms"`.
     #[serde(default = "default_card")]
     pub card: PathBuf,
+    /// Absent on boards without an HDMI connector.
+    #[serde(default)]
+    pub hdmi: Option<HdmiDisplay>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct HdmiDisplay {
+    /// Output size of the menu and games; the nearest mode the display lists
+    /// is used when it lacks this one.
+    pub mode: crate::hdmi::Size,
 }
 
 #[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq)]
@@ -246,6 +257,18 @@ pub struct Audio {
     /// Speaker amplifier switch. The daemon turns it off while the headphone
     /// jack reports headphones (the codec drives both from one output).
     pub speaker: Option<String>,
+    /// Sound over HDMI; absent where the kernel has no HDMI sound card.
+    #[serde(default)]
+    pub hdmi: Option<HdmiAudio>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct HdmiAudio {
+    /// ALSA card id (`/proc/asound/cards`) of the HDMI sound card.
+    pub card: String,
+    /// Device-tree overlay that creates the card; the card exists from boot when absent.
+    pub overlay: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -302,6 +325,6 @@ impl DeviceConfig {
 
 impl Default for Display {
     fn default() -> Self {
-        Self { rotation: Rotation::Normal, blank: None, output: Output::Fbdev, card: default_card() }
+        Self { rotation: Rotation::Normal, blank: None, output: Output::Fbdev, card: default_card(), hdmi: None }
     }
 }

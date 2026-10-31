@@ -32,6 +32,12 @@ power = 116
 output = "kms"
 card = "/dev/dri"
 
+# Boards without an HDMI connector in their device tree ignore this section:
+# the menu entry and every HDMI code path stay inactive.
+[display.hdmi]
+# 720p is cheap for the GPU to scale games into and every sink lists it.
+mode = "1280x720"
+
 [backlight]
 kind = "sysfs"
 path = "/sys/class/backlight/backlight/brightness"
@@ -49,6 +55,12 @@ route = [
 ]
 # Off while headphones are plugged in; PipeWire's UCM does this on ROCKNIX.
 speaker = "Speaker Switch"
+
+[audio.hdmi]
+# The HDMI sound card is created on demand: its device-tree nodes ship
+# disabled and this overlay enables them (see docs/hdmi.md).
+card = "HDMI"
+overlay = "/boot/overlays/ghazal-hdmi-audio.dtbo"
 
 [battery]
 path = "/sys/class/power_supply/battery"

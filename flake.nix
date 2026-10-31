@@ -37,8 +37,13 @@
           # Bluetooth is in the kernel source (nix/h700-kernel.nix, docs/bluetooth.md) but off in
           # every image until a kernel with it has booted on a handheld: set this to true to test it.
           bluetoothKernel = false;
-          h700-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; bluetooth = bluetoothKernel; };
-          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix { inherit rocknix; debug = true; bluetooth = bluetoothKernel; };
+          # HDMI sound is the same: the audio hub driver and configfs overlays (docs/hdmi.md)
+          # stay out of every image until a kernel with them has booted on a handheld. HDMI
+          # video needs neither; without them the HDMI sound request falls back to the speaker.
+          hdmiAudioKernel = false;
+          kernelFeatures = { bluetooth = bluetoothKernel; hdmiAudio = hdmiAudioKernel; };
+          h700-kernel = cross.callPackage ./nix/h700-kernel.nix ({ inherit rocknix; } // kernelFeatures);
+          h700-debug-kernel = cross.callPackage ./nix/h700-kernel.nix ({ inherit rocknix; debug = true; } // kernelFeatures);
           image-builder = pkgs.callPackage ./nix/image-builder.nix {
             inherit ghazal uboot uboot-ddr3 runtime;
             kernel = h700-kernel;

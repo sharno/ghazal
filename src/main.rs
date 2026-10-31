@@ -7,6 +7,7 @@ mod debug;
 mod device;
 mod emulator;
 mod frontend;
+mod hdmi;
 mod hw;
 mod init;
 mod input_bridge;
