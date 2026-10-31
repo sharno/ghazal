@@ -21,6 +21,9 @@ let
       ++ map (option: lib.cmakeBool option false) [ "SDL2TTF_SAMPLES" "SDL2TTF_HARFBUZZ" "SDL2TTF_VENDORED" ];
   };
   retroarch = callPackage ./retroarch.nix { inherit mesa; };
+  ffmpeg-h264 = callPackage ./ffmpeg.nix { };
+  moonlight = callPackage ./moonlight.nix { inherit sdl2; ffmpeg = ffmpeg-h264; };
+  decode-bench = callPackage ./decode-bench.nix { ffmpeg = ffmpeg-h264; };
   ppsspp = callPackage ./ppsspp.nix { inherit mesa sdl2 SDL2_ttf; };
   ppsspp-libretro = ppsspp.override { libretroCore = true; };
   cores = import ./cores.nix {
@@ -63,6 +66,7 @@ let
   links = {
     "usr/bin/retroarch" = "${retroarch}/bin/retroarch";
     "usr/bin/ppsspp" = "${ppsspp}/bin/ppsspp";
+    "usr/bin/moonlight" = "${moonlight}/bin/moonlight";
     "usr/bin/syncthing" = "${pkgs.syncthing}/bin/syncthing";
     "usr/bin/amixer" = "${alsa-utils}/bin/amixer";
     "usr/bin/alsaucm" = "${alsa-utils}/bin/alsaucm";
@@ -99,6 +103,8 @@ let
     cp -r ${pkgs.retroarch-joypad-autoconfig}/share/libretro/autoconfig $out/usr/share/libretro/
     chmod u+w $out/usr/share/libretro/autoconfig/udev
     cp ${profile + "/gamepad.cfg"} "$out/usr/share/libretro/autoconfig/udev/H700 Gamepad.cfg"
+    # Moonlight looks for its controller mapping in /usr/share/moonlight.
+    install -Dm644 ${profile + "/gamecontrollerdb.txt"} $out/usr/share/moonlight/gamecontrollerdb.txt
     # udev applies only Ghazal's rules (written by the image builder).
     mkdir -p $out/etc/udev/rules.d
     for rules in ${udev}/lib/udev/rules.d/*.rules; do
@@ -122,6 +128,6 @@ let
 in
 assert lib.assertMsg (missing == [ ]) "frontend.toml names unbuilt cores: ${toString missing}";
 {
-  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro cores tree ppsspp-defaults;
+  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro moonlight decode-bench cores tree ppsspp-defaults;
   closure = pkgs.closureInfo { rootPaths = [ tree ]; };
 }

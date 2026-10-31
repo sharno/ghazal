@@ -631,6 +631,12 @@ fn main() -> Result<()> {
         let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
         if device.rotation == "left" {
             use_libretro_psp(&mut frontend)?;
+            // Moonlight's SDL output cannot rotate either; the menu says it
+            // is unavailable on this panel.
+            frontend
+                .as_table_mut()
+                .ok_or("invalid frontend profile")?
+                .remove("moonlight");
         }
         write(
             &root,

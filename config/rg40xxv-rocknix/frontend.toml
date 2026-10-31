@@ -15,6 +15,16 @@ emulators_file = "/mnt/games/.ghazal/emulators.toml"
 # Last Game startup must not launch before it has catalogued the gamepad.
 launch_after = ["/run/ghazal/udev-settled"]
 
+# Applications -> Moonlight streams PC games from Sunshine or GeForce
+# Experience. Pairing keys, known hosts and stream settings live on the data
+# card, so a reflashed OS card keeps its pairings. Video is decoded in software.
+[moonlight]
+bin = "/usr/bin/moonlight"
+data_dir = "/mnt/games/.ghazal/moonlight"
+mapping = "/usr/share/moonlight/gamecontrollerdb.txt"
+env = { HOME = "/mnt/games/.ghazal/home", XDG_RUNTIME_DIR = "/run", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache" }
+log = "/var/log/ghazal/moonlight.log"
+
 [retroarch]
 bin = "/usr/bin/retroarch"
 # Our own RetroArch configuration.

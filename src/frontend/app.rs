@@ -11,6 +11,7 @@ use super::emulator_picker::{self, Picker, Step};
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
+use super::moonlight::{self, Notice};
 use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
 use crate::daemon::ctl;
@@ -32,7 +33,7 @@ pub enum Effect {
     Quit,
 }
 
-pub enum LaunchPurpose { Game(GameId), RetroArchSettings }
+pub enum LaunchPurpose { Game(GameId), RetroArchSettings, Stream }
 
 #[derive(Clone, Copy, PartialEq)]
 enum View {
@@ -40,6 +41,7 @@ enum View {
     Systems,
     Games(GameList),
     Applications,
+    Moonlight,
     Configuration,
     Information,
     Updates,
@@ -103,6 +105,7 @@ enum MenuItem {
     SystemUpdate,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
+    Moonlight,
 }
 
 impl MenuItem {
@@ -127,6 +130,7 @@ impl MenuItem {
             Self::RetroArchSettings => "RetroArch settings",
             Self::SystemUpdate => "System update",
             Self::Lights(preset) => preset.menu_label(),
+            Self::Moonlight => "Moonlight game streaming",
         }
     }
 }
@@ -144,7 +148,7 @@ struct MenuState {
 }
 
 const OPTION_ITEMS: [MenuItem; 4] = [MenuItem::Startup, MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
-const APPLICATION_ITEMS: [MenuItem; 2] = [MenuItem::Rescan, MenuItem::DownloadThumbnails];
+const APPLICATION_ITEMS: [MenuItem; 3] = [MenuItem::Moonlight, MenuItem::Rescan, MenuItem::DownloadThumbnails];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
 
@@ -189,6 +193,8 @@ pub struct App {
     home_items: Vec<HomeItem>,
     home_cursor: usize,
     application_cursor: usize,
+    /// Only while the Moonlight screens are open.
+    moonlight: Option<moonlight::Moonlight>,
     configuration_cursor: usize,
     updater: crate::update::Menu,
     information_cursor: usize,
@@ -268,6 +274,7 @@ impl App {
             home_items,
             home_cursor: 0,
             application_cursor: 0,
+            moonlight: None,
             configuration_cursor: 0,
             updater: crate::update::Menu::default(),
             information_cursor: 0,
@@ -405,6 +412,16 @@ impl App {
                 Button::A => return self.activate(APPLICATION_ITEMS[self.application_cursor]),
                 button => self.application_cursor = navigate(self.application_cursor, APPLICATION_ITEMS.len(), button),
             },
+            View::Moonlight => {
+                let step = self.moonlight.as_mut().map_or(moonlight::Step::Leave, |session| session.handle(button));
+                self.relay_moonlight_notice();
+                self.rows_for = None;
+                match step {
+                    moonlight::Step::Stay => {}
+                    moonlight::Step::Leave => { self.moonlight = None; self.view = View::Applications; }
+                    moonlight::Step::Launch(spec) => return Some(Effect::Launch { spec, purpose: LaunchPurpose::Stream }),
+                }
+            }
             View::Configuration => match button {
                 Button::B => self.view = View::Home,
                 Button::A | Button::Left | Button::Right => {
@@ -536,6 +553,10 @@ impl App {
         self.receive_art();
         self.receive_download();
         if self.updater.poll() { self.rows_for = None; }
+        if self.moonlight.as_mut().is_some_and(moonlight::Moonlight::poll) {
+            self.relay_moonlight_notice();
+            self.rows_for = None;
+        }
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -640,7 +661,7 @@ impl App {
     }
 
     pub fn next_deadline(&self) -> Instant {
-        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some();
+        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some() || self.moonlight.as_ref().is_some_and(moonlight::Moonlight::busy);
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
@@ -824,6 +845,13 @@ impl App {
             MenuItem::Quit => Some(Effect::Quit),
             MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
             MenuItem::Lights(_) => { self.step_lights(true); None }
+            MenuItem::Moonlight => {
+                match moonlight::Moonlight::open(&self.config) {
+                    Some(session) => { self.moonlight = Some(session); self.view = View::Moonlight; self.relay_moonlight_notice(); }
+                    None => self.notice("Moonlight is not available on this device"),
+                }
+                None
+            }
         }
     }
 
@@ -837,6 +865,14 @@ impl App {
 
     fn notice(&mut self, text: &str) {
         self.toast = Some(Toast { text: text.into(), shown: Instant::now(), error: false });
+    }
+
+    fn relay_moonlight_notice(&mut self) {
+        match self.moonlight.as_mut().and_then(moonlight::Moonlight::take_notice) {
+            Some(Notice::Info(text)) => self.notice(&text),
+            Some(Notice::Error(text)) => self.error(text),
+            None => {}
+        }
     }
 
     fn error(&mut self, text: String) {
@@ -896,6 +932,10 @@ impl App {
                 Row { label: self.list_title(list).into(), detail: self.game_count(list).to_string().into(), glyph: "".into() }
             }
             View::Applications => Row { label: APPLICATION_ITEMS.get(index)?.label(&self.settings).into(), detail: "".into(), glyph: "".into() },
+            View::Moonlight => {
+                let row = self.moonlight.as_ref()?.row(index)?;
+                Row { label: row.label.into(), detail: row.detail.into(), glyph: row.glyph.into() }
+            }
             View::Configuration => {
                 let item = *self.configuration_items().get(index)?;
                 let detail = match (item, self.levels) {
@@ -931,6 +971,7 @@ impl App {
             (None, View::Systems) => SYSTEM_HINTS,
             (None, View::Home) => HOME_HINTS,
             (None, View::Applications) => SYSTEM_HINTS,
+            (None, View::Moonlight) => self.moonlight.as_ref().map_or(SYSTEM_HINTS, moonlight::Moonlight::hints),
             (None, View::Configuration) => CONFIGURATION_HINTS,
             (None, View::Updates) => OPTIONS_HINTS,
             (None, View::Information) => INFORMATION_HINTS,
@@ -959,6 +1000,7 @@ impl App {
             View::Systems => (self.system_cursor, self.system_entries()),
             View::Games(list) => (self.cursor(list), self.game_count(list)),
             View::Applications => (self.application_cursor, APPLICATION_ITEMS.len()),
+            View::Moonlight => self.moonlight.as_ref().map_or((0, 0), |session| (session.cursor(), session.len())),
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
             View::Information => (self.information_cursor, self.information_rows.len()),
@@ -983,11 +1025,13 @@ impl App {
         }
 
         let ui = &self.ui;
+        let moonlight_heading = self.moonlight.as_ref().map(moonlight::Moonlight::heading).unwrap_or_default();
         ui.set_heading(match self.view {
             View::Home => "Ghazal",
             View::Systems => "Explore Content",
             View::Games(list) => self.list_title(list),
             View::Applications => "Applications",
+            View::Moonlight => moonlight_heading.as_str(),
             View::Configuration => "Configuration",
             View::Updates => "System update",
             View::Information => "Information",
@@ -1043,7 +1087,7 @@ fn step(i: usize, len: usize, delta: isize, wrap: bool) -> usize {
 }
 
 /// Up/Down move one row (wrapping), L1/R1 jump a page (clamped).
-fn navigate(cursor: usize, len: usize, button: Button) -> usize {
+pub(super) fn navigate(cursor: usize, len: usize, button: Button) -> usize {
     match button {
         Button::Up => step(cursor, len, -1, true),
         Button::Down => step(cursor, len, 1, true),

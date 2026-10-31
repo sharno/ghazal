@@ -9,8 +9,11 @@ mod emulator_picker;
 pub mod input;
 pub mod launcher;
 pub mod library;
+mod moonlight;
 pub mod platform;
 mod settings;
 mod thumbnails;
 
 pub fn benchmark_recent(config: &config::FrontendConfig) -> anyhow::Result<()> { activity::benchmark(config) }
+
+pub fn observe_moonlight_hosts() -> anyhow::Result<()> { moonlight::observe_hosts() }

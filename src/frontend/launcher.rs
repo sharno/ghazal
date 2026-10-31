@@ -116,6 +116,7 @@ impl LaunchSpec {
             bail!("emulator exited with {status}");
         }
         if let Some(warning) = report.save_warning { bail!("{warning}"); }
+        if let Some(reason) = report.stream_ended { bail!("{reason}"); }
         Ok(status)
     }
 }
