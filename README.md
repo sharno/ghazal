@@ -21,6 +21,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   RetroArch settings from Configuration.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a
   lower CPU clock than demanding ones.
+- Stream PC games from Sunshine or GeForce Experience with Moonlight
+  (Applications → Moonlight); see [game streaming](docs/moonlight.md).
 - Use one SD card for everything, or separate OS and games/data cards.
 - Install signed system updates from GitHub through Configuration → System update
   on A/B installations; see [updates and migration](docs/updates.md).

@@ -82,6 +82,26 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - There is no user-facing factory-reset flow. If added, define which OS settings
   it resets and preserve games, saves and identities unless explicitly selected.
 
+### Moonlight game streaming
+
+- The whole flow is implemented (docs/moonlight.md) but no stream has run: there
+  was no host. Pair with a real Sunshine host, then check the SDL KMSDRM window
+  and letterboxed scaling, audio (Moonlight's 4096-sample buffer is ~85 ms),
+  the pad mapping, Menu + Start ending a stream cleanly (SIGTERM becomes
+  SDL_QUIT, so `quitappafter` still runs), and whether Sunshine answers the
+  mDNS browse (a multicast-only responder would not be found).
+- Decoding is software H.264 on the four A53 cores. Run `decode-bench`
+  (`nix build .#decode-bench`, docs/moonlight.md) on the handheld and set the
+  default resolution and frame rate from its frame-time tail; the container's
+  numbers are from an Apple core and only show relative cost (720p60 ~2.8x the
+  default 640x360).
+- Hardware decoding is not available here: `MEDIA_SUPPORT` is off and the H700
+  device tree has no Cedrus node. Revisit it only if measured software
+  decoding cannot hold the target; it needs the kernel driver, a DT node, V4L2
+  request decoding and a DRM-PRIME output in Moonlight's SDL path.
+- Moonlight and its FFmpeg add ~3.9 MB to the root (`nix path-info` against
+  the device's `/nix/store`); check the root's free space after bumps.
+
 ### Boot time and game performance
 
 - `ghazal observe boot` reports firmware, kernel-to-frame and total time; the
@@ -150,7 +170,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   core must come from the one nixpkgs in `nix/runtime`, and programs must find
   libraries through their store RPATHs, never `/usr/lib`. Stock nixpkgs
   graphics closures do not fit the 1 GiB slot; keep overrides free of X11,
-  Wayland, LLVM, Vulkan and FFmpeg, and check the root's size after bumps.
+  Wayland, LLVM and Vulkan, and check the root's size after bumps. FFmpeg is
+  only the H.264 decoder (`nix/runtime/ffmpeg.nix`): FFmpeg's configure
+  applies options in order, so `--enable-*` must follow `--disable-everything`.
   Cores follow ROCKNIX's recipes (`nix/runtime/rocknix-core.nix`): after a
   `rocknix` bump, restate changed package.mk conditionals and hooks in
   `cores.nix`, launch every system and compare core speed against the previous

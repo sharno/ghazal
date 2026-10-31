@@ -130,6 +130,9 @@ LLVM), so the graphics stack is rebuilt for this device only:
 - RetroArch: KMS/EGL with GLES 3.1, ALSA, udev and RGUI.
 - PPSSPP and its libretro core: GLES with ROCKNIX's H700 flags. Standalone
   states are named after the ROM file, as ROCKNIX's build names them.
+- Moonlight Embedded on the SDL2 build above, with FFmpeg cut down to the H.264
+  decoder (`ffmpeg.nix`; 2.3 MB). Together with libopus and libevdev it adds
+  about 3.9 MB to the root; see [game streaming](moonlight.md).
 - Cores: `nix/runtime/cores.nix` maps each `core =` in `frontend.toml` to
   ROCKNIX's recipe for it. `rocknix-core.nix` reads the pinned revision, source
   hash, patches and make or CMake options from its `package.mk` and builds with
