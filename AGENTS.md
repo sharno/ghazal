@@ -313,11 +313,12 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Release checks
 
-- Unconfirmed on GitHub's `ubuntu-24.04-arm` runners: that `modprobe uinput`
-  gives the `release-tests` input step a `/dev/uinput` (otherwise it warns and
-  the layout gate is the only runtime gate). `vm-smoke` passes there (about 30 s
-  in Docker's QEMU). If the runners lack uinput, run the input test inside the
-  QEMU machine instead.
+- On GitHub's `ubuntu-24.04-arm` runners `modprobe uinput` gives the
+  `release-tests` input step a `/dev/uinput`: the layout and input gates and
+  `vm-smoke` all passed there on main (0708825) with no skip warning. A cold
+  `runtime` job (new derivations) took about 50 minutes, and every push to main
+  cancels the run in progress before its cache is saved, so let the `runtime`
+  job finish before pushing again.
 - `scripts/acceptance.sh` ran on the RG40XX-V v2 against a fresh image built from
   main: Game Boy, GBA, SNES, Mega Drive, PlayStation and PSP games, 69 checks
   passed and the PSP save state was skipped by design, in 2 min 7 s. The menu path
@@ -340,13 +341,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
 
-- Release gates in CI (`.github/workflows/images.yml`): `vm-smoke` passed on
-  GitHub's `ubuntu-24.04-arm` runner. `release-tests` has not run there: it needs
-  the `runtime` job, which pushes to main keep cancelling (each push cancels the
-  run in progress). The same gates passed locally on main (layout, headless input
-  with the real RetroArch, QEMU smoke) and `scripts/acceptance.sh` passed on the
-  handheld. Unknown: whether `ubuntu-24.04-arm` has `/dev/uinput`, and whether a
-  first tag build gets through `publish` (it needs both jobs).
+- Beta 11 (the first release with every feature) was tagged without booting its
+  images on a handheld: the development RG40XX-V v2 stopped answering on the
+  network after its first boot of the Bluetooth-kernel test image (slot B,
+  `BOOT_B_LEFT=1`; cause unknown) and nobody could power-cycle it. Both kernel
+  flags are false in the release, so its kernel is the one that booted before.
+  First session: power-cycle (check the battery first), put the beta 11 image on
+  slot B (`flash-b.sh`, or System update from beta 10, which also proves the
+  updater: docs/release-checks.md step 6), read the boot time (~2.95 s
+  expected), run `scripts/acceptance.sh`, then work through the entries below,
+  Bluetooth and HDMI sound last because they need their kernel flag flipped.
+  Whatever fails there is a bug to fix in beta 12; slot A stays the fallback.
 
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the

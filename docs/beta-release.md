@@ -1,5 +1,64 @@
 # Ghazal H700 beta
 
+Beta 11 puts every planned feature into one release so they can be tested and
+fixed together. Most of what is new has never run on a handheld in its final
+form; treat it as experimental and keep slot A (the previous release) as the
+fallback.
+
+**This release was not booted on a handheld before it was tagged.** The
+development RG40XX-V v2 stopped answering after its first boot of a test image
+that had Bluetooth built into the kernel, and nobody could power-cycle it before
+tagging. Why it stopped is unknown. That kernel part is switched off in this
+release, so the kernel is the one the handheld had booted before it. CI built
+and checked every image (the runtime's layout, its RetroArch driven by a virtual
+copy of the handheld's pad, and the menu booted in QEMU), and each feature below
+except Bluetooth and HDMI ran on the handheld in an earlier build, but the final
+combination has not. If a new slot fails to start, the previous one takes over
+after three attempts; a kernel panic still freezes the RG40XX-V v2 until the
+power button is held (see below).
+
+New and experimental:
+
+- **Choose the emulator per game or per system.** X on a game opens its actions
+  (Play, Emulator, Host netplay, Join netplay); Emulator lists the alternatives
+  (for example Snes9x 2010, VBA-Next, Nestopia, PicoDrive, PPSSPP's libretro
+  core) and X again makes one the system's default. Picks are stored in
+  `emulators.toml` on the data card. Battery saves are filed per core, so a game
+  switched to another core starts without its old `.srm`. The alternatives'
+  CPU clock floors are copies of their default's and unmeasured.
+- **Moonlight game streaming** (Applications → Moonlight game streaming) from
+  Sunshine or GeForce Experience: find or add a host, pair with a PIN, start an
+  app, leave with Menu + Start. Software H.264 decoding on the four CPU cores,
+  640x360 at 60 fps by default. Its menu side ran against a stand-in host; no
+  stream has run against a real one.
+- **PortMaster** (Applications → Install PortMaster, over Wi-Fi) and a Ports
+  system for its games. PortMaster's own GUI, its runner, gptokeyb and the
+  Love2D runtime started with test scripts; no port from its catalogue has run.
+  32-bit (armhf) ports are not supported.
+- **Wi-Fi setup** in Configuration → Wi-Fi: scan, join with an on-screen keyboard,
+  hidden networks, forget and disconnect. Listing and the keyboard ran; joining a
+  network has not (the only network in reach was the one the test link used).
+- **RetroAchievements and netplay.** Configuration → Achievements account opens
+  RetroArch's sign-in; Achievements switches off, on or hardcore. From a game's
+  actions, host a RetroArch netplay session or join one found on the network or
+  saved in `netplay-hosts.txt`. Signing in and a two-device session have not
+  been tried.
+- **HDMI output** (Configuration → HDMI: Auto, Mirror, Off) shows the menu and
+  games on the mini-HDMI port. It has never run with a display. Sound stays on
+  the handheld's speaker: the kernel's HDMI sound driver is off in this release.
+- **Bluetooth controllers** are in the code (`ghazal bluetooth`, Configuration →
+  Bluetooth, hot-plugged pads in the menu) but not in the kernel. The menu hides
+  Bluetooth until a kernel with it boots.
+- Other changes: the loopback interface is raised at boot, and a release is now
+  published only after CI has opened the built runtime and booted the menu in
+  QEMU (see the end of these notes).
+
+Known issues in beta 11: the crash freeze described under beta 10; no real
+stream, catalogue port, Wi-Fi join, RetroAchievements login, netplay session,
+Bluetooth pad or HDMI display has been tried; and a capture taken with a menu
+overlay open (`ghazal observe frame`) shows the picture shifted about 26 px
+left, which nobody has compared with the panel.
+
 Beta 10 restores game controls. Betas 8 and 9 started every RetroArch game
 without the handheld's gamepad profile, so buttons and RetroArch hotkeys did
 nothing; update from either. Kernel panics now show the kernel log on screen.
