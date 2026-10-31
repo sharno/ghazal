@@ -1,0 +1,146 @@
+Bluetooth: hci_h5: power the serdev controller on from a sysfs attribute
+
+h5_btrtl_open() sleeps 600 ms (reset, then up to 500 ms for the controller
+to wake) and runs from the serdev probe. Root mounting waits for every probe,
+so the RG40XX-V's RTL8821CS Bluetooth delayed each boot by 0.6 s, whether or
+not Bluetooth was ever used.
+
+Probe now only claims the GPIOs. Writing 1 to the device's `start` attribute
+(/sys/bus/serial/drivers/hci_uart_h5/serial*/start) powers the controller and
+registers the HCI device, and reading it tells whether that happened. Ghazal
+writes it from a background service when Bluetooth is turned on, so a user who
+never enables Bluetooth pays nothing and the controller stays unpowered.
+Suspend and resume ignore a controller that was never started: its serial
+port is not open.
+
+The ACPI-enumerated devices this driver also serves (x86 laptops) need the
+same write; this kernel only targets the Allwinner H700 handhelds.
+
+--- a/drivers/bluetooth/hci_h5.c
++++ b/drivers/bluetooth/hci_h5.c
+@@ -12,10 +12,12 @@
+ #include <linux/errno.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/kernel.h>
++#include <linux/mutex.h>
+ #include <linux/of.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/serdev.h>
+ #include <linux/skbuff.h>
++#include <linux/sysfs.h>
+ 
+ #include <net/bluetooth/bluetooth.h>
+ #include <net/bluetooth/hci_core.h>
+@@ -60,6 +62,7 @@
+ 	H5_WAKEUP_DISABLE,	/* Device cannot wake host */
+ 	H5_HW_FLOW_CONTROL,	/* Use HW flow control */
+ 	H5_CRC,			/* Use CRC */
++	H5_REGISTERED,		/* Controller powered and HCI device registered */
+ };
+ 
+ struct h5 {
+@@ -102,6 +105,8 @@
+ 
+ 	struct gpio_desc *enable_gpio;
+ 	struct gpio_desc *device_wake_gpio;
++
++	struct mutex		start_lock;	/* Serializes the "start" attribute */
+ };
+ 
+ enum h5_driver_info {
+@@ -900,21 +905,74 @@
+ 	if (IS_ERR(h5->device_wake_gpio))
+ 		return PTR_ERR(h5->device_wake_gpio);
+ 
+-	return hci_uart_register_device_priv(&h5->serdev_hu, &h5p,
+-					     h5->vnd->sizeof_priv);
++	/*
++	 * Powering the controller on sleeps for 600 ms (h5_btrtl_open()), and
++	 * root mounting waits for every probe. Register from the "start"
++	 * attribute instead: userspace writes it once the system is up, and
++	 * never when the user does not turn Bluetooth on.
++	 */
++	mutex_init(&h5->start_lock);
++	return 0;
++}
++
++static ssize_t start_show(struct device *dev, struct device_attribute *attr,
++			  char *buf)
++{
++	struct h5 *h5 = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", test_bit(H5_REGISTERED, &h5->flags));
++}
++
++static ssize_t start_store(struct device *dev, struct device_attribute *attr,
++			   const char *buf, size_t count)
++{
++	struct h5 *h5 = dev_get_drvdata(dev);
++	bool start;
++	int err;
++
++	err = kstrtobool(buf, &start);
++	if (err)
++		return err;
++	if (!start)
++		return -EINVAL;
++
++	mutex_lock(&h5->start_lock);
++	if (test_bit(H5_REGISTERED, &h5->flags)) {
++		err = 0;
++	} else {
++		err = hci_uart_register_device_priv(&h5->serdev_hu, &h5p,
++						    h5->vnd->sizeof_priv);
++		if (!err)
++			set_bit(H5_REGISTERED, &h5->flags);
++	}
++	mutex_unlock(&h5->start_lock);
++
++	return err ? err : count;
+ }
++static DEVICE_ATTR_RW(start);
+ 
++static struct attribute *h5_serdev_attrs[] = {
++	&dev_attr_start.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(h5_serdev);
++
+ static void h5_serdev_remove(struct serdev_device *serdev)
+ {
+ 	struct h5 *h5 = serdev_device_get_drvdata(serdev);
+ 
+-	hci_uart_unregister_device(&h5->serdev_hu);
++	if (test_bit(H5_REGISTERED, &h5->flags))
++		hci_uart_unregister_device(&h5->serdev_hu);
+ }
+ 
+ static int __maybe_unused h5_serdev_suspend(struct device *dev)
+ {
+ 	struct h5 *h5 = dev_get_drvdata(dev);
+ 	int ret = 0;
++
++	/* The serial port is not open until the controller is started. */
++	if (!test_bit(H5_REGISTERED, &h5->flags))
++		return 0;
+ 
+ 	if (h5->vnd && h5->vnd->suspend)
+ 		ret = h5->vnd->suspend(h5);
+@@ -927,6 +985,9 @@
+ 	struct h5 *h5 = dev_get_drvdata(dev);
+ 	int ret = 0;
+ 
++	if (!test_bit(H5_REGISTERED, &h5->flags))
++		return 0;
++
+ 	if (h5->vnd && h5->vnd->resume)
+ 		ret = h5->vnd->resume(h5);
+ 
+@@ -1160,6 +1221,7 @@
+ 		.acpi_match_table = ACPI_PTR(h5_acpi_match),
+ 		.pm = &h5_serdev_pm_ops,
+ 		.of_match_table = rtl_bluetooth_of_match,
++		.dev_groups = h5_serdev_groups,
+ 	},
+ };
+ 
