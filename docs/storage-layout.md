@@ -44,6 +44,7 @@ GHAZALDATA/                 # or the root of your TF2 partition
 │   └── screenshots/
 └── .ghazal/
     ├── activity.toml     # Collection and History
+    ├── emulators.toml    # emulator chosen per game and per system
     ├── thumbnails/       # downloaded art and missing-art markers
     ├── retroarch/        # native settings and per-core options
     ├── home/             # writable home for libretro cores
@@ -57,6 +58,9 @@ Keep multi-file games together; use playlists when a system supports them.
 ROMs and proprietary BIOS files are not included. Box art can live beside ROMs
 in `Imgs/<game>.png`, in a preserved muOS catalogue, or in `.ghazal/thumbnails/`.
 The Collection is the favorites list; History holds the latest 100 unique games.
+Press X on a game to choose its emulator, or its system's default; the choices
+are in `.ghazal/emulators.toml` and a core's saves and states stay under that
+core's name in `SAVES`.
 
 PPSSPP shares game saves through `SAVES/file/PPSSPP/PSP/SAVEDATA` and stores its
 standalone states under `SAVES/state/PPSSPP-standalone`. The rotated RG28XX uses

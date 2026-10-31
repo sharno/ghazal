@@ -3,6 +3,8 @@
 # Keys: arrows = d-pad, Z/Enter = A, X/Backspace = B, A = Y, S = X,
 # Q/W = L1/R1, Shift = Select, Space = Start, Esc/Tab = Menu.
 rom_roots = ["../ROMS"]
+# Where the simulator keeps emulator choices (the device keeps them on the data card).
+emulators_file = "/tmp/ghazal-sim/emulators.toml"
 
 [retroarch]
 bin = "retroarch"
@@ -19,12 +21,29 @@ name = "Game Boy Advance"
 dirs = ["GBA"]
 extensions = ["gba", "zip"]
 core = "mgba_libretro.so"
+label = "mGBA"
+
+# X in a game list picks among these.
+[[system.alternative]]
+core = "vba_next_libretro.so"
+label = "VBA-Next"
+cpu = "moderate"
 
 [[system]]
 name = "SNES"
 dirs = ["SNES", "SFC"]
 extensions = ["sfc", "smc", "zip"]
 core = "snes9x_libretro.so"
+label = "Snes9x"
+
+[[system.alternative]]
+core = "snes9x2010_libretro.so"
+label = "Snes9x 2010"
+
+[[system.alternative]]
+command = ["/usr/bin/true", "{rom}"]
+name = "demo-standalone"
+label = "Demo standalone"
 
 [[system]]
 name = "Game Boy"

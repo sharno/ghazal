@@ -155,6 +155,22 @@ fn copy_writable(src: &Path, dst: &Path) -> Result<()> {
         .arg(src.join("."))
         .arg(dst))
 }
+/// A rotated panel cannot show standalone PPSSPP, so its PSP runs the libretro
+/// core alone: the standalone command goes, and with it the alternatives, which
+/// would only list that core a second time.
+fn use_libretro_psp(frontend: &mut toml::Value) -> Result<()> {
+    for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
+        if system["name"].as_str() == Some("PSP") {
+            let system = system.as_table_mut().ok_or("invalid PSP profile")?;
+            for key in ["command", "emulator_name", "env", "log", "alternative"] {
+                system.remove(key);
+            }
+            system.insert("core".into(), toml::Value::String("ppsspp_libretro.so".into()));
+            system.insert("label".into(), toml::Value::String("PPSSPP".into()));
+        }
+    }
+    Ok(())
+}
 /// Sets `key = value` pairs from `overrides` in the matching `[section]`s of
 /// `base`, appending a key to its section when the base lacks it.
 fn merge_ini(base: &str, overrides: &str) -> Result<String> {
@@ -614,18 +630,7 @@ fn main() -> Result<()> {
         write(&root, "etc/ghazal/device.toml", toml::to_string(&profile)?)?;
         let mut frontend: toml::Value = toml::from_str(&frontend_template)?;
         if device.rotation == "left" {
-            for system in frontend["system"].as_array_mut().ok_or("missing systems")? {
-                if system["name"].as_str() == Some("PSP") {
-                    let system = system.as_table_mut().ok_or("invalid PSP profile")?;
-                    for key in ["command", "env", "log"] {
-                        system.remove(key);
-                    }
-                    system.insert(
-                        "core".into(),
-                        toml::Value::String("ppsspp_libretro.so".into()),
-                    );
-                }
-            }
+            use_libretro_psp(&mut frontend)?;
             // Moonlight's SDL output cannot rotate either; the menu says it
             // is unavailable on this panel.
             frontend
@@ -791,7 +796,20 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_ini;
+    use super::{merge_ini, use_libretro_psp};
+
+    #[test]
+    fn a_rotated_panel_runs_psp_through_its_libretro_core_alone() {
+        let mut frontend: toml::Value = toml::from_str(include_str!("../../../config/rg40xxv-rocknix/frontend.toml")).unwrap();
+        let psp = |frontend: &toml::Value| frontend["system"].as_array().unwrap().iter().find(|system| system["name"].as_str() == Some("PSP")).unwrap().clone();
+        assert!(psp(&frontend).get("command").is_some() && psp(&frontend).get("alternative").is_some());
+        use_libretro_psp(&mut frontend).unwrap();
+        let psp = psp(&frontend);
+        let mut keys: Vec<_> = psp.as_table().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["art", "core", "dirs", "extensions", "label", "name"]);
+        assert_eq!(psp["core"].as_str(), Some("ppsspp_libretro.so"));
+    }
 
     #[test]
     fn overrides_replace_or_append_within_their_section() {

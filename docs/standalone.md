@@ -138,7 +138,8 @@ LLVM), so the graphics stack is rebuilt for this device only:
   hash, patches and make or CMake options from its `package.mk` and builds with
   ROCKNIX's H700 compiler flags, without nixpkgs' hardening; `cores.nix`
   restates what package.mk sets in shell conditionals and hooks. Evaluation
-  fails if `frontend.toml` names a core the table lacks.
+  fails if `frontend.toml` names a core the table lacks, in a system or in
+  its `[[system.alternative]]`s.
 - PPSSPP and RetroArch are also built without nixpkgs' hardening flags, which
   cost cores 3-20%.
 
@@ -329,6 +330,68 @@ again. Library rescans run in a worker so navigation remains responsive.
 Activity format 2 stores game paths, so changing a system label or core mapping
 preserves favorites and history. Existing format 1 files migrate atomically.
 
+### Choosing the emulator
+
+A system in `frontend.toml` runs its games with its own `core` or `command`
+(its default emulator) and may list `[[system.alternative]]` emulators (the
+comment above the first `[[system]]` has the keys). Press X on a game, in a
+system's list, Collection or History, to open the emulator picker; its title
+shows the emulator the game uses now. A system with one emulator says so.
+
+| Picker row | A (this game) | X (the whole system) |
+| --- | --- | --- |
+| `Default (<name>)` | The game follows its system's default | The system's default is `frontend.toml`'s again |
+| An emulator | Pins the game to it, whatever the default becomes | Makes it the default for games not pinned |
+
+A pinned game shows its emulator's name on the right of its row. A game uses,
+in order, its pin, its system's default and the emulator `frontend.toml` lists
+first. Launches, Last Game startup and History all use that resolution, and
+each emulator's own `cpu` rating sets the clock policy, so a lighter core can
+run at a lower floor than the system's default.
+
+Choices persist in `/mnt/games/.ghazal/emulators.toml` (`emulators_file`;
+beside `activity.toml` unless set), written atomically, format version `"1"`:
+
+```toml
+version = "1"
+
+[systems.SNES]
+core = "snes9x2010_libretro.so"
+
+[[games]]
+path = "/mnt/games/ROMS/PSP/Game.iso"
+
+[games.emulator]
+standalone = "ppsspp"
+```
+
+An emulator is named by its core file or standalone `name` (the program's file
+name unless `name` is set), never by position, so reordering or adding
+alternatives keeps every choice. A choice naming an emulator the system no
+longer lists is ignored and kept in the file. A game is identified by its path
+and a system by its `name`; renaming a system forgets its default, not its
+pins. A damaged file is moved aside as `emulators.toml.invalid-<time>` and the
+menu starts with defaults. A file with an unknown `version` (written by a newer
+system on the other slot) is left untouched: choices are off, games use their
+systems' defaults and the menu says so. A new file version adds a variant to
+`Stored` in `src/frontend/emulator_choice.rs` and a conversion; the previous
+version's test fixture must keep reading.
+
+RetroArch files saves and states under the core's name
+(`SAVES/file/<core>`, `SAVES/state/<core>`), so a game's saves and states do not
+follow it to another core; the choice toast says so. The picker never copies
+them. Standalone and libretro PPSSPP share game saves, not save states.
+
+Alternatives shipped for the RG40XX-V: GBA mGBA / VBA-Next, NES FCEUmm /
+Nestopia, SNES Snes9x / Snes9x 2010, Mega Drive, Master System and Game Gear
+Genesis Plus GX / PicoDrive, Mega CD PicoDrive / Genesis Plus GX, PSP standalone
+PPSSPP / PPSSPP libretro. Rotated-panel images (RG28XX) keep only the libretro
+PSP core. The alternatives' `cpu` floors reuse the default's and are not
+measured. ROCKNIX's gpsp and snes9x2010 H700 builds are 32-bit ARM
+(`-marm`, 32-bit dynarec); the aarch64 runtime builds snes9x2010 from its
+generic target and omits gpsp. No PS1 alternative is built: the recipes exist
+(`beetle-psx-lr`, `swanstation-lr`) but neither is known to hold full speed.
+
 Configuration → RetroArch settings opens RetroArch's own menu without launching
 a game or adding to History. Open its Settings tab to change video, audio, input
 and saving options. Quit RetroArch (or press Menu + Start) to return to Ghazal.
@@ -366,7 +429,8 @@ firmware names. `ROMS/MAME` uses MAME 2003 Plus; `ROMS/FBNEO` uses FBNeo. Keep R
 sets matched to the selected core. Dreamcast and Naomi are separate systems;
 Naomi needs its own BIOS even when Dreamcast games load without one.
 
-PSP games run in standalone PPSSPP: a system in `frontend.toml` sets either a
+PSP games run in standalone PPSSPP by default (the libretro core is an
+alternative; see Choosing the emulator): a system in `frontend.toml` sets either a
 RetroArch `core` or a standalone `command` (`{rom}` is the game path).
 `nix/runtime/ppsspp.nix` compiles its directories in: settings and cheats in
 `/var/lib/ghazal/ppsspp/PSP` (seeded with ROCKNIX's H700 defaults), the memory

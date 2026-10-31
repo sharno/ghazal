@@ -91,5 +91,12 @@ in
     buildInputs = [ mesa zlib ];
     library = "yabause/src/libretro/yabasanshiro_libretro.so";
   };
+  # Alternatives a player can pick per game or per system (frontend.toml
+  # `[[system.alternative]]`): small portable C/C++ cores that build from their
+  # package.mk options unchanged. ROCKNIX's goa_armv8_a35 and gpsp H700
+  # platforms are 32-bit ARM builds, so the aarch64 build uses the generic one.
+  "snes9x2010_libretro.so" = core { package = "snes9x2010-lr"; library = "snes9x2010_libretro.so"; };
+  "vba_next_libretro.so" = core { package = "vba-next-lr"; library = "vba_next_libretro.so"; };
+  "nestopia_libretro.so" = core { package = "nestopia-lr"; library = "libretro/nestopia_libretro.so"; };
   "ppsspp_libretro.so" = "${ppsspp-libretro}/lib/libretro/ppsspp_libretro.so";
 }

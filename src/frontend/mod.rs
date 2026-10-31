@@ -3,6 +3,9 @@
 pub mod app;
 mod activity;
 pub mod config;
+pub mod emulator;
+mod emulator_choice;
+mod emulator_picker;
 pub mod input;
 pub mod launcher;
 pub mod library;

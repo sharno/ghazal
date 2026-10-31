@@ -683,11 +683,11 @@ esac
 
     #[test]
     fn an_unreachable_host_is_reported_before_the_display_is_handed_over() {
-        let (listener, host) = listening();
-        let mut app = moonlight(vec![host]);
+        // Nothing listens on port 1. (A listener that is dropped would free its
+        // port for another test's listener.)
+        let mut app = moonlight(vec![Host { port: 1, ..host("127.0.0.1", Pairing::Paired) }]);
         press(&mut app, &[Button::A, Button::A]);
         settle(&mut app);
-        drop(listener);
         assert!(press(&mut app, &[Button::A]).is_none());
         assert!(notice(&mut app).is_some_and(|text| text.contains("is not reachable")));
     }

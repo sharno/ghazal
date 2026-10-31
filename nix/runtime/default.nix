@@ -56,10 +56,11 @@ let
     ln -s fw_printenv $out/bin/fw_setenv
   '';
 
-  # Every `core = ` in frontend.toml must name a built core.
+  # Every `core = ` in frontend.toml, in a system or its alternatives, must name a built core.
   frontend = lib.importTOML (profile + "/frontend.toml");
+  emulators = lib.concatMap (system: [ system ] ++ system.alternative or [ ]) frontend.system;
   missing = lib.filter (core: !cores ? ${core})
-    (map (system: system.core) (lib.filter (system: system ? core) frontend.system));
+    (map (emulator: emulator.core) (lib.filter (emulator: emulator ? core) emulators));
 
   # Root filesystem path -> store path.
   links = {

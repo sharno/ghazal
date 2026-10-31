@@ -6,7 +6,8 @@ use std::os::unix::process::CommandExt;
 use anyhow::{bail, Context, Result};
 
 use super::config::{FrontendConfig, Launch, Standalone};
-use super::library::{Game, System};
+use super::emulator::Emulator;
+use super::library::Game;
 use crate::device::CpuLoad;
 
 pub struct LaunchSpec {
@@ -20,12 +21,14 @@ pub struct LaunchSpec {
 }
 
 impl LaunchSpec {
-    pub fn new(config: &FrontendConfig, system: &System, game: &Game) -> Result<Self> {
-        let spec = match &system.launch {
-            Launch::Core(core) => Self::retroarch(config, core, game)?,
+    /// `emulator` is the one chosen for the game (see `emulator_choice`); its
+    /// own rated load sets the clock policy.
+    pub fn new(config: &FrontendConfig, emulator: &Emulator, game: &Game) -> Result<Self> {
+        let spec = match &emulator.launch {
+            Launch::Core(core) => Self::retroarch(config, core.as_str(), game)?,
             Launch::Standalone(standalone) => Self::standalone(standalone, game),
         };
-        Ok(Self { after: config.launch_after.clone(), cpu: system.cpu, ..spec })
+        Ok(Self { after: config.launch_after.clone(), cpu: emulator.cpu, ..spec })
     }
 
     fn retroarch(config: &FrontendConfig, core: &str, game: &Game) -> Result<Self> {
@@ -121,12 +124,79 @@ impl LaunchSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frontend::emulator_choice::Choices;
+    use crate::frontend::library::System;
 
     #[test]
     fn command_substitutes_the_game_path() {
-        let command = Standalone { argv: vec!["/usr/bin/ppsspp".into(), "--fullscreen".into(), "{rom}".into()], env: Default::default(), log: None };
+        let command = Standalone { name: "ppsspp".into(), argv: vec!["/usr/bin/ppsspp".into(), "--fullscreen".into(), "{rom}".into()], env: Default::default(), log: None };
         let spec = LaunchSpec::standalone(&command, &Game { title: "GoW".into(), path: "/ROMS/PSP/God of War.iso".into() });
         assert_eq!(spec.program, PathBuf::from("/usr/bin/ppsspp"));
         assert_eq!(spec.args, [OsString::from("--fullscreen"), OsString::from("/ROMS/PSP/God of War.iso")]);
+    }
+
+    /// From the player's choice to the process: which program, which core and which clock.
+    #[test]
+    fn the_chosen_emulator_decides_the_program_the_core_and_the_clock() {
+        let directory = std::env::temp_dir().join(format!("ghazal-launch-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        for core in ["a_libretro.so", "b_libretro.so"] { std::fs::write(directory.join(core), b"").unwrap(); }
+        let config: FrontendConfig = toml::from_str(&format!(r#"
+            rom_roots = []
+            launch_after = ["/run/ghazal/udev-settled"]
+            [retroarch]
+            bin = "/usr/bin/retroarch"
+            core_dirs = ["{directory}"]
+            [[system]]
+            name = "GBA"
+            dirs = ["GBA"]
+            extensions = ["gba"]
+            core = "a_libretro.so"
+            cpu = "moderate"
+            [[system.alternative]]
+            core = "b_libretro.so"
+            cpu = "light"
+            [[system.alternative]]
+            command = ["/usr/bin/other", "--fullscreen", "{{rom}}"]
+            [[system.alternative]]
+            core = "missing_libretro.so"
+        "#, directory = directory.display())).unwrap();
+        let game = Game { title: "Game".into(), path: "/ROMS/GBA/Game.gba".into() };
+        let system = System { name: "GBA".into(), art: Default::default(), emulators: config.systems[0].emulators.clone(), games: vec![] };
+        let [stock, light, other, missing] = [0, 1, 2, 3].map(|index| system.emulators.iter().nth(index).unwrap());
+        let mut choices = Choices::load(&directory.join("emulators.toml")).unwrap();
+        let spec = |choices: &Choices| LaunchSpec::new(&config, choices.resolve(&system, &game), &game);
+        let core_argument = |spec: &LaunchSpec| spec.args.iter().skip_while(|arg| *arg != "-L").nth(1).cloned();
+
+        let stock_spec = spec(&choices).unwrap();
+        assert_eq!(stock_spec.program, PathBuf::from("/usr/bin/retroarch"));
+        assert_eq!(core_argument(&stock_spec), Some(directory.join("a_libretro.so").into()));
+        assert_eq!(stock_spec.cpu, CpuLoad::Moderate);
+        assert_eq!(stock_spec.after, [PathBuf::from("/run/ghazal/udev-settled")]);
+
+        // The system default applies to every game of the system, with its own clock.
+        choices.set_default(&system, light).unwrap();
+        let light_spec = spec(&choices).unwrap();
+        assert_eq!(core_argument(&light_spec), Some(directory.join("b_libretro.so").into()));
+        assert_eq!(light_spec.cpu, CpuLoad::Light);
+
+        // A pinned standalone emulator replaces RetroArch altogether.
+        choices.pin(&game, other).unwrap();
+        let other_spec = spec(&choices).unwrap();
+        assert_eq!(other_spec.program, PathBuf::from("/usr/bin/other"));
+        assert_eq!(other_spec.args, [OsString::from("--fullscreen"), OsString::from("/ROMS/GBA/Game.gba")]);
+        assert_eq!(other_spec.cpu, CpuLoad::Full);
+
+        // Back to the default; another game is unaffected by the pin throughout.
+        choices.unpin(&game).unwrap();
+        assert_eq!(core_argument(&spec(&choices).unwrap()), core_argument(&light_spec));
+        let elsewhere = Game { title: "Other".into(), path: "/ROMS/GBA/Other.gba".into() };
+        choices.pin(&game, stock).unwrap();
+        assert_eq!(core_argument(&LaunchSpec::new(&config, choices.resolve(&system, &elsewhere), &elsewhere).unwrap()), core_argument(&light_spec));
+
+        // A choice whose core file is absent fails like any missing core.
+        choices.pin(&game, missing).unwrap();
+        assert!(spec(&choices).err().unwrap().to_string().contains("missing_libretro.so"));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
