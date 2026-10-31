@@ -1,5 +1,14 @@
 # Ghazal H700 beta
 
+Beta 10 restores game controls. Betas 8 and 9 started every RetroArch game
+without the handheld's gamepad profile, so buttons and RetroArch hotkeys did
+nothing; update from either. Kernel panics now show the kernel log on screen.
+On the RG40XX-V v2 the handheld then stays frozen until the power button is
+held, because emergency restarts don't reset it yet. A USB-C-to-USB-C charger
+no longer makes the handheld switch its own 5 V output on and off into it.
+Those chargers still can't charge the RG40XX-V: the board lacks the resistor
+they need. Charge with a USB-A-to-C cable.
+
 Every libretro core is now built from ROCKNIX's H700 recipe: the same
 revision, patches and compiler flags as ROCKNIX's own build, so emulation speed
 is within 5% of it. Flycast again reads core options saved under ROCKNIX.
