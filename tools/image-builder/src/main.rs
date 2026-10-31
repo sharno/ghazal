@@ -146,6 +146,14 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
     run(Command::new("cp").args(["-a"]).arg(src.join(".")).arg(dst))
 }
+/// A runtime closure holds directories and, for `writeText`, single files.
+fn copy_store_path(src: &Path, dst: &Path) -> Result<()> {
+    if src.is_dir() {
+        copy_tree(src, dst)
+    } else {
+        copy(src, dst)
+    }
+}
 /// Copies a tree out of the Nix store, keeping symlinks but not the store's
 /// read-only modes, so the image builder can add files to its directories.
 fn copy_writable(src: &Path, dst: &Path) -> Result<()> {
@@ -428,7 +436,7 @@ fn main() -> Result<()> {
             return Err("invalid runtime closure".into());
         }
         if Path::new(store) != runtime {
-            copy_tree(Path::new(store), &root.join(store.trim_start_matches('/')))?;
+            copy_store_path(Path::new(store), &root.join(store.trim_start_matches('/')))?;
         }
     }
     copy_writable(&runtime, &root)?;
