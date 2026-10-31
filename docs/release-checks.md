@@ -18,7 +18,7 @@ without editing the checker.
 | --- | --- |
 | `release-tests`, layout | The built runtime tree matches the profile. The pad's profile is at `autoconfig/<joypad driver>/<name>.cfg` and identical to `gamepad.cfg`. Every `core` in `frontend.toml` exists as an aarch64 libretro library. RetroArch and each standalone command are aarch64 executables. PPSSPP has its assets and its binary contains their path. The SDL controller mapping for PPSSPP has the pad's GUID (vendor, product, version, name checksum) and agrees with `gamepad.cfg` button by button. Every `/usr` command the boot plan starts exists. The CA bundle and iwd's D-Bus policy exist. |
 | `release-tests`, input | The runtime's own RetroArch, with null video and audio, runs a generated Game Boy ROM against a virtual copy of the handheld's pad (made through `/dev/uinput` with the real vendor, product, bus, version, buttons and sticks). It must configure the pad from the shipped profile in port 1; Menu + R1 must save a state and Menu + L1 load it; Menu + Start (twice, as RetroArch asks) must quit; the next launch must resume from the automatic state; and SIGTERM, which the daemon sends, must quit with status 0. |
-| `vm-smoke` | `nix run .#vm-smoke` boots Ghazal as PID 1 on a stock kernel in QEMU: the supervisor starts the daemon and the menu, the menu draws (at least 16 distinct colours), a key press changes the screen and nothing panics. |
+| `vm-smoke` | `nix run .#vm-smoke` boots Ghazal as PID 1 on a stock kernel in QEMU: the supervisor starts the daemon and the menu, the menu draws (at least 16 distinct colours), a key press changes the screen, `ghazal observe launch` (the acceptance script's launcher) presses its way through the real menu to the last of ten games in the third system, and the menu returns when that game exits. Nothing may panic. |
 | `checks` | Clippy and unit tests, including `tools/release-check` and the menu navigation used by the acceptance script. |
 
 `publish` needs `checks`, `images`, `release-tests` and `vm-smoke`. Resuming a
@@ -56,7 +56,7 @@ The runtime is aarch64, so use an aarch64 Linux machine with Nix. On macOS the
 script re-runs itself in a privileged `nixos/nix` container that shares the Nix
 store volume (`GHAZAL_NIX_VOLUME`, default `oxmux-nix`); Docker's kernel
 provides `/dev/uinput`. Measured in that container: layout takes under a second,
-input about ten seconds and the QEMU smoke test about fifteen, with the runtime
+input about ten seconds and the QEMU smoke test about thirty, with the runtime
 already built.
 
 `GHAZAL_KEEP_WORKDIR=1` keeps the input test's RetroArch logs;

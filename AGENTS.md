@@ -201,7 +201,7 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Unconfirmed on GitHub's `ubuntu-24.04-arm` runners: that `modprobe uinput`
   gives the `release-tests` input step a `/dev/uinput` (otherwise it warns and
   the layout gate is the only runtime gate), and how long `vm-smoke` takes there
-  (about 15 s of guest time in Docker's QEMU). If the runners lack uinput, run
+  (about 30 s in Docker's QEMU). If the runners lack uinput, run
   the input test inside the QEMU machine instead.
 - `scripts/acceptance.sh` has not yet run on hardware: confirm the menu path
   from `observe launch`, the wrapper bind over the store path, the PPSSPP flow

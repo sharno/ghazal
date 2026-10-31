@@ -113,6 +113,26 @@ writeShellApplication {
       fail "the menu responds to the gamepad" "the screen did not change within 16 s of pressing A"
     fi
 
+    # The acceptance script launches games with `ghazal observe launch`: it computes a
+    # button path from the library scan and presses it on the pad. Here the last of ten
+    # games in the third system (L1, R1 and Down presses) must be the one launched, and
+    # nothing else.
+    # shellcheck disable=SC2016
+    if guest '/opt/ghazal/ghazal observe launch /roms/SMOKE/Juliet.rom; i=0; until [ -s /run/ghazal/launched ] || [ $i -ge 120 ]; do sleep 1; i=$((i + 1)); done; sleep 1; cat /run/ghazal/launched' 300 \
+      && grep -q '^launched /roms/SMOKE/Juliet.rom' "$work/serial.log" && ! grep -q '^launched /roms/SMOKE/[^J]' "$work/serial.log"; then
+      pass "observe launch drives the menu to the named game" "launched /roms/SMOKE/Juliet.rom and nothing else"
+    else
+      fail "observe launch drives the menu to the named game" "$(grep '^launched ' "$work/serial.log" | head -n 2 | tr '\r\n' '  ')"
+    fi
+
+    # The "game" is over after two seconds: the menu must take the display back.
+    sleep 5
+    if screenshot "$work/after.ppm" && [ "$(colours "$work/after.ppm")" -ge 16 ] && [ "$(cksum <"$work/after.ppm")" != "$(cksum <"$work/explore.ppm")" ]; then
+      pass "the menu returns after the game exits" "$(colours "$work/after.ppm") distinct colours"
+    else
+      fail "the menu returns after the game exits" "the display shows no menu after the launched command ended"
+    fi
+
     if grep -qi 'panicked\|Kernel panic' "$work/serial.log"; then
       fail "nothing panicked" "$(grep -i 'panicked\|Kernel panic' "$work/serial.log" | head -n 1)"
     else

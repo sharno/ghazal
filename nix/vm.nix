@@ -46,6 +46,9 @@ let
     mkdir -p $root/roms/GBA $root/roms/SNES
     for g in "Pixel Quest" "Orbit Jam" "Neon Drift" "Sky Harbor" "Caverns of Rust"; do touch "$root/roms/GBA/$g.gba"; done
     for g in "Castle Crawl" "Block Party"; do touch "$root/roms/SNES/$g.sfc"; done
+    # Ten games: reaching the last needs L1, R1 and Down presses (nix/vm-smoke.nix).
+    mkdir -p $root/roms/SMOKE
+    for g in Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet; do touch "$root/roms/SMOKE/$g.rom"; done
     (cd $root && find . | sort | cpio -o -H newc -R 0:0 --quiet) | xz --check=crc32 -T0 > $out
   '';
 
