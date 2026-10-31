@@ -48,10 +48,20 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   (63→80% over 70 minutes, constant-voltage taper from ~69%); an overnight
   run then reached full and held it while on. The charge current now matches
   the vendor's 1.5 A; its 4.1 V target is not copied (mainline charges to
-  4.2 V). The AXP717's Type-C logic is off in mainline (vendor: DRP); USB-C
-  to USB-C chargers that need Rd are untested. A full AXP717 reports
-  `Not charging` (never `Full`), so external power comes from the USB
-  supply's `online`; `daemon.log` records when it comes and goes.
+  4.2 V). A full AXP717 reports `Not charging` (never `Full`), so external
+  power comes from the USB supply's `online`; `daemon.log` records when it
+  comes and goes.
+- USB-C-to-USB-C chargers cannot charge the RG40XX-V v2; this is hardware.
+  The board shows no Rd on CC, so a USB-C source never turns VBUS on. The
+  AXP717's CC pins do not reach the port: the vendor's CC setup (`0x0b`
+  bit 3, `0xe3` sink or DRP) reports no attach, and with it on and the
+  handheld's VBUS blocked a fresh plug-in still got no VBUS. Charge from
+  USB-A through an A-to-C cable.
+- The OTG ID line (PI4) reads a USB-C source's Rp as a USB device. With a
+  C-to-C charger attached, the PHY turns the 5 V boost on and off about once
+  a second, feeding VBUS into the charger and draining the battery. Host
+  mode should stop re-enabling VBUS when enabling it drops the ID line;
+  check that OTG devices still get power.
 - CI builds all 19 catalog variants with both RAM bootloaders, but physical
   validation currently covers RG40XX-V v2 / DDR4. Validate other boards and
   panels: boot, display, controls, audio, storage, networking where present,
