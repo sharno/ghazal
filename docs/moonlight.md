@@ -5,8 +5,11 @@ Applications → **Moonlight game streaming** streams a PC game from a
 to the handheld. The picture is H.264 decoded in software on the four
 Cortex-A53 cores; the pad, audio and display are the handheld's own.
 
-Status: the whole flow is in, but it has not run against a real host yet. What
-no one has seen working is listed under "Not verified, not done" at the end.
+Status: the whole flow is in. The menu side (mDNS search, adding a host,
+the PIN screen, the app list, settings, cancelling helpers, handing the display
+over and back) has been run on a handheld against a stand-in host, and the
+decoder has been timed on the A53. No stream has run against a real host; what
+is still unseen is listed under "Not verified, not done" at the end.
 
 ## Using it
 
@@ -144,18 +147,36 @@ four slice threads gained 15 to 50%):
 | 1280x720, 30 fps | 10 Mbps | 175 | 5.7 ms |
 | 1280x720, 60 fps | 15 Mbps | 238 | 4.2 ms |
 
-720p60 costs about 2.8 times what the default 640x360 does. Scaling the
-container's numbers to the A53 by the usual several-fold gap leaves 640x360 at
-60 fps with headroom and 1280x720 at 60 fps on the edge, but that is an
-estimate, not a measurement: **run `decode-bench` on the handheld** (below) and
-set the defaults from it. The frame-time distribution matters more than the
-average, since a frame over 16.7 ms is a dropped frame at 60 fps.
+720p60 costs about 2.8 times what the default 640x360 does. The same streams
+were then decoded on the handheld itself (RG40XX-V v2, Cortex-A53 at its top
+clock, `performance` governor, the idle menu running, three passes of 12 s,
+`/tmp/decode-bench FILE THREADS 3`). THREADS is the slice-thread count, so the
+4-thread column applies when the host encodes four slices per frame (the stream
+shape above) and the 1-thread column when it encodes one:
+
+| Stream | 1 thread, avg per frame | 4 threads, avg per frame | 4 threads, p99 | 4 threads, worst |
+|---|---|---|---|---|
+| 640x360, 60 fps | 6.0 ms | 2.9 ms | 3.6 ms | 4.4 ms |
+| 640x480, 60 fps | 8.9 ms | 3.3 ms | 4.1 ms | 5.7 ms |
+| 1280x720, 30 fps | 24.1 ms | 8.1 ms | 11.0 ms | 13.3 ms |
+| 1280x720, 60 fps | 21.1 ms | 7.0 ms | 8.5 ms | 12.2 ms |
+
+A frame over 16.7 ms is a dropped frame at 60 fps. With four slices no stream
+exceeds the budget, and 640x360 uses a fifth of it (p99 3.6 ms), which is why
+it stays the default. 720p60 uses half of it by the p99 before the YV12 upload
+and scaling, the audio decoder, the encrypted-stream work and the Wi-Fi driver
+share the same cores, so it is plausible but unproven in a real stream. A host
+that encodes one slice per frame leaves only a single decoder thread: 640x360
+still fits (6.0 ms), 1280x720 does not (21 ms). The container's Apple core was
+about four times faster than the A53, so its table above only gives the
+relative cost.
 
 ## Checking it on the handheld
 
 Build the benchmark and copy it with a stream (the runtime's libraries are
 already on the device once the image has Moonlight; the binary is linked to them
-by store path):
+by store path; set the governor to `performance` for the run and back to
+`schedutil` after, as a stream does):
 
 ```sh
 nix build .#packages.aarch64-linux.decode-bench     # in an aarch64 Linux container
@@ -180,11 +201,21 @@ answers `serverinfo` and `applist` on Sunshine's ports 47989 and 47984. Run it o
 a computer on the same network (commands in its header), add that computer's
 address as a host, and Games and apps lists Desktop, Steam Big Picture and
 Half-Life 2: Episode One, in that order. Started without `--paired` it makes the
-menu say "Not paired with ... yet: choose Pair". It cannot pair or stream, but
-starting a stream against it fails only at the launch request, after Moonlight
-has opened its SDL window, so it also shows whether the display handover and the
-SDL/GLES setup work (the toast then reports the failed launch and the menu must
-come back with its controls).
+menu say "Not paired with ... yet: choose Pair". It cannot pair or stream.
+Starting a stream against it fails at the launch request, before Moonlight
+initializes SDL, so the toast reports the failed launch and the menu must come
+back with its controls (that is the display handover and clean exit only). With
+`--launch` it accepts the launch request, so Moonlight initializes its platform
+(SDL on KMSDRM opens the DRM device, input and audio) and then fails at the RTSP
+handshake after about 20 s; Menu + Start ends that at once. That shows SDL and
+the KMSDRM display handover work, but not the window, the renderer or a decoded
+frame, which need a real host.
+
+The Mac or PC firewall may block the handheld's connection to the stand-in. On
+a Mac with the application firewall on, bind it to the loopback address
+(`--bind 127.0.0.1`), add `127.0.0.1` as the host and forward the two ports
+with `ssh -N -R 127.0.0.1:47989:127.0.0.1:47989 -R 127.0.0.1:47984:127.0.0.1:47984
+root@DEVICE` (the handheld's `lo` must be up for sshd to listen on it).
 
 With a Sunshine host: pair, list, stream at 640x360@60, then 1280x720@60, and
 read `/var/log/ghazal/moonlight.log`. Moonlight's `-debug` output is not
@@ -195,7 +226,8 @@ enabled; add `-verbose` to `cli::stream` for a session when diagnosing.
 - No stream has run: the SDL KMSDRM window and GLES YUV texture on the Mali
   (the stream is rendered with SDL's GLES2 renderer, the same stack PPSSPP
   uses), audio through ALSA's `default` PCM, the pad mapping, and the letterboxed
-  scaling are all untested on the device.
+  scaling are all untested on the device. Only SDL's platform initialization
+  has been seen to succeed (against `fake_host.py --launch`).
 - mDNS answers from Sunshine on Windows and Linux: the browse sends a
   unicast-response query from an ephemeral port and listens for the reply (a
   macOS responder answered it; the handheld's Wi-Fi and Sunshine itself have not

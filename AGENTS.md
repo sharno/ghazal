@@ -79,28 +79,35 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   device. Headphone switching was verified with a virtual jack device only.
 - Validate charge-only startup on hardware. U-Boot already includes the AXP717
   charge-only patch (`nix/uboot.nix`); do not describe it as wholly unimplemented.
+- Loopback: on a booted device `ip link show lo` reports `lo` DOWN and sshd
+  cannot listen on `127.0.0.1` (`ssh -R` fails with `Cannot assign requested
+  address`) although Syncthing holds `127.0.0.1:8384`. Find what brings it up
+  or down before relying on localhost sockets.
 - There is no user-facing factory-reset flow. If added, define which OS settings
   it resets and preserve games, saves and identities unless explicitly selected.
 
 ### Moonlight game streaming
 
-- The whole flow is implemented (docs/moonlight.md) but no stream has run: there
-  was no host. Pair with a real Sunshine host, then check the SDL KMSDRM window
-  and letterboxed scaling, audio (Moonlight's 4096-sample buffer is ~85 ms),
-  the pad mapping, Menu + Start ending a stream cleanly (SIGTERM becomes
-  SDL_QUIT, so `quitappafter` still runs), and whether Sunshine answers the
-  mDNS browse (a multicast-only responder would not be found).
-- Decoding is software H.264 on the four A53 cores. Run `decode-bench`
-  (`nix build .#decode-bench`, docs/moonlight.md) on the handheld and set the
-  default resolution and frame rate from its frame-time tail; the container's
-  numbers are from an Apple core and only show relative cost (720p60 ~2.8x the
-  default 640x360).
+- The whole flow is implemented (docs/moonlight.md) and its menu side has run
+  on a handheld against `tools/fake-host`, but no stream has run: there was no
+  host. Pair with a real Sunshine host, then check the SDL KMSDRM window and
+  letterboxed scaling, audio (Moonlight's 4096-sample buffer is ~85 ms), the pad
+  mapping, Menu + Start ending a stream cleanly, and whether Sunshine answers
+  the mDNS browse (it was found by the handheld's own browse here: an unpaired
+  `sharno-desktop`, but a multicast-only responder would not be).
+- Decoding is software H.264 on the four A53 cores. Measured on the handheld
+  (top clock, `decode-bench`, four slice threads): 640x360@60 takes 2.9 ms per
+  frame (p99 3.6), 720p60 7.0 ms (p99 8.5), against a 16.7 ms budget; with a
+  single slice per frame 720p60 takes 21 ms and cannot hold. Keep the 640x360
+  default until a real stream shows the YV12 upload, audio and Wi-Fi do not eat
+  the headroom; then try 1280x720 and whether Sunshine sends four slices.
 - Hardware decoding is not available here: `MEDIA_SUPPORT` is off and the H700
   device tree has no Cedrus node. Revisit it only if measured software
   decoding cannot hold the target; it needs the kernel driver, a DT node, V4L2
   request decoding and a DRM-PRIME output in Moonlight's SDL path.
 - Moonlight and its FFmpeg add ~3.9 MB to the root (`nix path-info` against
-  the device's `/nix/store`); check the root's free space after bumps.
+  the device's `/nix/store`; measured 582.4 to 586.1 MB used); check the root's
+  free space after bumps.
 
 ### Boot time and game performance
 
@@ -232,6 +239,17 @@ validated. Remove an entry once it has been checked on a handheld.
   of every alternative beyond one captured intro frame with PCM running. The
   Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
   have only been run for a few seconds each.
+- Moonlight game streaming: no stream against a real Sunshine or GeForce host
+  (needs a PC and a person to type the PIN): pairing itself, the SDL window and
+  GLES YV12 renderer, audio, pad mapping, letterboxing, Menu + Start during a
+  stream, idle-poweroff inhibition during a stream and 720p performance. Checked
+  on the handheld with `tools/fake-host`: mDNS search, add host by IP, the PIN
+  screen and `-pin` helper (and B killing it), the host's app list in order,
+  every stream setting persisting, a failed stream
+  returning to a working menu, SDL's platform initialization on KMSDRM, Menu +
+  Start ending a stream in under a second, and the governor returning.
+  Unpair and Remove from list (against a real pairing) and keyboard and mouse
+  passthrough for the Desktop app are untried.
 
 ## Keeping this backlog accurate
 

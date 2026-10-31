@@ -7,7 +7,10 @@ streaming need a real host.
     python3 -I tools/fake-host/fake_host.py --paired /tmp/cert.pem /tmp/key.pem
 
 then add this computer's address as a host on the handheld. Without --paired it
-reports the client as not paired, as a host that has never seen it does.
+reports the client as not paired, as a host that has never seen it does. With
+--launch it also accepts the launch request and names an RTSP address nothing
+serves, so a stream gets as far as Moonlight's platform setup and then fails at
+the RTSP handshake (instead of at the launch request).
 """
 import argparse
 import http.server
@@ -27,6 +30,10 @@ def serverinfo(paired: bool, http_port: int, https_port: int) -> str:
 <PairStatus>{int(paired)}</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state></root>"""
 
 
+def launch(rtsp_port: int) -> str:
+    return f'<?xml version="1.0" encoding="utf-8"?>\n<root status_code="200"><gamesession>1</gamesession><sessionUrl0>rtsp://127.0.0.1:{rtsp_port}</sessionUrl0></root>'
+
+
 def applist() -> str:
     apps = "".join(f"<App><IsHdrSupported>0</IsHdrSupported><AppTitle>{title}</AppTitle><ID>{n}</ID></App>" for n, title in enumerate(APPS, 1))
     return f'<?xml version="1.0" encoding="utf-8"?>\n<root status_code="200">{apps}</root>'
@@ -37,15 +44,20 @@ def main() -> None:
     parser.add_argument("cert")
     parser.add_argument("key")
     parser.add_argument("--paired", action="store_true")
+    parser.add_argument("--launch", action="store_true", help="accept /launch and /resume")
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--http-port", type=int, default=47989)
     parser.add_argument("--https-port", type=int, default=47984)
+    parser.add_argument("--rtsp-port", type=int, default=48010)
     args = parser.parse_args()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             path = self.path.split("?")[0]
-            body = {"/serverinfo": lambda: serverinfo(args.paired, args.http_port, args.https_port), "/applist": applist}.get(path)
+            routes = {"/serverinfo": lambda: serverinfo(args.paired, args.http_port, args.https_port), "/applist": applist}
+            if args.launch:
+                routes |= {"/launch": lambda: launch(args.rtsp_port), "/resume": lambda: launch(args.rtsp_port)}
+            body = routes.get(path)
             if body is None:
                 self.send_error(404)
                 return
