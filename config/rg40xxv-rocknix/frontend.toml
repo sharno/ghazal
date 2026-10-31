@@ -35,6 +35,12 @@ extra_args = ["-f"]
 log = "/var/log/ghazal/retroarch.log"
 env = { HOME = "/mnt/games/.ghazal/home", XDG_CONFIG_HOME = "/mnt/games/.ghazal", XDG_CACHE_HOME = "/mnt/games/.ghazal/cache", XDG_RUNTIME_DIR = "/run" }
 
+# PortMaster support (docs/ports.md): Applications -> PortMaster installs and runs it,
+# and the Ports system at the end of this file lists the ports it installs.
+# Everything but the folder has the device default (src/ports/mod.rs).
+[ports]
+dir = "PORTS"
+
 # `cpu` picks a clock floor from device.toml [cpu]. Measured on one game's
 # intro, emulation plus ~2.7 ms of presentation fits a 60 Hz frame below
 # 480 MHz for light systems and below 720 MHz for moderate ones; heavier scenes
@@ -323,3 +329,15 @@ extensions = ["cue", "chd", "iso", "zip"]
 core = "yabasanshiro_libretro.so"
 requires_any = ["saturn_bios.bin"]
 art = { libretro = "Sega - Saturn" }
+
+# PortMaster ports are shell scripts directly in ROMS/PORTS; a port's data sits in
+# a folder beside its script, so the scan does not descend. `ghazal ports run`
+# gives each one /roms/ports, the glibc loader, bash and the libraries it expects.
+[[system]]
+name = "Ports"
+dirs = ["PORTS", "Ports", "ports"]
+extensions = ["sh"]
+depth = 0
+command = ["/opt/ghazal/ghazal", "ports", "run", "{rom}"]
+log = "/var/log/ghazal/ports.log"
+art = { muos = "External - Ports" }

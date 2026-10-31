@@ -109,6 +109,35 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   the device's `/nix/store`; measured 582.4 to 586.1 MB used); check the root's
   free space after bumps.
 
+### PortMaster
+
+- PortMaster support (docs/ports.md, `src/ports`, `nix/runtime/ports.nix`,
+  `config/*/ports`) is implemented and was proven only in an aarch64 container
+  (`scripts/test-ports.sh`: `ghazal ports run`, the FHS loader, bash, the compat
+  libraries, a squashfs runtime mount, and a real PortMaster 2025.11 folder's
+  gptokeyb, xdelta3, innoextract, sdl_resolution and its Python/pysdl2 GUI
+  modules). Nothing of it has run on a handheld. Validate on the RG40XX-V:
+  Applications → Install PortMaster over Wi-Fi; PortMaster's GUI draws, takes
+  button input and downloads a port; an SDL2/GLES port and a gptokeyb port run,
+  take input and sound, and quit with Menu + Start into a working menu; a
+  squashfs-runtime port (mono, Love2D or Godot) mounts; `ghazal ports check`.
+- Unverified assumptions to check first: gptokeyb's virtual keyboard reaches SDL
+  (SDL ignores evdev devices udev has not classified; `71-virtual-input.rules`
+  does it with the `input_id` builtin); the generated SDL mapping's button
+  order (`src/ports/controller.rs`); DRM master handoff to a port's SDL KMSDRM
+  like PPSSPP's; runtimes compressed with xz (the kernel has squashfs zstd and
+  zlib only); ANALOG_STICKS per board is ROCKNIX's table.
+- Not supported, by design: 32-bit (armhf) ports (kernel `COMPAT` is off; needs
+  an armhf userland), X11/Wayland/sway ports, Java, box86/box64, desktop OpenGL
+  without the port's own gl4es, rotated panels (RG28XX).
+- The runtime closure grew 572.6 → 638.9 MiB, nearly all of it Python 3.14
+  (68 MB, built from source: no LTO, no SQLite/readline/gdbm/tests). Re-measure
+  root usage and boot time (`ghazal observe boot`) on a device; ports start
+  nothing at boot.
+- A port that needs a library the compat directory lacks: find it with
+  `ghazal ports ldd`, add it to `nix/runtime/ports.nix` and `SONAMES` in
+  `src/ports/check.rs`.
+
 ### Boot time and game performance
 
 - `ghazal observe boot` reports firmware, kernel-to-frame and total time; the

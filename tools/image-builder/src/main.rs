@@ -465,6 +465,9 @@ fn main() -> Result<()> {
     }
     // The runtime masks systemd's stock rules; these are the only ones.
     write(&root, "etc/udev/rules.d/70-gamepad.rules", "SUBSYSTEM==\"input\", KERNEL==\"event*\", ATTRS{name}==\"H700 Gamepad\", ENV{ID_INPUT}=\"1\", ENV{ID_INPUT_JOYSTICK}=\"1\"\n")?;
+    // gptokeyb (PortMaster) makes a keyboard through /dev/uinput, and SDL only
+    // reads evdev devices that udev has classified.
+    write(&root, "etc/udev/rules.d/71-virtual-input.rules", "SUBSYSTEM==\"input\", KERNEL==\"event*\", DEVPATH==\"/devices/virtual/input/*\", IMPORT{builtin}=\"input_id\"\n")?;
     write(&root, "etc/passwd", "root:x:0:0:root:/root:/bin/sh\ndbus:x:81:81:dbus:/:/bin/false\nsshd:x:22:22:sshd:/var/empty:/bin/false\nnobody:x:65534:65534:nobody:/:/bin/false\n")?;
     // An unlocked, unusable password permits public-key SSH; password auth is disabled.
     write(
@@ -486,7 +489,7 @@ fn main() -> Result<()> {
     write(
         &root,
         "etc/os-release",
-        "NAME=Ghazal\nID=ghazal\nVERSION_ID=0.1.0\n",
+        "NAME=\"Ghazal\"\nVERSION=\"0.1.0\"\nID=ghazal\nVERSION_ID=0.1.0\n",
     )?;
     write(&root, "etc/machine-id", "")?;
     write(&root, "var/lib/ghazal/factory-data", "ghazal-factory-v1\n")?;

@@ -38,6 +38,9 @@ pub struct FrontendConfig {
     /// Game streaming; without it the menu says Moonlight is unavailable.
     #[serde(default)]
     pub moonlight: Option<Moonlight>,
+    /// PortMaster support; absent where there is none (see docs/ports.md).
+    #[serde(default)]
+    pub ports: Option<crate::ports::Config>,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }
@@ -109,6 +112,8 @@ pub struct SystemEntry {
     /// shows games that can only fail to start.
     pub requires_any: Vec<PathBuf>,
     pub art: ArtSources,
+    /// How many folders below the system's own to look for games.
+    pub depth: usize,
 }
 
 /// Where a system's box art comes from.
@@ -199,7 +204,12 @@ struct RawSystemEntry {
     requires_any: Vec<PathBuf>,
     #[serde(default)]
     art: ArtSources,
+    #[serde(default = "default_depth")]
+    depth: usize,
 }
+
+/// Game folders nest (a disc image beside its tracks, a game per folder).
+fn default_depth() -> usize { 3 }
 
 impl TryFrom<RawSystemEntry> for SystemEntry {
     type Error = String;
@@ -209,7 +219,7 @@ impl TryFrom<RawSystemEntry> for SystemEntry {
         let default = own.build(&raw.name)?;
         let alternatives = raw.alternative.into_iter().map(|alternative| alternative.build(&raw.name)).collect::<Result<Vec<_>, _>>()?;
         let emulators = Emulators::new(default, alternatives).map_err(|duplicate| format!("system {:?}: {duplicate}", raw.name))?;
-        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, emulators, requires_any: raw.requires_any, art: raw.art })
+        Ok(Self { name: raw.name, dirs: raw.dirs, extensions: raw.extensions, emulators, requires_any: raw.requires_any, art: raw.art, depth: raw.depth })
     }
 }
 

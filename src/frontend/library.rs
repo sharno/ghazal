@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 use super::config::{ArtSources, FrontendConfig, SystemEntry};
 use super::emulator::Emulators;
 
-const MAX_DEPTH: usize = 3;
-
 pub struct Library {
     /// Only systems that have at least one game, in config order.
     systems: Vec<System>,
@@ -114,7 +112,7 @@ fn collect_games(dir: &Path, sys: &SystemEntry, depth: usize, out: &mut Vec<Game
         }
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() {
-            if depth < MAX_DEPTH {
+            if depth < sys.depth {
                 collect_games(&path, sys, depth + 1, out);
             }
             continue;

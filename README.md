@@ -16,6 +16,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 - Play through RetroArch and standalone PPSSPP on supported devices, and pick
   another emulator for a single game or a whole system (for example Snes9x 2010
   or PPSSPP's libretro core).
+- Install [PortMaster](docs/ports.md) from the menu (Wi-Fi) and run its ports.
 - Start at the menu or resume the last game on boot.
 - Automatically save and resume supported RetroArch games. Manual saves retain
   ten rolling numbered states, separate from the automatic resume state.

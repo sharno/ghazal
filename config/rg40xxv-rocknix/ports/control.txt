@@ -1,0 +1,74 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Ghazal's PortMaster platform file. `ghazal ports run`, `prepare` and the
+# PortMaster install copy it over PortMaster's own control.txt (a PortMaster
+# update restores the stock one, so it is copied again before every port starts).
+#
+# Ports source this file, then mod_Ghazal.txt, then call get_controls. It must
+# work from `ghazal ports run` (which also binds ROMS/PORTS at /roms/ports and
+# provides PATH, HOME and the SDL controller database) and, as far as it can,
+# from a plain SSH shell inside the same layout.
+
+# ROCKNIX and ArkOS layout: ports live in /roms/ports, PortMaster inside it.
+export directory="roms"
+export controlfolder="${controlfolder:-/$directory/ports/PortMaster}"
+
+# Everything runs as root, without sudo.
+export ESUDO=""
+export ESUDOKILL="-1"
+export ESUDOKILL2="-1"
+
+# Ports write status text and escape codes to their console. A write to a virtual
+# console makes fbcon take over the display the port draws on.
+export CUR_TTY="/dev/null"
+
+# Tools and libraries a port expects the system to have (nix/runtime/ports.nix).
+ghazal_bin="/usr/lib/ghazal/ports/bin"
+ghazal_libs="/usr/lib/ghazal/ports/lib"
+case ":$PATH:" in *":$ghazal_bin:"*) ;; *) export PATH="$ghazal_bin:$PATH" ;; esac
+case ":$LD_LIBRARY_PATH:" in *":$ghazal_libs:"*) ;; *) export LD_LIBRARY_PATH="$ghazal_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;; esac
+export PYSDL2_DLL_PATH="${PYSDL2_DLL_PATH:-$ghazal_libs}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run}"
+export PM_CAN_MOUNT="Y"
+
+# PortMaster's own probing: architecture, resolution, RAM. It only names this
+# system when asked to, so the values below are set afterwards.
+[ -f "$controlfolder/device_info.txt" ] && source "$controlfolder/device_info.txt"
+
+export CFW_NAME="Ghazal"
+export DEVICE_ARCH="${DEVICE_ARCH:-aarch64}"
+export DISPLAY_WIDTH="${GHAZAL_DISPLAY_WIDTH:-${DISPLAY_WIDTH:-640}}"
+export DISPLAY_HEIGHT="${GHAZAL_DISPLAY_HEIGHT:-${DISPLAY_HEIGHT:-480}}"
+export ANALOG_STICKS="${GHAZAL_ANALOG_STICKS:-${ANALOG_STICKS:-2}}"
+
+[ -f "$controlfolder/funcs.txt" ] && source "$controlfolder/funcs.txt"
+
+# Input: gptokeyb turns the pad into keyboard and mouse events through
+# /dev/uinput; the second is the newer variant that hooks the port's SDL.
+export GPTOKEYB2="$ESUDO env LD_PRELOAD=$controlfolder/libinterpose.${DEVICE_ARCH}.so $controlfolder/gptokeyb2 $ESUDOKILL"
+export GPTOKEYB="$ESUDO $controlfolder/gptokeyb $ESUDOKILL"
+
+get_controls() {
+    # The pad's SDL mapping is generated from the kernel's view of the pad
+    # (src/ports/controller.rs); PortMaster's database has no entry for it.
+    local generated="/run/ghazal/ports/gamecontrollerdb.txt"
+    if [ -f "$generated" ]; then
+        # Some ports want the mapping itself, not the file.
+        sdl_controllerconfig="$(< "$generated")"
+        export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+    else
+        # No pad found at launch: PortMaster's database, as a file only. It is
+        # 470 KB, and one environment string over 128 KB makes every exec fail.
+        generated="$controlfolder/gamecontrollerdb.txt"
+        sdl_controllerconfig=""
+    fi
+    export SDL_GAMECONTROLLERCONFIG_FILE="$generated"
+
+    # Port scripts pick their controls and layout from these.
+    param_device="anbernic"
+    ANALOGSTICKS="$ANALOG_STICKS"
+    LOWRES="N"
+    if [ "$DISPLAY_WIDTH" -le 480 ] && [ "$DISPLAY_HEIGHT" -le 320 ]; then LOWRES="Y"; fi
+}

@@ -20,6 +20,7 @@ let
     cmakeFlags = [ (lib.cmakeFeature "CMAKE_INSTALL_LIBDIR" "lib") (lib.cmakeFeature "CMAKE_INSTALL_INCLUDEDIR" "include") ]
       ++ map (option: lib.cmakeBool option false) [ "SDL2TTF_SAMPLES" "SDL2TTF_HARFBUZZ" "SDL2TTF_VENDORED" ];
   };
+  inherit (callPackage ./sdl2-addons.nix { inherit sdl2; }) SDL2_image SDL2_mixer;
   retroarch = callPackage ./retroarch.nix { inherit mesa; };
   ffmpeg-h264 = callPackage ./ffmpeg.nix { };
   moonlight = callPackage ./moonlight.nix { inherit sdl2; ffmpeg = ffmpeg-h264; };
@@ -56,6 +57,17 @@ let
     ln -s fw_printenv $out/bin/fw_setenv
   '';
 
+  # PortMaster's GUI is Python: ctypes for pysdl2, ssl for downloads, zlib, lzma
+  # and bz2 for archives. No SQLite, readline, GDBM or test suite.
+  python = pkgs.python3.override {
+    withSqlite = false; withGdbm = false; withReadline = false; withZstd = false; bluezSupport = false;
+    stripTests = true; stripIdlelib = true; stripTkinter = true; stripConfig = true;
+    # A GUI's scripting language: link-time optimization would only lengthen the build.
+    enableLTO = false;
+  };
+  busybox = pkgs.pkgsStatic.busybox;
+  ports = callPackage ./ports.nix { inherit mesa sdl2 SDL2_ttf SDL2_image SDL2_mixer python busybox; };
+
   # Every `core = ` in frontend.toml, in a system or its alternatives, must name a built core.
   frontend = lib.importTOML (profile + "/frontend.toml");
   emulators = lib.concatMap (system: [ system ] ++ system.alternative or [ ]) frontend.system;
@@ -86,9 +98,20 @@ let
     "usr/bin/curl" = "${pkgs.curl.bin}/bin/curl";
     "usr/bin/fw_printenv" = "${fw-env}/bin/fw_printenv";
     "usr/bin/fw_setenv" = "${fw-env}/bin/fw_setenv";
+    # PortMaster's ports (docs/ports.md): glibc binaries name the loader, scripts
+    # name bash and env; the rest of what they need is in `ports`.
+    "usr/lib/ld-linux-aarch64.so.1" = "${pkgs.glibc}/lib/ld-linux-aarch64.so.1";
+    "usr/lib/libc.so.6" = "${pkgs.glibc}/lib/libc.so.6";
+    "usr/bin/bash" = "${pkgs.bashNonInteractive}/bin/bash";
+    "usr/bin/env" = "${busybox}/bin/busybox";
+    "usr/lib/ghazal/ports" = "${ports}";
     "etc/dbus-1/system.d/iwd.conf" = "${pkgs.iwd}/share/dbus-1/system.d/iwd-dbus.conf";
     "etc/ssl/certs/ca-certificates.crt" = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-  } // lib.mapAttrs' (name: path: lib.nameValuePair "usr/lib/libretro/${name}" path) cores;
+  } // lib.mapAttrs' (name: path: lib.nameValuePair "usr/lib/libretro/${name}" path) cores
+    # PortMaster's launcher sets PYSDL2_DLL_PATH=/usr/lib for its GUI, whatever
+    # the system: pysdl2 looks for SDL there and cannot search LD_LIBRARY_PATH.
+    // lib.genAttrs (map (name: "usr/lib/${name}") [ "libSDL2-2.0.so.0" "libSDL2_image-2.0.so.0" "libSDL2_mixer-2.0.so.0" "libSDL2_ttf-2.0.so.0" ])
+      (link: "${ports}/lib/${baseNameOf link}");
 
   tree = pkgs.runCommand "ghazal-runtime-tree" { } ''
     ${lib.concatStrings (lib.mapAttrsToList (link: target: ''
@@ -105,6 +128,8 @@ let
     cp ${profile + "/gamepad.cfg"} "$out/usr/share/libretro/autoconfig/udev/H700 Gamepad.cfg"
     # Moonlight looks for its controller mapping in /usr/share/moonlight.
     install -Dm644 ${profile + "/gamecontrollerdb.txt"} $out/usr/share/moonlight/gamecontrollerdb.txt
+    # Where a port's mount namespace shows the ports folder (src/ports).
+    mkdir -p $out/roms/ports
     # udev applies only Ghazal's rules (written by the image builder).
     mkdir -p $out/etc/udev/rules.d
     for rules in ${udev}/lib/udev/rules.d/*.rules; do
@@ -128,6 +153,6 @@ let
 in
 assert lib.assertMsg (missing == [ ]) "frontend.toml names unbuilt cores: ${toString missing}";
 {
-  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro moonlight decode-bench cores tree ppsspp-defaults;
+  inherit mesa sdl2 retroarch ppsspp ppsspp-libretro moonlight decode-bench cores tree ppsspp-defaults ports python SDL2_image SDL2_mixer;
   closure = pkgs.closureInfo { rootPaths = [ tree ]; };
 }
