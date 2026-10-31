@@ -17,3 +17,15 @@ pm_platform_helper() {
         PortMasterDialogExit
     fi
 }
+
+# PortMaster's launcher starts a Love2D splash screen with
+#   env LD_LIBRARY_PATH=... love.aarch64 .../utils/pmsplash &
+# On this display the splash holds the DRM master, and PortMaster's own SDL window
+# (pugwash) then fails with "No available video device". Only that call is dropped;
+# every other `env` runs as usual (Love2D ports use `$LOVE_RUN`, which starts with env).
+env() {
+    case "$*" in
+        *"/utils/pmsplash"*) return 0 ;;
+        *) command env "$@" ;;
+    esac
+}

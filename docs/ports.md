@@ -6,8 +6,10 @@ script plus a folder. PortMaster itself is not part of the image; the handheld
 downloads it on request. Ghazal supplies what ports expect of a handheld Linux
 system, which a Nix-built runtime does not have by default.
 
-Status: the whole flow is implemented and its parts are proven off-device
-(see [What is verified](#what-is-verified)). It has not run on a handheld yet.
+Status: the whole flow is implemented and was checked on an RG40XX-V v2 with
+PortMaster 2026.10 and small test ports (see [What is verified](#what-is-verified)).
+No real port from PortMaster's catalogue has run yet, and the PortMaster GUI's
+downloads and the controller feel have not been tried by a person.
 
 ## Install PortMaster
 
@@ -46,7 +48,8 @@ resumed with a state: they save the way each game does.
 | `/lib/ld-linux-aarch64.so.1` for its glibc binaries | link to the runtime's glibc loader (`nix/runtime/default.nix`) |
 | `#!/bin/bash`, `#!/usr/bin/env python3` | `/usr/bin/bash`, `/usr/bin/env` |
 | python3 with ctypes and ssl, unzip, curl, mount (loop), unsquashfs, pkill, ... | `/usr/lib/ghazal/ports/bin`, first on the port's `PATH` |
-| SDL2, SDL2_image, SDL2_mixer, SDL2_ttf, EGL, GLESv2, gbm, drm, ALSA, udev, zlib, libpng, libstdc++, libgcc_s | `/usr/lib/ghazal/ports/lib`, in the port's `LD_LIBRARY_PATH` (a port's own `libs.aarch64` is searched first); the four SDL libraries are also linked in `/usr/lib`, where PortMaster's launcher points its GUI |
+| SDL2, SDL2_image, SDL2_mixer, SDL2_ttf, EGL, GLESv2, gbm, drm, ALSA, udev, zlib, libpng, libstdc++, libgcc_s; freetype, OpenAL, mpg123, Ogg, Vorbis and Theora for Love2D's runtime | `/usr/lib/ghazal/ports/lib`, in the port's `LD_LIBRARY_PATH` (a port's own `libs.aarch64` is searched first); the four SDL libraries are also linked in `/usr/lib`, where PortMaster's launcher points its GUI |
+| `/dev/fd`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr` (bash's `<(...)`, which PortMaster's launcher uses) | linked at boot to `/proc/self/fd` (`config/*/system.toml`) |
 | `control.txt`, `mod_<CFW>.txt`, `get_controls`, `$GPTOKEYB` | Ghazal's own, copied into the PortMaster folder before every run (`config/rg40xxv-rocknix/ports`); `CFW_NAME` is `Ghazal` |
 | a gamepad SDL knows | an SDL mapping generated from the pad's evdev capabilities and `device.toml`, in `/run/ghazal/ports/gamecontrollerdb.txt` |
 | `/dev/uinput` for gptokeyb's keyboard | present; a udev rule classifies virtual input devices so SDL reads them |
@@ -77,43 +80,59 @@ library to `libraries` in `nix/runtime/ports.nix` (and `SONAMES` in
 
 ## What is verified
 
-Off-device, by `scripts/test-ports.sh` in an aarch64 Linux container with the
-runtime's own glibc, bash, Python and libraries, the static `ghazal` binary, and a
-real PortMaster 2025.11 folder (its tools and Python code):
+On an RG40XX-V v2 (slot B, Wi-Fi up), with PortMaster 2026.10.29 downloaded by the
+menu's own **Install PortMaster**:
 
-- a port script written like PortMaster's template, with a glibc binary that names
-  `/lib/ld-linux-aarch64.so.1` and has no RPATH, runs under `ghazal ports run`: it
-  finds `/roms/ports/PortMaster`, sources Ghazal's `control.txt` and PortMaster's
-  stock `device_info.txt` and `funcs.txt`, gets `CFW_NAME=Ghazal`, `$GPTOKEYB`, the
-  ports `PATH`, and loads SDL2 from the compat library directory;
-- the mount namespace works: the ports folder is bound at `/roms/ports` for the
-  port only, and the virtual consoles read as `/dev/null` inside it;
-- an immediate failure keeps its exit status and shows `[ERROR]` for the menu; TERM
-  (Menu + Start) ends the launcher at once, and helpers the script left running are killed;
-- a port mounts a squashfs runtime with plain `mount`;
-- gptokeyb, gptokeyb2, xdelta3, innoextract, sdl2imgshow, sdl_resolution and 7zz
-  resolve their libraries, and xdelta3, innoextract and sdl_resolution (SDL's dummy
-  video driver) run;
-- under the runtime's Python, `harbourmaster`, `pugscene` and `pySDL2gui` import, and
-  pysdl2 drives SDL2, SDL2_image (a PNG decodes), SDL2_mixer (opens the dummy audio
-  device) and SDL2_ttf through `PYSDL2_DLL_PATH`;
-- `ghazal ports check` passes the checks that do not depend on the handheld;
-- unit tests: the pad's SDL GUID equals the one SDL reports for it, and its button
-  and axis numbers follow from the key bitmap; install, control-file copying, the
-  ports folder lookup and failure reporting.
+- `ghazal ports check` passes every line: loader, bash, env, tools, libraries,
+  Python imports, pysdl2, uinput, squashfs, loop, controller, display, PortMaster
+  and the namespace. `ghazal ports prepare` writes the SDL mapping for the pad.
+- Install over SSH and from the menu: download, unpack in RAM, copy onto the card,
+  control files added; the Applications entry changes from **Install PortMaster** to
+  **PortMaster**. It takes about five seconds on Wi-Fi.
+- **Applications → PortMaster** starts PortMaster's GUI (`pugwash`, Python and
+  pysdl2 on SDL2 KMSDRM); `observe frame` shows its disclaimer and main menu, the
+  D-pad moves the cursor and the pad's bottom button is its accept. Menu + Start
+  ends it in under 3 s with no `python3`, `pugwash` or `gptokeyb` left, no bind
+  mount, and a working menu.
+- A port script written like PortMaster's template, run from **Explore Content →
+  Ports**, sees `/roms/ports`, sources Ghazal's `control.txt` and PortMaster's stock
+  files, gets `CFW_NAME=Ghazal`, and runs PortMaster's own `portmsg` through SDL2,
+  EGL and GLES on the panel. `gptokeyb` starts and creates a virtual keyboard that
+  udev marks `ID_INPUT_KEYBOARD=1`; the pad's bottom button closes the dialog and
+  the port's exit leaves nothing running and the input device gone.
+- A port playing a tone through SDL2: PCM `RUNNING`, owner the port.
+- A squashfs runtime mounts with plain `mount` for gzip, zstd and **xz**
+  compression, reads back intact and leaves no loop device after `umount`.
+- A script that exits with status 3 shows `[ERROR] Broken.sh stopped after 0 s with
+  status 3; see /var/log/ghazal/ports.log` in the menu.
+- Boot time is unchanged (2.9 s to the first frame) with PortMaster installed, and
+  RetroArch (with the pad configured and sound), standalone PPSSPP and Menu + Start
+  still behave as before.
 
-Not run anywhere yet: PortMaster's GUI on a display, gptokeyb with real input,
-KMSDRM and GLES in a port, audio, the menu's install flow over the network, and
-anything on the handheld itself.
+Found and fixed by those runs: `/dev/fd` was missing; PortMaster's zip stores
+`gptokeyb` without an execute bit and starts its Love2D splash before its own
+`chmod -R +x`; Love2D's runtime needs freetype, OpenAL, mpg123, Vorbis and Theora
+from the system.
+
+Off-device, `scripts/test-ports.sh` repeats the port, namespace, squashfs and
+PortMaster-tool checks in an aarch64 Linux container with the runtime's own glibc,
+bash, Python and libraries and a PortMaster 2025.11 folder; unit tests cover the
+pad's SDL GUID (it equals the one SDL reports), button and axis numbering, install,
+control-file copying, executable bits, the ports folder lookup and failure
+reporting.
+
+Not tried: a real port from the catalogue (SDL2/GLES, gptokeyb mouse, mono, Godot),
+PortMaster's own downloads and its Options, Love2D's splash and runtime with the
+new libraries (see AGENTS.md), game audio beyond a tone, and anything that needs a
+person: controller feel and the `ANALOG_STICKS` value for this board.
 
 ## What should work, and what will not
 
 Should work, pending the device checks in AGENTS.md: aarch64 ports with bundled
 libraries or the system libraries above; SDL2 and GLES (Panfrost) rendering and
 ALSA audio; gptokeyb keyboard and mouse emulation; PortMaster's GUI, downloads,
-`autoinstall`; runtimes mounted from squashfs (mono, Love2D, Godot/frt ... if the
-kernel's squashfs decompressors cover their compression: zstd and zlib are built in,
-xz is not).
+`autoinstall`; runtimes mounted from squashfs (mono, Love2D, Godot/frt ...: the
+kernel mounts gzip, zstd and xz).
 
 Will not work:
 

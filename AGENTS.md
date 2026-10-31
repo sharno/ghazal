@@ -112,28 +112,33 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 ### PortMaster
 
 - PortMaster support (docs/ports.md, `src/ports`, `nix/runtime/ports.nix`,
-  `config/*/ports`) is implemented and was proven only in an aarch64 container
-  (`scripts/test-ports.sh`: `ghazal ports run`, the FHS loader, bash, the compat
-  libraries, a squashfs runtime mount, and a real PortMaster 2025.11 folder's
-  gptokeyb, xdelta3, innoextract, sdl_resolution and its Python/pysdl2 GUI
-  modules). Nothing of it has run on a handheld. Validate on the RG40XX-V:
-  Applications → Install PortMaster over Wi-Fi; PortMaster's GUI draws, takes
-  button input and downloads a port; an SDL2/GLES port and a gptokeyb port run,
-  take input and sound, and quit with Menu + Start into a working menu; a
-  squashfs-runtime port (mono, Love2D or Godot) mounts; `ghazal ports check`.
-- Unverified assumptions to check first: gptokeyb's virtual keyboard reaches SDL
-  (SDL ignores evdev devices udev has not classified; `71-virtual-input.rules`
-  does it with the `input_id` builtin); the generated SDL mapping's button
-  order (`src/ports/controller.rs`); DRM master handoff to a port's SDL KMSDRM
-  like PPSSPP's; runtimes compressed with xz (the kernel has squashfs zstd and
-  zlib only); ANALOG_STICKS per board is ROCKNIX's table.
+  `config/*/ports`) has run on an RG40XX-V v2: install over SSH and from the menu,
+  PortMaster 2026.10's GUI drawing and taking D-pad and button input over SDL
+  KMSDRM, Menu + Start leaving nothing running, a port script run from Ports with
+  SDL2/GLES, gptokeyb's virtual keyboard, a tone (PCM `RUNNING`), squashfs runtimes
+  (gzip, zstd and xz all mount), Love2D's runtime drawing PortMaster's splash with
+  sound, and the `[ERROR]` toast for a failing script. No port from PortMaster's
+  catalogue has run, and a person has not judged the controls. Still to check on
+  the handheld: download and run a small SDL2/GLES port, a gptokeyb mouse port, a
+  mono or Godot runtime port and a Love2D port; PortMaster's downloads and Options
+  (including its disclaimer); `ANALOG_STICKS` for this board (ROCKNIX's
+  table says 1) and whether face buttons feel right in ports.
+- Facts learned on the device, keep them in mind when bumping PortMaster:
+  `pm_launch.txt` starts a Love2D splash that holds the DRM master, which makes
+  pugwash's SDL fail with "No available video device", so `mod_Ghazal.txt` drops
+  that one `env` call; PortMaster's zip stores `gptokeyb` 0644 (install and every
+  run make files executable); bash's `<(...)` needs `/dev/fd` (linked at boot); the
+  Love2D runtime needs freetype, OpenAL, mpg123, Ogg, Vorbis and Theora from the
+  system. libtheora 1.2 names its decoder `libtheoradec.so.2` and Love links `.so.1`:
+  it is aliased, and Love's `.ogv` video playback is untested.
 - Not supported, by design: 32-bit (armhf) ports (kernel `COMPAT` is off; needs
   an armhf userland), X11/Wayland/sway ports, Java, box86/box64, desktop OpenGL
   without the port's own gl4es, rotated panels (RG28XX).
-- The runtime closure grew 572.6 → 638.9 MiB, nearly all of it Python 3.14
-  (68 MB, built from source: no LTO, no SQLite/readline/gdbm/tests). Re-measure
-  root usage and boot time (`ghazal observe boot`) on a device; ports start
-  nothing at boot.
+- Size: root used went from 586.1 to 660.3 MB of 973 (245.9 MB free), the runtime
+  closure is 657.9 MiB. Nearly all of the growth is Python 3.14 (68 MB, built from
+  source: no LTO, no SQLite/readline/gdbm/tests), plus SDL2_image/SDL2_mixer and the
+  Love2D libraries. Boot stays at 2.92 s with PortMaster installed, since nothing
+  starts at boot.
 - A port that needs a library the compat directory lacks: find it with
   `ghazal ports ldd`, add it to `nix/runtime/ports.nix` and `SONAMES` in
   `src/ports/check.rs`.
@@ -279,6 +284,12 @@ validated. Remove an entry once it has been checked on a handheld.
   Start ending a stream in under a second, and the governor returning.
   Unpair and Remove from list (against a real pairing) and keyboard and mouse
   passthrough for the Desktop app are untried.
+- PortMaster: the install flow, GUI, runner, gptokeyb, squashfs and Love2D runtime
+  were exercised with PortMaster's own tools and small test scripts, never with a
+  port from its catalogue. Not tried: any real port, PortMaster's downloads and
+  Options (including accepting its disclaimer), Love2D video (`.ogv`), the controller
+  feel and `ANALOG_STICKS` (1 from ROCKNIX's table). The card's old stock-OS scripts in
+  `ROMS/PORTS` list under Ports and fail when launched (they name `/mnt/vendor/...`).
 
 ## Keeping this backlog accurate
 
