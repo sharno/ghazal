@@ -107,6 +107,27 @@ mod tests {
         }
     }
 
+    /// RetroArch's defaults would announce a host publicly, ask the router to open a
+    /// port, turn hardcore mode on and let a netplay session overwrite the solo resume state.
+    #[test]
+    fn standalone_netplay_is_lan_only_and_achievements_are_softcore() {
+        use crate::retroarch_cfg::value;
+        let frontend = Profile { dir: None }.frontend().unwrap();
+        let appended = frontend.netplay.retroarch.render();
+        for setting in ["config_save_on_exit", "netplay_public_announce", "netplay_use_mitm_server", "netplay_nat_traversal", "savestate_auto_load", "savestate_auto_save"] {
+            assert_eq!(value(&appended, setting), Some("false"), "{setting}");
+        }
+        let template = include_str!("../config/rg40xxv-rocknix/retroarch.cfg");
+        for setting in ["cheevos_enable", "cheevos_hardcore_mode_enable", "netplay_public_announce", "netplay_nat_traversal", "netplay_use_mitm_server"] {
+            assert_eq!(value(template, setting), Some("false"), "{setting}");
+        }
+        // The Achievements account entry presses keys through this port.
+        assert_eq!(value(template, "network_cmd_enable"), Some("true"));
+        assert_eq!(value(template, "network_cmd_port"), Some(frontend.retroarch.command_port.to_string().as_str()));
+        assert_eq!(frontend.retroarch.menu_paths.achievements.last(), Some(&crate::frontend::retroarch_menu::MenuKey::A));
+        assert_eq!(frontend.netplay.port, crate::frontend::netplay::DEFAULT_PORT);
+    }
+
     /// Every shipped config must parse, so a typo can't brick a device at boot.
     #[test]
     fn shipped_configs_parse() {

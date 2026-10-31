@@ -5,14 +5,16 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::activity::{Activity, Catalog, Collection, GameId, LoadError};
-use super::config::FrontendConfig;
+use super::config::{FrontendConfig, Launch};
 use super::input::Button;
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
+use super::netplay::{self, Choosing, Polled, Role, Scanning, Session, Target};
 use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
 use crate::daemon::ctl;
 use crate::hw::battery;
+use crate::retroarch_cfg::{Achievements, Mode};
 use crate::ui::{AppWindow, Hint, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
@@ -41,6 +43,21 @@ enum View {
     Configuration,
     Information,
     Updates,
+    /// Hosts to join; leaving returns to that game list, or to Applications.
+    Netplay(Option<GameList>),
+}
+
+/// Looking for netplay hosts, then choosing one.
+enum Join {
+    Scanning(Scanning),
+    Choosing(Choosing),
+}
+
+/// The game a game-actions menu was opened on, checked again when an action is chosen.
+struct GameMenu {
+    list: GameList,
+    cursor: usize,
+    id: GameId,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -101,6 +118,15 @@ enum MenuItem {
     SystemUpdate,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
+    /// RetroAchievements off, on or hardcore; its row shows the account.
+    Achievements,
+    /// RetroArch's Achievements page, where the account is entered.
+    AchievementsAccount,
+    JoinNetplay,
+    /// The game actions menu (Applications' JoinNetplay finds the game itself).
+    PlayGame,
+    HostNetplay,
+    JoinGameNetplay,
 }
 
 impl MenuItem {
@@ -125,6 +151,11 @@ impl MenuItem {
             Self::RetroArchSettings => "RetroArch settings",
             Self::SystemUpdate => "System update",
             Self::Lights(preset) => preset.menu_label(),
+            Self::Achievements => "Achievements",
+            Self::AchievementsAccount => "Achievements account",
+            Self::JoinNetplay | Self::JoinGameNetplay => "Join netplay",
+            Self::PlayGame => "Play",
+            Self::HostNetplay => "Host netplay",
         }
     }
 }
@@ -133,6 +164,8 @@ impl MenuItem {
 enum MenuPage {
     Main,
     Options,
+    /// Actions for the game chosen with X (see `App::game_menu`).
+    Game,
 }
 
 #[derive(Clone, Copy)]
@@ -142,7 +175,7 @@ struct MenuState {
 }
 
 const OPTION_ITEMS: [MenuItem; 4] = [MenuItem::Startup, MenuItem::Thumbnails, MenuItem::DownloadThumbnails, MenuItem::Back];
-const APPLICATION_ITEMS: [MenuItem; 2] = [MenuItem::Rescan, MenuItem::DownloadThumbnails];
+const APPLICATION_ITEMS: [MenuItem; 3] = [MenuItem::Rescan, MenuItem::DownloadThumbnails, MenuItem::JoinNetplay];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
 
@@ -153,8 +186,9 @@ const HOME_HINTS: Hints = &[("A", "Open"), ("B", "Explore"), ("≡", "Menu")];
 const SYSTEM_HINTS: Hints = &[("A", "Open"), ("B", "Back"), ("≡", "Menu")];
 const CONFIGURATION_HINTS: Hints = &[("A", "Change"), ("◀▶", "Adjust"), ("B", "Back")];
 const INFORMATION_HINTS: Hints = &[("B", "Back")];
-const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("◀▶", "System"), ("≡", "Menu")];
-const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("≡", "Menu")];
+const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Actions"), ("◀▶", "System"), ("≡", "Menu")];
+const COLLECTION_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Actions"), ("≡", "Menu")];
+const NETPLAY_HINTS: Hints = &[("A", "Join"), ("Y", "Refresh"), ("B", "Back")];
 const COMPACT_GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite")];
 
 struct Toast {
@@ -182,6 +216,10 @@ pub struct App {
     updater: crate::update::Menu,
     information_cursor: usize,
     information_rows: Vec<Row>,
+    /// RetroAchievements as RetroArch's config has it; read when Configuration opens.
+    achievements: Achievements,
+    join: Option<Join>,
+    game_menu: Option<GameMenu>,
     settings: Settings,
     startup: StartupState,
     catalog: Catalog,
@@ -255,6 +293,9 @@ impl App {
             updater: crate::update::Menu::default(),
             information_cursor: 0,
             information_rows: Vec::new(),
+            achievements: Achievements::default(),
+            join: None,
+            game_menu: None,
             settings,
             startup,
             // Draw the menu first; a cold SD-card scan of thousands of games takes ~0.5 s.
@@ -363,7 +404,7 @@ impl App {
                     HomeItem::Collection => self.view = View::Games(GameList::Favorites),
                     HomeItem::History => self.view = View::Games(GameList::Recent),
                     HomeItem::Applications => self.view = View::Applications,
-                    HomeItem::Configuration => self.view = View::Configuration,
+                    HomeItem::Configuration => { self.refresh_achievements(); self.view = View::Configuration; }
                     HomeItem::Information => { self.refresh_information(); self.view = View::Information; }
                     HomeItem::Reboot => return self.power("reboot"),
                     HomeItem::Shutdown => return self.power("poweroff"),
@@ -392,6 +433,8 @@ impl App {
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
                         MenuItem::SystemUpdate if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
+                        MenuItem::Achievements if button == Button::A => { self.cycle_achievements(); self.rows_for = None; }
+                        MenuItem::AchievementsAccount if button == Button::A => return self.activate(item),
                         _ => {},
                     }
                 }
@@ -410,6 +453,16 @@ impl App {
                 Button::B => self.view = View::Home,
                 button => self.information_cursor = navigate(self.information_cursor, self.information_rows.len(), button),
             },
+            View::Netplay(back) => match button {
+                Button::B => self.leave_netplay(back),
+                Button::A => return self.join_chosen(back),
+                // A host that started after the scan is missed until the next one.
+                Button::Y => if let Some(Join::Choosing(hosts)) = &self.join {
+                    let target = hosts.target().clone();
+                    self.start_join(target, back);
+                },
+                button => if let Some(Join::Choosing(hosts)) = &mut self.join { hosts.cursor = navigate(hosts.cursor, hosts.len(), button); },
+            },
             View::Games(list) => {
                 let len = self.game_count(list);
                 let cursor = self.cursor(list);
@@ -417,6 +470,7 @@ impl App {
                     Button::B => self.view = list.parent(),
                     Button::A => return self.launch(list, cursor),
                     Button::Y => self.toggle_favorite(list, cursor),
+                    Button::X => self.open_game_menu(list, cursor),
                     // Left/Right in a system's games jump to the neighbouring system.
                     Button::Left | Button::Right => if let GameList::System(system) = list {
                         let next = step(system, self.catalog.library().systems().len(), if button == Button::Left { -1 } else { 1 }, true);
@@ -478,6 +532,8 @@ impl App {
             self.error(format!("{e:#}"));
         }
         self.refresh_status(Instant::now());
+        // RetroArch's menu may have signed in or changed the achievements settings.
+        if self.view == View::Configuration { self.refresh_achievements(); self.rows_for = None; }
         self.sync();
     }
 
@@ -489,6 +545,7 @@ impl App {
         self.receive_scan();
         self.receive_art();
         self.receive_download();
+        self.receive_hosts();
         if self.updater.poll() { self.rows_for = None; }
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
@@ -593,7 +650,7 @@ impl App {
     }
 
     pub fn next_deadline(&self) -> Instant {
-        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some();
+        let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some() || matches!(self.join, Some(Join::Scanning(_)));
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
@@ -642,7 +699,7 @@ impl App {
     }
 
     fn configuration_items(&self) -> Vec<MenuItem> {
-        let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
+        let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings, MenuItem::Achievements, MenuItem::AchievementsAccount];
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -716,7 +773,29 @@ impl App {
         match page {
             MenuPage::Main => self.main_items.clone(),
             MenuPage::Options => OPTION_ITEMS.to_vec(),
+            MenuPage::Game => self.game_actions(),
         }
+    }
+
+    /// Netplay needs RetroArch: standalone emulators only get Play.
+    fn game_actions(&self) -> Vec<MenuItem> {
+        let netplay = self.menu_game().is_some_and(|(system, _)| matches!(system.launch, Launch::Core(_)));
+        let mut items = vec![MenuItem::PlayGame];
+        if netplay { items.extend([MenuItem::HostNetplay, MenuItem::JoinGameNetplay]); }
+        items
+    }
+
+    /// The game the open actions menu is about, unless the library changed under it.
+    fn menu_game(&self) -> Option<(&System, &Game)> {
+        let GameMenu { list, cursor, id } = self.game_menu.as_ref()?;
+        self.game_at(*list, *cursor).filter(|(system, game)| GameId::new(system, game) == *id)
+    }
+
+    fn open_game_menu(&mut self, list: GameList, cursor: usize) {
+        let Some((system, game)) = self.game_at(list, cursor) else { return };
+        let id = GameId::new(system, game);
+        self.game_menu = Some(GameMenu { list, cursor, id });
+        self.open_menu(MenuPage::Game);
     }
 
     fn open_menu(&mut self, page: MenuPage) {
@@ -777,6 +856,137 @@ impl App {
             MenuItem::Quit => Some(Effect::Quit),
             MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
             MenuItem::Lights(_) => { self.step_lights(true); None }
+            MenuItem::Achievements => { self.cycle_achievements(); self.rows_for = None; None }
+            MenuItem::AchievementsAccount => match LaunchSpec::retroarch_achievements(&self.config) {
+                Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
+                Err(error) => { self.error(format!("Achievements account: {error:#}")); None }
+            },
+            MenuItem::JoinNetplay => { self.start_join(Target::Any, None); None }
+            MenuItem::PlayGame => self.play_menu_game(None),
+            MenuItem::HostNetplay => self.play_menu_game(Some(self.session(Role::Host))),
+            MenuItem::JoinGameNetplay => { self.join_menu_game(); None }
+        }
+    }
+
+    fn session(&self, role: Role) -> Session {
+        Session { role, nick: netplay::local_nickname() }
+    }
+
+    /// Starts the game the actions menu was opened on, alone or as a netplay session.
+    fn play_menu_game(&mut self, session: Option<Session>) -> Option<Effect> {
+        let Some((system, game)) = self.menu_game() else {
+            self.error("The library changed; open the game again".into());
+            return None;
+        };
+        let id = GameId::new(system, game);
+        let spec = match &session {
+            Some(session) => LaunchSpec::netplay(&self.config, system, game, session),
+            None => LaunchSpec::new(&self.config, system, game),
+        };
+        match spec {
+            Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) }),
+            Err(error) => { self.error(format!("{error:#}")); None }
+        }
+    }
+
+    /// Looks for hosts of the game the actions menu was opened on.
+    fn join_menu_game(&mut self) {
+        let Some((system, game)) = self.menu_game() else {
+            self.error("The library changed; open the game again".into());
+            return;
+        };
+        let target = Target::game(system, game);
+        let back = self.game_menu.as_ref().map(|menu| menu.list);
+        self.start_join(target, back);
+    }
+
+    /// Looks for hosts on a worker thread and shows the list as it arrives.
+    fn start_join(&mut self, target: Target, back: Option<GameList>) {
+        let window = Duration::from_millis(self.config.netplay.discovery_ms);
+        match Scanning::start(target, window, self.config.netplay.hosts_file.clone(), self.config.netplay.port) {
+            Ok(scanning) => {
+                self.join = Some(Join::Scanning(scanning));
+                self.view = View::Netplay(back);
+                self.rows_for = None;
+            }
+            Err(error) => self.error(format!("{error:#}")),
+        }
+    }
+
+    fn leave_netplay(&mut self, back: Option<GameList>) {
+        self.join = None;
+        self.view = back.map_or(View::Applications, View::Games);
+        self.rows_for = None;
+    }
+
+    fn receive_hosts(&mut self) {
+        match self.join.take() {
+            Some(Join::Scanning(scanning)) => match scanning.poll() {
+                Polled::Waiting(scanning) => self.join = Some(Join::Scanning(scanning)),
+                Polled::Found(hosts) => { self.join = Some(Join::Choosing(hosts)); self.rows_for = None; }
+                Polled::Failed(message) => {
+                    self.error(message);
+                    if let View::Netplay(back) = self.view { self.leave_netplay(back); }
+                }
+            },
+            other => self.join = other,
+        }
+    }
+
+    /// Joins the host under the cursor, starting the game it is playing.
+    fn join_chosen(&mut self, back: Option<GameList>) -> Option<Effect> {
+        let Some(Join::Choosing(hosts)) = &self.join else { return None };
+        let picked = hosts.choose(self.catalog.library());
+        let (id, role) = match picked {
+            Ok(pick) => pick,
+            Err(message) => { self.error(message); return None; }
+        };
+        let session = self.session(role);
+        let spec = id.resolve(self.catalog.library()).map(|(system, game)| LaunchSpec::netplay(&self.config, system, game, &session));
+        match spec {
+            Some(Ok(spec)) => {
+                self.leave_netplay(back);
+                Some(Effect::Launch { spec, purpose: LaunchPurpose::Game(id) })
+            }
+            Some(Err(error)) => { self.error(format!("{error:#}")); None }
+            None => { self.error("That game is not on this card".into()); None }
+        }
+    }
+
+    fn refresh_achievements(&mut self) {
+        self.achievements = self.config.retroarch.user_config.as_deref()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .map(|text| Achievements::read(&text))
+            .unwrap_or_default();
+    }
+
+    /// Off, then on, then hardcore. Needs an account: RetroArch would otherwise
+    /// complain at every game start.
+    fn cycle_achievements(&mut self) {
+        self.refresh_achievements();
+        let mode = self.achievements.mode;
+        if mode == Mode::Off && !self.achievements.has_account() {
+            self.notice("Set up your account first: Achievements account");
+            return;
+        }
+        let next = mode.next();
+        // Through the launcher's accessor: it creates the config from the template, never from nothing.
+        let written = LaunchSpec::user_config(&self.config)
+            .and_then(|path| path.ok_or_else(|| anyhow::anyhow!("RetroArch has no user configuration")))
+            .and_then(|path| {
+                let text = std::fs::read_to_string(&path)?;
+                crate::sys::write_atomic_private(&path, next.edits().apply(&text).as_bytes())
+            });
+        match written {
+            Ok(()) => {
+                self.achievements.mode = next;
+                self.notice(match next {
+                    Mode::Off => "Achievements off",
+                    Mode::Softcore => "Achievements on; save states keep working",
+                    Mode::Hardcore => "Hardcore on; save states and rewind are off",
+                });
+            }
+            Err(error) => self.error(format!("Achievements: {error:#}")),
         }
     }
 
@@ -854,12 +1064,18 @@ impl App {
                 let detail = match (item, self.levels) {
                     (MenuItem::Brightness, Some(levels)) => format!("{}%", u8::from(levels.brightness)),
                     (MenuItem::Volume, Some(levels)) => format!("{}%", u8::from(levels.volume)),
+                    (MenuItem::Achievements, _) => self.achievements.detail(),
                     _ => String::new(),
                 };
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
             }
             View::Updates => { let (label, detail) = self.updater.row(index); Row { label: label.into(), detail: detail.into(), glyph: "".into() } },
             View::Information => self.information_rows.get(index)?.clone(),
+            View::Netplay(_) => {
+                let Some(Join::Choosing(hosts)) = &self.join else { return None };
+                let (label, detail) = hosts.row(index)?;
+                Row { label: label.into(), detail: detail.into(), glyph: "".into() }
+            }
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
                 let favorite = if self.catalog.is_favorite(&GameId::new(system, game)) { "★" } else { "" };
@@ -879,7 +1095,8 @@ impl App {
         }
         match (self.menu.map(|m| m.page), self.view) {
             (Some(MenuPage::Options), _) => OPTIONS_HINTS,
-            (Some(MenuPage::Main), _) => MENU_HINTS,
+            (Some(MenuPage::Main | MenuPage::Game), _) => MENU_HINTS,
+            (None, View::Netplay(_)) => NETPLAY_HINTS,
             (None, View::Systems) => SYSTEM_HINTS,
             (None, View::Home) => HOME_HINTS,
             (None, View::Applications) => SYSTEM_HINTS,
@@ -901,6 +1118,10 @@ impl App {
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
             View::Information => (self.information_cursor, self.information_rows.len()),
+            View::Netplay(_) => match &self.join {
+                Some(Join::Choosing(hosts)) => (hosts.cursor, hosts.len()),
+                _ => (0, 0),
+            },
         };
 
         // The UI only gets a window of ROW_WINDOW rows around the cursor. It's moved
@@ -930,9 +1151,14 @@ impl App {
             View::Configuration => "Configuration",
             View::Updates => "System update",
             View::Information => "Information",
+            View::Netplay(_) => "Join netplay",
         }.into());
         ui.set_position(if total > 0 { format!("{} / {total}", cursor + 1) } else { String::new() }.into());
         ui.set_empty_message(match self.view {
+            View::Netplay(_) => match self.join {
+                Some(Join::Choosing(_)) => "No hosts found. Ask a friend to choose Host netplay on this Wi-Fi.".to_owned(),
+                _ => "Looking for hosts…".to_owned(),
+            },
             _ if self.scan.is_some() => "Loading games…".to_owned(),
             View::Games(GameList::Favorites) => "Press Y on a game to add a favorite".to_owned(),
             View::Games(GameList::Recent) => "Games you launch will appear here".to_owned(),
@@ -946,7 +1172,7 @@ impl App {
                 ui.set_menu_items(ModelRc::new(VecModel::from(labels.iter().map(|l| SharedString::from(*l)).collect::<Vec<_>>())));
                 self.menu_labels = labels;
             }
-            ui.set_menu_title(match page { MenuPage::Main => "Menu", MenuPage::Options => "Options" }.into());
+            ui.set_menu_title(match page { MenuPage::Main => "Menu", MenuPage::Options => "Options", MenuPage::Game => "Game" }.into());
         }
         let show_art = self.settings.show_thumbnails && matches!(self.view, View::Games(_)) && total > 0;
         ui.set_art_visible(show_art);

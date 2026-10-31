@@ -6,7 +6,9 @@ pub mod config;
 pub mod input;
 pub mod launcher;
 pub mod library;
+pub mod netplay;
 pub mod platform;
+pub mod retroarch_menu;
 mod settings;
 mod thumbnails;
 

@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use super::netplay;
+use super::retroarch_menu::MenuKey;
 use crate::device::CpuLoad;
+use crate::retroarch_cfg::Edits;
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +35,8 @@ pub struct FrontendConfig {
     /// udev's database, which RetroArch and SDL need to find the gamepad.
     #[serde(default)]
     pub launch_after: Vec<PathBuf>,
+    #[serde(default)]
+    pub netplay: Netplay,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }
@@ -71,6 +76,62 @@ pub struct RetroArch {
     pub env: BTreeMap<String, String>,
     /// RetroArch stdout/stderr are appended here. Inherited when unset.
     pub log: Option<PathBuf>,
+    /// RetroAchievements credentials given at provisioning, merged into
+    /// `user_config` when RetroArch next starts (see retroarch_cfg::apply_seed).
+    #[serde(default = "default_account_seed")]
+    pub account_seed: PathBuf,
+    /// Seconds a launch that uses the network (achievements, netplay) waits for
+    /// Wi-Fi when a network is saved. Games never wait without one.
+    #[serde(default = "default_online_wait")]
+    pub online_wait: u64,
+    /// RetroArch's network command port (`network_cmd_port` in retroarch.cfg).
+    #[serde(default = "default_command_port")]
+    pub command_port: u16,
+    #[serde(default)]
+    pub menu_paths: MenuPaths,
+}
+
+fn default_account_seed() -> PathBuf {
+    crate::retroarch_cfg::ACCOUNT_SEED.into()
+}
+
+fn default_online_wait() -> u64 {
+    8
+}
+
+fn default_command_port() -> u16 {
+    55355
+}
+
+/// Key presses that open a page of RetroArch's menu (see retroarch_menu.rs).
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct MenuPaths {
+    /// The Achievements settings, where the RetroAchievements login is entered.
+    #[serde(default)]
+    pub achievements: Vec<MenuKey>,
+}
+
+/// Hosting and joining RetroArch netplay sessions.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields, default)]
+pub struct Netplay {
+    /// The TCP port a host listens on.
+    pub port: u16,
+    /// How long looking for hosts on the LAN listens for answers.
+    pub discovery_ms: u64,
+    /// Hosts to offer besides those found: one `address[:port] [name]` per line.
+    pub hosts_file: Option<PathBuf>,
+    /// Written here for each netplay launch and passed to RetroArch as `--appendconfig`.
+    pub append_config: PathBuf,
+    /// RetroArch settings for netplay launches, applied over the user's config.
+    pub retroarch: Edits,
+}
+
+impl Default for Netplay {
+    fn default() -> Self {
+        Self { port: netplay::DEFAULT_PORT, discovery_ms: 1500, hosts_file: None, append_config: "/run/ghazal/retroarch-netplay.cfg".into(), retroarch: Edits::default() }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -174,6 +235,9 @@ impl FrontendConfig {
             fix(log);
         }
         fix(&mut self.daemon_socket);
+        fix(&mut self.retroarch.account_seed);
+        if let Some(hosts) = &mut self.netplay.hosts_file { fix(hosts); }
+        fix(&mut self.netplay.append_config);
     }
 }
 

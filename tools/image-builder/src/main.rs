@@ -651,7 +651,7 @@ fn main() -> Result<()> {
         )?;
         // FAT is a provisioning volume; boot-critical files belong to each OS slot.
         let boot = work.join(format!("boot-{}", device.id));
-        write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\n# auto selects TF2 when inserted; tf1 and tf2 require that chosen card.\ndata_card = \"auto\"\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n")?;
+        write(&boot, "provision.toml.example", "# Optional: copy to provision.toml before first boot. Never share the edited file.\n# auto selects TF2 when inserted; tf1 and tf2 require that chosen card.\ndata_card = \"auto\"\nssh_authorized_keys = []\n# [wifi]\n# ssid = \"Your Wi-Fi name\"\n# password = \"Your Wi-Fi password\"\n# [retroarch]\n# cheevos_username = \"Your RetroAchievements user\"\n# cheevos_password = \"Your RetroAchievements password\"\n")?;
         if root.join("boot/dtb.img").exists() {
             fs::remove_file(root.join("boot/dtb.img"))?;
         }
