@@ -8,6 +8,12 @@ rom_roots = ["../ROMS"]
 bin = "retroarch"
 core_dirs = ["../cores", "/usr/lib/libretro"]
 
+# Applications -> Moonlight, with its hosts and settings in dev/moonlight
+# (ignored by git). Without `moonlight` on PATH its helpers fail with a message.
+[moonlight]
+bin = "moonlight"
+data_dir = "../moonlight"
+
 [[system]]
 name = "Game Boy Advance"
 dirs = ["GBA"]

@@ -626,6 +626,12 @@ fn main() -> Result<()> {
                     );
                 }
             }
+            // Moonlight's SDL output cannot rotate either; the menu says it
+            // is unavailable on this panel.
+            frontend
+                .as_table_mut()
+                .ok_or("invalid frontend profile")?
+                .remove("moonlight");
         }
         write(
             &root,

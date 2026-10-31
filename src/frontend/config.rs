@@ -32,6 +32,9 @@ pub struct FrontendConfig {
     /// udev's database, which RetroArch and SDL need to find the gamepad.
     #[serde(default)]
     pub launch_after: Vec<PathBuf>,
+    /// Game streaming; without it the menu says Moonlight is unavailable.
+    #[serde(default)]
+    pub moonlight: Option<Moonlight>,
     #[serde(rename = "system", default)]
     pub systems: Vec<SystemEntry>,
 }
@@ -70,6 +73,23 @@ pub struct RetroArch {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     /// RetroArch stdout/stderr are appended here. Inherited when unset.
+    pub log: Option<PathBuf>,
+}
+
+/// Moonlight, the GameStream/Sunshine client: `bin` runs the stream and the
+/// pair, list, unpair and quit helpers.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Moonlight {
+    pub bin: PathBuf,
+    /// Pairing keys, known hosts and stream settings. On the data card, so a
+    /// reflashed OS card keeps its pairings.
+    pub data_dir: PathBuf,
+    /// SDL controller database, so the pad is a gamepad on the host.
+    pub mapping: Option<PathBuf>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Output of streams is appended here.
     pub log: Option<PathBuf>,
 }
 
@@ -174,6 +194,11 @@ impl FrontendConfig {
             fix(log);
         }
         fix(&mut self.daemon_socket);
+        if let Some(moonlight) = &mut self.moonlight {
+            fix(&mut moonlight.data_dir);
+            if let Some(mapping) = &mut moonlight.mapping { fix(mapping); }
+            if let Some(log) = &mut moonlight.log { fix(log); }
+        }
     }
 }
 

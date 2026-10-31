@@ -6,6 +6,7 @@ pub mod config;
 pub mod input;
 pub mod launcher;
 pub mod library;
+mod moonlight;
 pub mod platform;
 mod settings;
 mod thumbnails;
