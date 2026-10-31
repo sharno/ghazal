@@ -34,7 +34,7 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
         }
         Some("press") if args.len() == 2 => press(device, &args[1]),
         Some("power") if args.len() == 2 => power(device, args[1].parse().context("power takes a duration in seconds")?),
-        _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...]"),
+        _ => bail!("usage: ghazal observe audio | boot | frame OUTPUT.ppm | power SECONDS | press BUTTON[+BUTTON...] | plan ROM | launch ROM"),
     }
 }
 
@@ -181,7 +181,20 @@ fn capture(card_path: &Path, output: &Path) -> Result<()> {
     file.write_all(&rgb)?;
     file.flush()?;
     println!("captured {width}x{height} to {}", output.display());
+    // A blank or stuck frame has one or two; a menu or a game has hundreds.
+    println!("distinct_colors={}", distinct_colors(&rgb));
     Ok(())
+}
+
+/// Distinct RGB values in a frame, counted up to a cap that keeps it cheap.
+fn distinct_colors(rgb: &[u8]) -> usize {
+    const CAP: usize = 4096;
+    let mut seen = std::collections::HashSet::new();
+    for pixel in rgb.as_chunks::<3>().0 {
+        seen.insert(*pixel);
+        if seen.len() >= CAP { break; }
+    }
+    seen.len()
 }
 
 struct Button { file: File, code: u16 }
@@ -197,7 +210,7 @@ impl Button {
 struct Pressed(Vec<Button>);
 impl Drop for Pressed { fn drop(&mut self) { for button in self.0.iter().rev() { let _ = button.emit(0); } } }
 
-fn press(device: &DeviceConfig, chord: &str) -> Result<()> {
+pub(crate) fn press(device: &DeviceConfig, chord: &str) -> Result<()> {
     let mut codes = std::collections::BTreeSet::new();
     let mut buttons = Vec::new();
     for name in chord.split('+') {
@@ -214,4 +227,19 @@ fn press(device: &DeviceConfig, chord: &str) -> Result<()> {
     std::thread::sleep(Duration::from_millis(200));
     drop(pressed);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::distinct_colors;
+
+    #[test]
+    fn counts_distinct_colors_up_to_a_cap() {
+        assert_eq!(distinct_colors(&[0, 0, 0, 0, 0, 0]), 1);
+        assert_eq!(distinct_colors(&[0, 0, 0, 0, 0, 1, 0, 0, 0]), 2);
+        let many: Vec<u8> = (0..=u16::MAX).flat_map(|n| [n as u8, (n >> 8) as u8, 7]).collect();
+        assert_eq!(distinct_colors(&many), 4096);
+        // A trailing partial pixel is ignored.
+        assert_eq!(distinct_colors(&[1, 2, 3, 4]), 1);
+    }
 }

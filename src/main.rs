@@ -1,5 +1,6 @@
 //! ghazal: a Rust userland for Anbernic H700 handhelds, as one static multi-call binary.
 
+mod acceptance;
 mod daemon;
 mod debug;
 mod device;
@@ -46,7 +47,7 @@ COMMANDS:
   check                  validate configs and service binaries
   probe-input            list input devices and print raw events
   audio-init             apply and verify the configured ALSA signal path
-  observe audio|boot|frame|press|recent-benchmark  inspect and exercise the real device
+  observe audio|boot|frame|press|plan|launch|recent-benchmark  inspect and exercise the real device
 
 Configs (device.toml, frontend.toml, system.toml) come from --config-dir, $GHAZAL_CONFIG_DIR,
 etc/ next to the binary, the binary's directory, or /etc/ghazal; built-in defaults otherwise.";
@@ -91,6 +92,7 @@ fn run() -> Result<()> {
         "kernel-log" => debug::kernel_log(),
         "audio-init" => hw::alsa::initialize(profile.device()?.audio.as_ref().context("device has no audio profile")?),
         "observe" if rest == ["recent-benchmark"] => frontend::benchmark_recent(&profile.frontend()?),
+        "observe" if matches!(rest.first().map(String::as_str), Some("plan" | "launch")) => acceptance::run(&profile.device()?, &profile.frontend()?, rest),
         "observe" => observe::run(&profile.device()?, rest),
         "rescue" => init::rescue(),
         "data-directories" => init::data_directories(),

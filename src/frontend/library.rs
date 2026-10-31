@@ -80,6 +80,15 @@ impl Library {
         }
     }
 
+    /// Where the menu lists a game: its system's index and its index in that system.
+    /// None for a path the library lacks or lists under two systems.
+    pub fn position(&self, path: &Path) -> Option<(usize, usize)> {
+        match self.paths.get(path)? {
+            PathMatch::Unique { system, game } => Some((*system, *game)),
+            PathMatch::Ambiguous => None,
+        }
+    }
+
     pub fn game_count(&self) -> usize {
         self.systems.iter().map(|s| s.games.len()).sum()
     }

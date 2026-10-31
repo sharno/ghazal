@@ -1,0 +1,14 @@
+# Games for scripts/acceptance.sh: one ROM path per line, exactly as the
+# handheld's menu lists it (the scan is case-sensitive about the path).
+# Lines starting with # and blank lines are ignored.
+#
+# Copy this file somewhere outside the repository and list your own games.
+# Cover every system and core you changed, one game each is enough. A PSP
+# entry exercises standalone PPSSPP; every other system runs through RetroArch.
+# Pick a game that makes sound at its title screen.
+#
+# These paths are placeholders.
+/mnt/games/ROMS/GB/Example Game.gb
+/mnt/games/ROMS/GBA/Example Game.gba
+/mnt/games/ROMS/SNES/Example Game.sfc
+/mnt/games/ROMS/PSP/Example Game.iso

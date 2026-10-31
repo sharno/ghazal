@@ -20,7 +20,7 @@ const STATUS_REFRESH: Duration = Duration::from_secs(20);
 /// The daemon only needs to know the user is present, not every key repeat.
 const ACTIVITY_REPORT: Duration = Duration::from_secs(1);
 const SCAN_POLL: Duration = Duration::from_millis(50);
-const PAGE: isize = 8;
+pub(crate) const PAGE: isize = 8;
 /// Rows handed to the UI at once, and how close the cursor may get to either end.
 const ROW_WINDOW: usize = 48;
 const ROW_MARGIN: usize = 16;
@@ -981,7 +981,7 @@ fn step(i: usize, len: usize, delta: isize, wrap: bool) -> usize {
 }
 
 /// Up/Down move one row (wrapping), L1/R1 jump a page (clamped).
-fn navigate(cursor: usize, len: usize, button: Button) -> usize {
+pub(crate) fn navigate(cursor: usize, len: usize, button: Button) -> usize {
     match button {
         Button::Up => step(cursor, len, -1, true),
         Button::Down => step(cursor, len, 1, true),

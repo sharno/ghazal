@@ -80,13 +80,17 @@ pub enum CpuLoad { Light, Moderate, #[default] Full }
 pub enum Activity { Menu, Game(CpuLoad) }
 
 impl Cpu {
-    pub fn apply(&self, activity: Activity) {
-        let policy = match activity {
+    pub fn policy(&self, activity: Activity) -> &Policy {
+        match activity {
             Activity::Menu => &self.menu,
             Activity::Game(CpuLoad::Light) => &self.light,
             Activity::Game(CpuLoad::Moderate) => &self.moderate,
             Activity::Game(CpuLoad::Full) => &self.full,
-        };
+        }
+    }
+
+    pub fn apply(&self, activity: Activity) {
+        let policy = self.policy(activity);
         let writes = [("scaling_governor", policy.governor.clone()), ("scaling_min_freq", policy.min_khz.to_string())];
         for (file, value) in writes {
             if let Err(error) = crate::sys::write_file(&self.policy.join(file), &value) {
