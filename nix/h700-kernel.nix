@@ -113,7 +113,12 @@ let
   # floor so games stay on the 0.9 V steps.
   values = { NR_CPUS = "4"; LOG_BUF_SHIFT = "16"; WATCHDOG_OPEN_TIMEOUT = "60"; BLK_DEV_LOOP_MIN_COUNT = "0"; };
   strings = { DRM_PANIC_SCREEN = "kmsg"; };
-  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" "UCLAMP_TASK" ];
+  # HDMI sound: the audio hub driver (ROCKNIX's vendor port, built in so it
+  # needs no module loading) and configfs overlays. The hub's device-tree
+  # nodes ship disabled; ghazal applies nix/h700-hdmi-audio-overlay.patch's
+  # overlay when a game first goes to HDMI, so the card cannot disturb boot
+  # or the codec's card number.
+  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" "UCLAMP_TASK" "OF_CONFIGFS" "SND_SOC_SUNXI_AHUB" ];
   # Former modules the device does use: iwd needs these AF_ALG algorithms.
   required = [ "CRYPTO_USER_API_AEAD" "CRYPTO_ARC4" "HID_PLAYSTATION"
     "MSDOS_PARTITION" "BLK_DEV_LOOP" "MD" "BLK_DEV_DM" "DM_VERITY"
@@ -153,6 +158,7 @@ stdenv.mkDerivation {
       "$base"/packages/linux/patches/rocknix-joypad/*.patch \
       "$base"/packages/linux/patches/7.2/*.patch \
       "$base"/devices/H700/patches/linux/*.patch \
+      "$base"/devices/H700/patches/linux/0203-sound-soc-Add-sunxi_v2-for-h616-ahub.patch.disabled \
       ${./sun8i-opaque-bottom-plane.patch} \
       ${./axp717-power-reporting.patch} \
       ${./sun4i-rgb-panel-orientation.patch} \
@@ -161,7 +167,10 @@ stdenv.mkDerivation {
       ${./serial-8250-fifo-size.patch} \
       ${./sunxi-mmc-pwrseq-async.patch} \
       ${./sun8i-panic-scanout.patch} \
-      ${./sun4i-usb-phy-typec-source.patch}; do
+      ${./sun4i-usb-phy-typec-source.patch} \
+      ${./sunxi-ahub-7.2.patch} \
+      ${./of-overlay-configfs.patch} \
+      ${./h700-hdmi-audio-overlay.patch}; do
       patch -p1 < "$patch"
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/
@@ -170,6 +179,7 @@ stdenv.mkDerivation {
       grep -q "$tree\\.dtb" arch/arm64/boot/dts/allwinner/Makefile || \
         echo "dtb-\$(CONFIG_ARCH_SUNXI) += $tree.dtb" >> arch/arm64/boot/dts/allwinner/Makefile
     done
+    echo 'dtb-$(CONFIG_ARCH_SUNXI) += ghazal-h616-hdmi-audio.dtbo' >> arch/arm64/boot/dts/allwinner/Makefile
   '' + lib.optionalString debug ''
     # Reserve persistent console RAM in this diagnostic DT only. Linux owns
     # neither this region nor its contents; the normal firmware stays untouched.
@@ -223,7 +233,8 @@ stdenv.mkDerivation {
     runHook postBuild
   '';
   installPhase = ''
-    mkdir -p $out/boot/device_trees $out/build
+    mkdir -p $out/boot/device_trees $out/boot/overlays $out/build
+    cp arch/arm64/boot/dts/allwinner/ghazal-h616-hdmi-audio.dtbo $out/boot/overlays/ghazal-hdmi-audio.dtbo
     cp arch/arm64/boot/Image $out/boot/KERNEL
     cp arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-v-v2-panel.dtb $out/boot/dtb.img
     for tree in ${lib.concatMapStringsSep " " (device: device.dtb) devices}; do

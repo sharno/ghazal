@@ -1,0 +1,45 @@
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
+@@ -639,15 +639,15 @@
+ 	status = "okay";
+ };
+ 
+ &ahub_dam_plat {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &ahub1_plat {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &ahub1_mach_hdmi {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+--- /dev/null
++++ b/arch/arm64/boot/dts/allwinner/ghazal-h616-hdmi-audio.dtso
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * HDMI sound on the H616/H700: enables the audio hub path (DAM, I2S1) and the
++ * "HDMI" machine driver that joins it to the DW-HDMI I2S input. The nodes ship
++ * disabled so the card cannot move the codec's card number or cost boot time;
++ * ghazal applies this overlay the first time a game is sent to HDMI.
++ */
++/dts-v1/;
++/plugin/;
++
++&ahub_dam_plat {
++	status = "okay";
++};
++
++&ahub1_plat {
++	status = "okay";
++};
++
++&ahub1_mach_hdmi {
++	status = "okay";
++};

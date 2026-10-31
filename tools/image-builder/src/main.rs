@@ -593,6 +593,8 @@ fn main() -> Result<()> {
     let device_template = fs::read_to_string(root.join("etc/ghazal/device.toml"))?;
     let frontend_template = fs::read_to_string(root.join("etc/ghazal/frontend.toml"))?;
     copy(&kernel.join("boot/KERNEL"), &root.join("boot/KERNEL"))?;
+    // Applied at run time when a game first goes to HDMI (device.toml [audio.hdmi]).
+    copy(&kernel.join("boot/overlays/ghazal-hdmi-audio.dtbo"), &root.join("boot/overlays/ghazal-hdmi-audio.dtbo"))?;
     for device in devices {
         let image = if options.all {
             image.join(format!(
