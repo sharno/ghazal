@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::activity::{Activity, Catalog, Collection, GameId, LoadError};
+use super::bluetooth;
 use super::config::FrontendConfig;
 use super::input::Button;
 use super::launcher::LaunchSpec;
@@ -41,6 +42,7 @@ enum View {
     Configuration,
     Information,
     Updates,
+    Bluetooth,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -99,6 +101,7 @@ enum MenuItem {
     Startup,
     RetroArchSettings,
     SystemUpdate,
+    Bluetooth,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
 }
@@ -124,6 +127,7 @@ impl MenuItem {
             },
             Self::RetroArchSettings => "RetroArch settings",
             Self::SystemUpdate => "System update",
+            Self::Bluetooth => "Bluetooth",
             Self::Lights(preset) => preset.menu_label(),
         }
     }
@@ -145,6 +149,8 @@ const OPTION_ITEMS: [MenuItem; 4] = [MenuItem::Startup, MenuItem::Thumbnails, Me
 const APPLICATION_ITEMS: [MenuItem; 2] = [MenuItem::Rescan, MenuItem::DownloadThumbnails];
 /// Poll interval while art is loading or downloading.
 const BACKGROUND_POLL: Duration = Duration::from_millis(30);
+/// The Bluetooth worker reports every second; this is how soon the screen notices.
+const BLUETOOTH_POLL: Duration = Duration::from_millis(150);
 
 type Hints = &'static [(&'static str, &'static str)];
 const MENU_HINTS: Hints = &[("A", "Select"), ("B", "Close")];
@@ -180,6 +186,8 @@ pub struct App {
     application_cursor: usize,
     configuration_cursor: usize,
     updater: crate::update::Menu,
+    /// Open only while Configuration → Bluetooth is on screen: it owns a worker thread.
+    bluetooth: Option<bluetooth::Screen>,
     information_cursor: usize,
     information_rows: Vec<Row>,
     settings: Settings,
@@ -253,6 +261,7 @@ impl App {
             application_cursor: 0,
             configuration_cursor: 0,
             updater: crate::update::Menu::default(),
+            bluetooth: None,
             information_cursor: 0,
             information_rows: Vec::new(),
             settings,
@@ -391,6 +400,7 @@ impl App {
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
                         MenuItem::SystemUpdate if button == Button::A => { self.activate(item); }
+                        MenuItem::Bluetooth if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         _ => {},
                     }
@@ -405,6 +415,10 @@ impl App {
                     Err(error) => self.error(format!("{error:#}")),
                 },
                 button => self.updater.cursor = navigate(self.updater.cursor, 4, button),
+            },
+            View::Bluetooth => match self.bluetooth.as_mut().map(|screen| screen.press(button)) {
+                Some(bluetooth::Press::Stay(notice)) => if let Some(notice) = notice { self.show(notice) },
+                Some(bluetooth::Press::Leave) | None => { self.bluetooth = None; self.view = View::Configuration; }
             },
             View::Information => match button {
                 Button::B => self.view = View::Home,
@@ -490,6 +504,7 @@ impl App {
         self.receive_art();
         self.receive_download();
         if self.updater.poll() { self.rows_for = None; }
+        self.poll_bluetooth();
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -497,6 +512,18 @@ impl App {
             self.refresh_status(now);
         }
         self.sync();
+    }
+
+    fn poll_bluetooth(&mut self) {
+        let Some(screen) = &mut self.bluetooth else { return };
+        let (changed, notices) = screen.poll();
+        if changed { self.rows_for = None; }
+        notices.into_iter().for_each(|notice| self.show(notice));
+    }
+
+    fn show(&mut self, notice: crate::bluetooth::model::Notice) {
+        if notice.error { self.error(notice.text) } else { self.notice(&notice.text) }
+        self.rows_for = None;
     }
 
     fn receive_scan(&mut self) {
@@ -596,6 +623,7 @@ impl App {
         let busy = self.scan.is_some() || self.art_pending.is_some() || self.download.is_some();
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
+        if self.bluetooth.is_some() { deadline = deadline.min(Instant::now() + BLUETOOTH_POLL); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
         deadline
     }
@@ -643,6 +671,7 @@ impl App {
 
     fn configuration_items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings];
+        if crate::bluetooth::available() { items.push(MenuItem::Bluetooth); }
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -733,6 +762,13 @@ impl App {
                 match self.updater.open() { Ok(()) => self.view = View::Updates, Err(error) => self.error(format!("{error:#}")) }
                 None
             },
+            MenuItem::Bluetooth => {
+                match bluetooth::Screen::open() {
+                    Ok(screen) => { self.bluetooth = Some(screen); self.view = View::Bluetooth; self.rows_for = None; }
+                    Err(error) => self.error(format!("Bluetooth: {error:#}")),
+                }
+                None
+            }
             MenuItem::RetroArchSettings => match LaunchSpec::retroarch_settings(&self.config) {
                 Ok(spec) => Some(Effect::Launch { spec, purpose: LaunchPurpose::RetroArchSettings }),
                 Err(error) => { self.error(format!("RetroArch settings: {error:#}")); None }
@@ -859,6 +895,7 @@ impl App {
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
             }
             View::Updates => { let (label, detail) = self.updater.row(index); Row { label: label.into(), detail: detail.into(), glyph: "".into() } },
+            View::Bluetooth => { let line = self.bluetooth.as_ref()?.line(index)?; Row { label: line.label.into(), detail: line.detail.into(), glyph: line.glyph.into() } }
             View::Information => self.information_rows.get(index)?.clone(),
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
@@ -885,6 +922,7 @@ impl App {
             (None, View::Applications) => SYSTEM_HINTS,
             (None, View::Configuration) => CONFIGURATION_HINTS,
             (None, View::Updates) => OPTIONS_HINTS,
+            (None, View::Bluetooth) => self.bluetooth.as_ref().map_or(OPTIONS_HINTS, bluetooth::Screen::hints),
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -900,6 +938,7 @@ impl App {
             View::Applications => (self.application_cursor, APPLICATION_ITEMS.len()),
             View::Configuration => (self.configuration_cursor, self.configuration_items().len()),
             View::Updates => (self.updater.cursor, 4),
+            View::Bluetooth => self.bluetooth.as_ref().map_or((0, 0), |screen| (screen.cursor(), screen.len())),
             View::Information => (self.information_cursor, self.information_rows.len()),
         };
 
@@ -929,6 +968,7 @@ impl App {
             View::Applications => "Applications",
             View::Configuration => "Configuration",
             View::Updates => "System update",
+            View::Bluetooth => "Bluetooth",
             View::Information => "Information",
         }.into());
         ui.set_position(if total > 0 { format!("{} / {total}", cursor + 1) } else { String::new() }.into());
@@ -981,7 +1021,7 @@ fn step(i: usize, len: usize, delta: isize, wrap: bool) -> usize {
 }
 
 /// Up/Down move one row (wrapping), L1/R1 jump a page (clamped).
-fn navigate(cursor: usize, len: usize, button: Button) -> usize {
+pub(super) fn navigate(cursor: usize, len: usize, button: Button) -> usize {
     match button {
         Button::Up => step(cursor, len, -1, true),
         Button::Down => step(cursor, len, 1, true),
