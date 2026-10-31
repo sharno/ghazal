@@ -8,6 +8,16 @@ mount = { source = "sysfs", target = "/sys", fstype = "sysfs", options = "nosuid
 mount = { source = "devtmpfs", target = "/dev", fstype = "devtmpfs", options = "nosuid" }
 [[init.step]]
 mount = { source = "devpts", target = "/dev/pts", fstype = "devpts", options = "nosuid,noexec,gid=5,mode=0620" }
+# Bash's process substitution (`<(cmd)`, which PortMaster's launcher uses) and
+# scripts writing to /dev/stdout need these; a devtmpfs has none of them.
+[[init.step]]
+symlink = { link = "/dev/fd", target = "/proc/self/fd" }
+[[init.step]]
+symlink = { link = "/dev/stdin", target = "/proc/self/fd/0" }
+[[init.step]]
+symlink = { link = "/dev/stdout", target = "/proc/self/fd/1" }
+[[init.step]]
+symlink = { link = "/dev/stderr", target = "/proc/self/fd/2" }
 [[init.step]]
 mount = { source = "tmpfs", target = "/run", fstype = "tmpfs", options = "nosuid,nodev,mode=0755" }
 [[init.step]]

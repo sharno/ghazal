@@ -6,7 +6,8 @@
 # `ghazal ports run` and PortMaster's control.txt (config/*/ports) add `bin` and
 # `lib` for ports only. Keep the library list equal to SONAMES in src/ports/check.rs.
 { lib, runCommand, stdenv, busybox, python, util-linuxMinimal, squashfsTools, curl,
-  mesa, sdl2, SDL2_ttf, SDL2_image, SDL2_mixer, alsa-lib, libdrm, udev, zlib, libpng }:
+  mesa, sdl2, SDL2_ttf, SDL2_image, SDL2_mixer, alsa-lib, libdrm, udev, zlib, libpng,
+  freetype, openal, mpg123, libogg, libvorbis, libtheora }:
 let
   # BusyBox applets beyond the base image's: PortMaster's scripts and its Python
   # code use these, and `env` is what `#!/usr/bin/env python3` needs.
@@ -35,7 +36,18 @@ let
     "libpng16.so.16" = libpng;
     "libstdc++.so.6" = stdenv.cc.cc.lib;
     "libgcc_s.so.1" = stdenv.cc.cc.lib;
+    # PortMaster's Love2D runtime (its splash and every Love2D port) links these
+    # from the system and bundles only LuaJIT, libmodplug and libogg.
+    "libfreetype.so.6" = freetype;
+    "libopenal.so.1" = openal;
+    "libmpg123.so.0" = mpg123;
+    "libogg.so.0" = libogg;
+    "libvorbis.so.0" = libvorbis;
+    "libvorbisfile.so.3" = libvorbis;
   };
+  # soname a port asks for -> the file that serves it. libtheora 1.2 renamed its
+  # decoder libtheoradec.so.2; Love links the .1 name and uses only the th_* decoder API.
+  renamed = { "libtheoradec.so.1" = "${libtheora}/lib/libtheoradec.so.2"; };
 in
 runCommand "ghazal-ports" { } ''
   mkdir -p $out/bin $out/lib
@@ -56,4 +68,8 @@ runCommand "ghazal-ports" { } ''
     test -e ${package}/lib/${soname} || { echo "${soname} is not in ${package}"; exit 1; }
     ln -s ${package}/lib/${soname} $out/lib/${soname}
   '') libraries)}
+  ${lib.concatStrings (lib.mapAttrsToList (soname: file: ''
+    test -e ${file} || { echo "${file} does not exist"; exit 1; }
+    ln -s ${file} $out/lib/${soname}
+  '') renamed)}
 ''

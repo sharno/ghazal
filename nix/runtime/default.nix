@@ -66,7 +66,10 @@ let
     enableLTO = false;
   };
   busybox = pkgs.pkgsStatic.busybox;
-  ports = callPackage ./ports.nix { inherit mesa sdl2 SDL2_ttf SDL2_image SDL2_mixer python busybox; };
+  # Love2D's audio and video libraries, with ALSA as the only sound backend.
+  openal = pkgs.openal-soft.override { dbusSupport = false; pipewireSupport = false; pulseSupport = false; };
+  mpg123 = pkgs.mpg123.override { libOnly = true; withConplay = false; withPulse = false; withJack = false; };
+  ports = callPackage ./ports.nix { inherit mesa sdl2 SDL2_ttf SDL2_image SDL2_mixer python busybox openal mpg123; };
 
   # Every `core = ` in frontend.toml, in a system or its alternatives, must name a built core.
   frontend = lib.importTOML (profile + "/frontend.toml");

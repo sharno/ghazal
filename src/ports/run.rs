@@ -69,7 +69,27 @@ pub fn display_size() -> Option<(u32, u32)> {
 /// updates restore the stock one), and the controller database.
 pub fn prepare(ports: &Config, device: &DeviceConfig, ports_dir: &Path) -> Result<()> {
     write_controller_db(ports, &Facts::read(device))?;
-    install_files(&ports.files, &ports_dir.join(PORTMASTER)).map(drop)
+    refresh_portmaster(ports, &ports_dir.join(PORTMASTER))
+}
+
+/// PortMaster's zip stores its input helpers without an execute bit. Ports run them
+/// directly: an exFAT card mounted with every bit set hides that, an ext4 card does not.
+const HELPERS: [&str; 2] = ["gptokeyb", "gptokeyb2"];
+
+/// Our control files over PortMaster's, and its helpers executable. Does nothing
+/// while PortMaster is not installed.
+pub(super) fn refresh_portmaster(ports: &Config, portmaster: &Path) -> Result<()> {
+    install_files(&ports.files, portmaster)?;
+    HELPERS.iter().map(|name| portmaster.join(name)).try_for_each(|helper| make_executable(&helper))
+}
+
+fn make_executable(file: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(metadata) = std::fs::metadata(file) else { return Ok(()) };
+    let mode = metadata.permissions().mode();
+    if mode & 0o111 == 0o111 { return Ok(()); }
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode | 0o111))
+        .with_context(|| format!("making {} executable", file.display()))
 }
 
 fn write_controller_db(ports: &Config, facts: &Facts) -> Result<()> {
@@ -106,9 +126,9 @@ pub fn run(ports: &Config, device: &DeviceConfig, ports_dir: &Path, script: &Pat
 
     let facts = Facts::read(device);
     write_controller_db(ports, &facts)?;
-    if let Err(error) = install_files(&ports.files, &ports_dir.join(PORTMASTER)) {
+    if let Err(error) = refresh_portmaster(ports, &ports_dir.join(PORTMASTER)) {
         // A stale control.txt is a worse port, not a reason to refuse to start one.
-        eprintln!("ghazal: updating PortMaster's control files: {error:#}");
+        eprintln!("ghazal: updating PortMaster's files: {error:#}");
     }
     if !ports_dir.join(PORTMASTER).join("control.txt").is_file() {
         // Not fatal: a plain shell script may still work.
@@ -272,6 +292,22 @@ mod tests {
         assert_eq!(install_files(&from, &to).unwrap(), 1);
         assert_eq!(std::fs::read(to.join("control.txt")).unwrap(), b"ours");
         assert_eq!(install_files(&from, &to).unwrap(), 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn input_helpers_become_executable_and_other_files_are_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("ghazal-ports-helpers-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for name in ["gptokeyb", "gptokeyb2", "control.txt"] {
+            std::fs::write(root.join(name), b"x").unwrap();
+            std::fs::set_permissions(root.join(name), std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        HELPERS.iter().for_each(|name| make_executable(&root.join(name)).unwrap());
+        let mode = |name: &str| std::fs::metadata(root.join(name)).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode("gptokeyb"), mode("gptokeyb2"), mode("control.txt")), (0o755, 0o755, 0o644));
+        make_executable(&root.join("missing")).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -60,7 +60,7 @@ pub fn install(ports: &Config, ports_dir: &Path, step: &mut dyn FnMut(&'static s
     let _ = std::fs::remove_file(&archive);
 
     step("Adding Ghazal's control files…");
-    super::run::install_files(&ports.files, &target).map(drop)
+    super::run::refresh_portmaster(ports, &target)
 }
 
 fn unpack(ports: &Config, archive: &Path, staging: &Path, copy: &Path) -> Result<()> {
@@ -70,9 +70,12 @@ fn unpack(ports: &Config, archive: &Path, staging: &Path, copy: &Path) -> Result
     copy_tree(&unpacked, copy).with_context(|| format!("copying PortMaster to {}", copy.display()))
 }
 
-/// Copies files and folders. Modes are applied afterwards and may be refused
-/// (exFAT has none to set); the card's own defaults then apply.
+/// Copies files and folders, every file executable: PortMaster's zip stores its
+/// input helpers 0644 and its launcher only runs `chmod -R +x` after the Love2D
+/// splash has already failed to start. Modes are applied afterwards and may be
+/// refused (exFAT has none to set); the card's own defaults then apply.
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)?.flatten() {
         let (source, target) = (entry.path(), to.join(entry.file_name()));
@@ -81,7 +84,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
             copy_tree(&source, &target)?;
         } else {
             std::io::copy(&mut std::fs::File::open(&source)?, &mut std::fs::File::create(&target)?)?;
-            let _ = std::fs::set_permissions(&target, metadata.permissions());
+            let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(metadata.permissions().mode() | 0o111));
         }
     }
     Ok(())
@@ -143,12 +146,13 @@ mod tests {
     }
 
     #[test]
-    fn nested_files_are_copied_with_their_modes() {
+    fn nested_files_are_copied_and_made_executable() {
         let (root, ports) = fixture("nested");
-        script(&ports.bin.join("unzip"), "while [ $# -gt 0 ]; do [ \"$1\" = -d ] && d=\"$2\"; shift; done\nmkdir -p \"$d/PortMaster/libs\" && echo '#!/bin/bash' > \"$d/PortMaster/PortMaster.sh\" && echo lib > \"$d/PortMaster/libs/runtime.squashfs\" && chmod 755 \"$d/PortMaster/PortMaster.sh\"");
+        script(&ports.bin.join("unzip"), "while [ $# -gt 0 ]; do [ \"$1\" = -d ] && d=\"$2\"; shift; done\nmkdir -p \"$d/PortMaster/libs\" && echo '#!/bin/bash' > \"$d/PortMaster/PortMaster.sh\" && echo lib > \"$d/PortMaster/libs/runtime.squashfs\" && chmod 755 \"$d/PortMaster/PortMaster.sh\" && chmod 644 \"$d/PortMaster/libs/runtime.squashfs\"");
         let ports_dir = root.join("PORTS");
         install(&ports, &ports_dir, &mut |_| {}).unwrap();
         assert_eq!(std::fs::read(ports_dir.join("PortMaster/libs/runtime.squashfs")).unwrap(), b"lib\n");
+        assert_eq!(std::fs::metadata(ports_dir.join("PortMaster/libs/runtime.squashfs")).unwrap().permissions().mode() & 0o111, 0o111);
         assert_eq!(std::fs::metadata(ports_dir.join("PortMaster/PortMaster.sh")).unwrap().permissions().mode() & 0o111, 0o111);
         assert!(!ports_dir.join(".PortMaster.new").exists());
         std::fs::remove_dir_all(root).unwrap();

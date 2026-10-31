@@ -12,10 +12,11 @@ use super::{portmaster_state, Config, PortMaster};
 use crate::device::DeviceConfig;
 
 /// Libraries `nix/runtime/ports.nix` links into `[ports] libs`; keep the lists equal.
-const SONAMES: [&str; 14] = [
+const SONAMES: [&str; 21] = [
     "libSDL2-2.0.so.0", "libSDL2_image-2.0.so.0", "libSDL2_mixer-2.0.so.0", "libSDL2_ttf-2.0.so.0",
     "libEGL.so.1", "libGLESv2.so.2", "libgbm.so.1", "libdrm.so.2", "libasound.so.2", "libudev.so.1",
     "libz.so.1", "libpng16.so.16", "libstdc++.so.6", "libgcc_s.so.1",
+    "libfreetype.so.6", "libopenal.so.1", "libmpg123.so.0", "libogg.so.0", "libvorbis.so.0", "libvorbisfile.so.3", "libtheoradec.so.1",
 ];
 /// PortMaster's launcher points pysdl2 at /usr/lib for these (nix/runtime/default.nix).
 const PYSDL2_LIBS: [&str; 4] = ["libSDL2-2.0.so.0", "libSDL2_image-2.0.so.0", "libSDL2_mixer-2.0.so.0", "libSDL2_ttf-2.0.so.0"];
