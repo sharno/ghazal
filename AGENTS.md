@@ -116,16 +116,25 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   (system.toml) cut that to 0% with 60 fps held for GB, NES, SNES and GBA.
   The AXP717 has no discharge current reading, so measure draw as charge lost
   over equal long runs (`ghazal observe power`).
-- Emulator choice (X in a game list, docs/standalone.md) is implemented but
-  not yet checked on a handheld: launch a game with each shipped alternative
-  (frontend.log shows `-L <core>`), then confirm the pin, the system default
-  and the clock policy of the chosen emulator survive a reboot. The
-  alternatives' `cpu` floors reuse their default's and are unmeasured: time each
-  with the null-video method before trusting them. Saves and states are filed
-  per core name, so switching cores starts without the game's battery save;
+- Emulator choice (X in a game list, docs/standalone.md) is checked on the
+  RG40XX-V v2 for pin, system default, restore, persistence across a reboot,
+  Last Game startup with a pinned core, History and Collection lists, damaged
+  and unknown-version `emulators.toml`, and one launch with every shipped
+  alternative that has games on the dev card (frame, PCM running, Menu+Start
+  back). Boot stayed 2.92 to 2.95 s. The alternatives' `cpu` floors reuse their
+  default's and are unmeasured: time each with the null-video method before
+  trusting them (PicoDrive ran at the moderate floor and reached 1104 MHz in
+  an intro). Saves and states are filed per core name (`SAVES/file/VBA Next`,
+  not `mGBA`), so switching cores starts without the game's battery save;
   copying `.srm` files between compatible cores is not done. Not built: gpsp
   (ROCKNIX's H700 build is 32-bit ARM with a 32-bit dynarec; a generic aarch64
   build has no dynarec) and PS1 alternatives (`beetle-psx-lr`, `swanstation-lr`).
+  The picker shows `Default (PPSSPP (standalone))` with nested parentheses.
+- With a menu overlay open (the Start menu or the emulator picker), `ghazal
+  observe frame` shows the whole screen shifted about 26 px left and wrapped.
+  The commit before emulator choice (ca9352d) does it too. `present()` copies
+  rows at the damage's x, so look at Slint's output and the scanout buffer
+  before blaming the panel; check whether the panel itself shows it.
 - Check status icons with the desktop snapshot power override at normal and
   compact sizes (docs/standalone.md). The software renderer has no Path support
   unless explicitly enabled; embedded-font symbols avoid adding that dependency.
@@ -189,6 +198,18 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - An open SSH session postpones idle poweroff, so keep one open during long
   unattended work. BusyBox lacks many applet links (`sed`, `pidof`,
   `readlink`, `od`): use `busybox <applet>`.
+
+## Untested features
+
+Features merged before hardware validation was possible, or only partly
+validated. Remove an entry once it has been checked on a handheld.
+
+- Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
+  so the system is hidden), the rotated-panel image profile that keeps only the
+  libretro PSP core (unit test only, no RG28XX), and the sound and frame pacing
+  of every alternative beyond one captured intro frame with PCM running. The
+  Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
+  have only been run for a few seconds each.
 
 ## Keeping this backlog accurate
 
