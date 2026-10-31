@@ -386,7 +386,8 @@ mod tests {
 
     #[test]
     fn the_real_process_times_out_and_can_be_aborted() {
-        let sleep = vec!["-c".to_owned(), "sleep 5".to_owned()];
+        // `exec` so killing the shell kills the sleep: dash forks one, which would keep the output pipe open.
+        let sleep = vec!["-c".to_owned(), "exec sleep 5".to_owned()];
         let started = Instant::now();
         assert_eq!(Process::new("/bin/sh").run(&sleep, Duration::from_millis(100), &NEVER).err(), Some(Failure::TimedOut));
 
