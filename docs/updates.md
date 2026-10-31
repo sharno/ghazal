@@ -72,9 +72,14 @@ socket exists, and the data card is mounted. Confirmation runs in the background
 The kernel starts the hardware watchdog when its driver probes, about 0.2 s
 into boot, and pets it until the health service opens it, for at most 60 s.
 The health service stops feeding it if startup never reaches those checks.
-Kernel panics reboot. After three unconfirmed boots, U-Boot tries the other
-slot. On the RG40XX-V v2, a slot whose userspace never opened the watchdog
-reset itself about a minute after boot and U-Boot fell back to the other slot.
+Kernel panics show the kernel log on screen. On the RG40XX-V v2 the board
+then freezes instead of rebooting after 10 s, and needs a power cycle (see
+AGENTS.md). Retried boots show the console from the start (~0.3 s slower), so
+a panic before the menu is visible too. U-Boot saves its whole environment, boot script
+included, so a card flashed from an earlier image keeps its old script until
+reflashed. After three unconfirmed boots, U-Boot tries the other slot. On the
+RG40XX-V v2, a slot whose userspace never opened the watchdog reset itself
+about a minute after boot and U-Boot fell back to the other slot.
 U-Boot itself does not arm the watchdog, so a hang between reset and the
 driver probe still requires Reset. If both slots are exhausted, reflash from a
 computer after backing up data. Routine updates do not replace SPL/U-Boot or

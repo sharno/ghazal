@@ -130,6 +130,13 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 - Classify user-volume failures separately from OS faults. A missing/full data
   card is shared by both slots: retain Wi-Fi/SSH recovery instead of exhausting
   both boot budgets. Keep this distinction through anyhow boot-step context.
+- Panics and emergency restarts (`echo b > /proc/sysrq-trigger`) freeze the
+  RG40XX-V v2 with the last frame on screen: neither `panic=10` nor the 16 s
+  watchdog the health service feeds resets it, while normal reboots work.
+  Both skip the reboot notifiers and `device_shutdown`; the boot cards run at
+  3.3 V high speed, so it is not a UHS card left at 1.8 V. Find what the
+  shutdown path does that the emergency path needs (the PSCI reset in TF-A,
+  or the watchdog's reboot notifier) with a debug kernel and the Reset button.
 - The kernel starts the watchdog at driver probe (~0.2 s) and resets the board
   if userspace never opens it within a minute; this was proven on hardware.
   U-Boot still leaves it off, so hangs before the probe need Reset. Arming it

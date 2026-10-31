@@ -106,8 +106,11 @@ let
   # Loop devices are created on demand (RAUC). fbcon takes over the display
   # only when the console is first written: otherwise powering the panel on
   # (~0.3 s) runs inside the probe pass that root mounting waits for.
+  # A panic draws the log tail over the current frame (DRM_PANIC), so a photo
+  # of the screen is a bug report; U-Boot binds fbcon early on retried boots.
   values = { NR_CPUS = "4"; LOG_BUF_SHIFT = "16"; WATCHDOG_OPEN_TIMEOUT = "60"; BLK_DEV_LOOP_MIN_COUNT = "0"; };
-  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" ];
+  strings = { DRM_PANIC_SCREEN = "kmsg"; };
+  enabled = [ "FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER" "DRM_PANIC" ];
   # Former modules the device does use: iwd needs these AF_ALG algorithms.
   required = [ "CRYPTO_USER_API_AEAD" "CRYPTO_ARC4" "HID_PLAYSTATION"
     "MSDOS_PARTITION" "BLK_DEV_LOOP" "MD" "BLK_DEV_DM" "DM_VERITY"
@@ -116,7 +119,7 @@ let
   debugOptions = [
     "PM_DEBUG" "PM_ADVANCED_DEBUG" "PM_SLEEP_DEBUG" "PSTORE_RAM" "PSTORE_CONSOLE"
     "PSTORE_PMSG" "DETECT_HUNG_TASK" "STACKTRACE" "FTRACE" "FUNCTION_TRACER" "DYNAMIC_DEBUG"
-    "DEBUG_FS" "KALLSYMS" "KALLSYMS_ALL"
+    "DEBUG_FS" "KALLSYMS" "KALLSYMS_ALL" "DRM_PANIC_DEBUG"
   ];
   flags = prefix: names: lib.concatMapStringsSep " " (name: "${prefix} ${name}") names;
 in
@@ -153,7 +156,8 @@ stdenv.mkDerivation {
       ${./sunxi-wdt-start-at-probe.patch} \
       ${./h700-charge-current.patch} \
       ${./serial-8250-fifo-size.patch} \
-      ${./sunxi-mmc-pwrseq-async.patch}; do
+      ${./sunxi-mmc-pwrseq-async.patch} \
+      ${./sun8i-panic-scanout.patch}; do
       patch -p1 < "$patch"
     done
     cp -r "$base"/devices/H700/linux/dts/. arch/arm64/boot/dts/
@@ -191,6 +195,7 @@ stdenv.mkDerivation {
     scripts/config --disable MODULES ${flags "--disable" unused} ${flags "--enable" (required ++ enabled)} \
       ${lib.optionalString debug (flags "--enable" debugOptions)} \
       ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value: "--set-val ${name} ${value}") values)} \
+      ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value: "--set-str ${name} ${value}") strings)} \
       --set-str INITRAMFS_SOURCE "" \
       --set-str EXTRA_FIRMWARE "${lib.concatStringsSep " " firmware}" \
       --set-str EXTRA_FIRMWARE_DIR "${earlyFirmware}" \
@@ -203,7 +208,7 @@ stdenv.mkDerivation {
     for option in ${lib.concatStringsSep " " (required ++ enabled ++ [ "DEVTMPFS_MOUNT" "INPUT_JOYSTICK" "DRM_SUN4I" "DRM_PANFROST" "RTW88_8821CS" "SND_SUN4I_CODEC" "EXT4_FS" "EXFAT_FS" "VFAT_FS" ])}; do
       grep -qx "CONFIG_$option=y" .config || { echo "CONFIG_$option is not built in"; exit 1; }
     done
-    for setting in ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value: "${name}=${value}") values)}; do
+    for setting in ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value: "${name}=${value}") values ++ lib.mapAttrsToList (name: value: "'${name}=\"${value}\"'") strings)}; do
       grep -qx "CONFIG_$setting" .config || { echo "CONFIG_$setting did not apply"; exit 1; }
     done
     runHook postConfigure

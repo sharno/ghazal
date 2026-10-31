@@ -1,0 +1,27 @@
+drm/sun4i: give drm_panic the mixer's scanout buffer
+
+Without get_scanout_buffer the kernel's panic screen has nothing to draw
+into, so a panic freezes the last frame and its message reaches only the
+serial console. The DMA helper skips buffers imported from the GPU, so this
+covers dumb buffers such as the menu's, not games.
+
+--- a/drivers/gpu/drm/sun4i/sun8i_ui_layer.c
++++ b/drivers/gpu/drm/sun4i/sun8i_ui_layer.c
+@@ -209,6 +209,7 @@
+ static const struct drm_plane_helper_funcs sun8i_ui_layer_helper_funcs = {
+ 	.atomic_check	= sun8i_ui_layer_atomic_check,
+ 	.atomic_update	= sun8i_ui_layer_atomic_update,
++	.get_scanout_buffer	= drm_fb_dma_get_scanout_buffer,
+ };
+ 
+ static const struct drm_plane_funcs sun8i_ui_layer_funcs = {
+--- a/drivers/gpu/drm/sun4i/sun8i_vi_layer.c
++++ b/drivers/gpu/drm/sun4i/sun8i_vi_layer.c
+@@ -289,6 +289,7 @@
+ static const struct drm_plane_helper_funcs sun8i_vi_layer_helper_funcs = {
+ 	.atomic_check	= sun8i_vi_layer_atomic_check,
+ 	.atomic_update	= sun8i_vi_layer_atomic_update,
++	.get_scanout_buffer	= drm_fb_dma_get_scanout_buffer,
+ };
+ 
+ static const struct drm_plane_funcs sun8i_vi_layer_funcs = {

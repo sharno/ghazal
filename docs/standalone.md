@@ -38,7 +38,11 @@ initramfs and udev-ordered services). It is the sum of:
   console is first written (the menu powers the panel on instead), the Wi-Fi
   SDIO power sequence runs from the MMC rescan work, and the H616 UARTs skip
   the 8250 core's 20 ms FIFO count. `quiet` keeps the boot log off the
-  115200-baud serial console; printing it took ~2.5 s.
+  115200-baud serial console; printing it took ~2.5 s. A panic draws the log
+  tail over the current frame (`DRM_PANIC`), except over a game's GPU buffers.
+  When a slot is retried after an unconfirmed boot, U-Boot passes
+  `fbcon=nodefer`, so a panic before the menu is visible too; that boot
+  is ~0.3 s slower.
 - ghazal: about 0.45 s. Mounts, then the daemon, frontend and audio-init in
   parallel; PID 1 logs to the kernel log, since a console write would make
   fbcon take over and wait for the panel. Everything else starts with `start = "background"` once the first
