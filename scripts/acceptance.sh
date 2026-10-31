@@ -205,7 +205,9 @@ GAME_NUMBER=0
 run_game() { # ROM
   local rom=$1 label directory log offset launch started colors pcm policy_dir governor min_khz pid out
   GAME_NUMBER=$((GAME_NUMBER + 1))
-  PLAN=$(dev "$G observe plan $(q "$rom")" 2>&1) || { record FAIL "$(basename "$rom")" "find the game in the menu" "$PLAN"; return; }
+  # The library scan reports hidden systems on stderr; keep that out of the key=value lines.
+  PLAN=$(dev "$G observe plan $(q "$rom") 2>$SCRATCH/plan.err") \
+    || { record FAIL "$(basename "$rom")" "find the game in the menu" "$(dev "busybox tail -n 1 $SCRATCH/plan.err")"; return; }
   label="$(plan_get system): $(basename "$rom")"
   launch=$(plan_get launch)
   log=$(plan_get log)
