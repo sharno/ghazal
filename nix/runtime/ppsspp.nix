@@ -8,6 +8,8 @@ stdenv.mkDerivation {
   inherit (ppsspp) version src;
   strictDeps = true;
   enableParallelBuilding = true;
+  # Built like ROCKNIX's, without nixpkgs' hardening flags (see cores.nix).
+  hardeningDisable = [ "all" ];
   nativeBuildInputs = [ cmake pkg-config python3 ];
   buildInputs = [ mesa libzip snappy zlib ] ++ lib.optionals (!libretroCore) [ sdl2 SDL2_ttf ];
   # SDL_ttf.h includes "SDL.h", but PPSSPP's text renderer gets no SDL include path.
@@ -27,6 +29,10 @@ stdenv.mkDerivation {
       --replace-fail 'return pspDirectory / "SAVEDATA";' 'return memStickDirectory / "PSP/SAVEDATA";' \
       --replace-fail 'return pspDirectory / "SCREENSHOT";' 'return Path("/mnt/games/SAVES/screenshots");' \
       --replace-fail 'return pspDirectory / "PPSSPP_STATE";' 'return Path("/mnt/games/SAVES/state/PPSSPP-standalone");'
+    # States are named after the ROM file, as RetroArch's and ROCKNIX's
+    # builds name them, so states saved by ROCKNIX's PPSSPP still load.
+    substituteInPlace Core/SaveState.cpp --replace-fail 'return GenerateFullDiscId(paramSFO);' \
+      'return PSP_CoreParameter().fileToStart.WithReplacedExtension("").GetFilename();'
   '';
   cmakeFlags = map (option: lib.cmakeBool option true) [
     "USING_FBDEV" "USING_GLES2" "USE_SYSTEM_LIBZIP" "USE_SYSTEM_SNAPPY"

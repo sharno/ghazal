@@ -119,6 +119,9 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   libraries through their store RPATHs, never `/usr/lib`. Stock nixpkgs
   graphics closures do not fit the 1 GiB slot; keep overrides free of X11,
   Wayland, LLVM, Vulkan and FFmpeg, and check the root's size after bumps.
+  Also launch every system and compare core speed against the previous build
+  (docs/standalone.md, Runtime): nixpkgs' `ARCH=arm64` silently changes which
+  dynarecs and JITs some cores build.
 - Exercise application writes with the root mounted read-only. RetroArch core
   options, its home and caches belong on the selected data card; `/root` must
   not be assumed writable just because launching and saving a game succeeded.

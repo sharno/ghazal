@@ -124,11 +124,15 @@ LLVM), so the graphics stack is rebuilt for this device only:
   Vulkan. Panfrost's precompiled kernels use the same Mesa version's tools.
 - SDL2 2.32 (as ROCKNIX): KMSDRM, GLES, ALSA, udev.
 - RetroArch: KMS/EGL with GLES 3.1, ALSA, udev and RGUI.
-- PPSSPP and its libretro core: GLES with ROCKNIX's H700 flags.
+- PPSSPP and its libretro core: GLES with ROCKNIX's H700 flags. Standalone
+  states are named after the ROM file, as ROCKNIX's build names them.
 - Cores: `nix/runtime/cores.nix` maps each `core =` in `frontend.toml` to a
   nixpkgs core rebuilt without its RetroArch wrapper; GL cores target GLES 3.
-  Yabasanshiro, absent from nixpkgs, is built from libretro's fork. Evaluation
-  fails if `frontend.toml` names a core the table lacks.
+  mGBA uses ROCKNIX's revision and CMake build; Yabasanshiro, absent from
+  nixpkgs, is built from libretro's fork. Evaluation fails if `frontend.toml`
+  names a core the table lacks.
+- Emulation code (cores, PPSSPP, RetroArch) is built without nixpkgs'
+  hardening flags, as ROCKNIX builds it; they cost cores 3-20%.
 
 The image builder copies the runtime's store closure to `/nix/store` on the
 root filesystem and the `tree` output's links (`/usr/bin/retroarch`,
@@ -140,6 +144,14 @@ These packages are not in cache.nixos.org, so building them needs an aarch64
 Linux machine: CI uses `ubuntu-24.04-arm` and caches the closure; locally use
 an aarch64 Linux container or a remote builder. The first full build takes
 hours; later builds reuse the cache.
+
+Check cores after nixpkgs bumps: a Makefile variable can silently drop a
+dynarec (PicoDrive's 32X needs `ARCH=aarch64`, not nixpkgs' `arm64`) or build a
+JIT that crashes (melonDS). For software-rendered cores, RetroArch with
+`video_driver = "null"`, `audio_driver = "null"` and `--max-frames=N` times
+emulation alone and runs over SSH beside the menu: time a 30-frame and a
+30+N-frame run and divide N by the difference. Unthrottled runs on the display
+also measure presentation, which differs between RetroArch builds.
 
 ## Data and debugging
 

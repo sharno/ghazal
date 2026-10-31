@@ -1,5 +1,11 @@
 # Ghazal H700 beta
 
+RetroArch, every core, standalone PPSSPP, Mesa and the system services are now
+built from pinned sources instead of being copied from a ROCKNIX image. On the
+RG40XX-V every system with games launches, plays sound, saves and quits as in
+beta 7; emulation speed is within 6% of ROCKNIX's builds and startup time is
+unchanged. Existing RetroArch save states and standalone PPSSPP states still load.
+
 Power-on to the menu takes about 2.9 s on the RG40XX-V (4.4 s in beta 6): a
 smaller kernel that mounts root sooner, network, SSH and udev starting after
 the menu appears, and no `/var` journal replay after a clean shutdown. One-card

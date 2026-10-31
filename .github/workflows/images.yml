@@ -24,11 +24,12 @@ jobs:
     if: inputs.artifact_run == ''
     uses: ./.github/workflows/check.yml
   # The device runtime (nix/runtime) is rebuilt from source where nixpkgs'
-  # cache cannot help, so the store is built natively on aarch64.
+  # cache cannot help, so the store is built natively on aarch64. A cold build
+  # takes hours on a 4-core runner; the cache saves only after a finished run.
   runtime:
     if: inputs.artifact_run == ''
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31

@@ -24,7 +24,7 @@ let
   ppsspp = callPackage ./ppsspp.nix { inherit mesa sdl2 SDL2_ttf; };
   ppsspp-libretro = ppsspp.override { libretroCore = true; };
   cores = import ./cores.nix {
-    inherit (pkgs) lib stdenv libretro fetchFromGitHub zlib libpng libzip;
+    inherit (pkgs) lib stdenv libretro fetchFromGitHub cmake zlib libpng libzip;
     inherit mesa rocknix ppsspp-libretro;
   };
 
