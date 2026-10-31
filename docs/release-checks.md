@@ -26,6 +26,13 @@ publication from an earlier run (`artifact_run`) requires the run to contain all
 of them as successful jobs. The release is only created, as a draft, after they
 pass, and stays a draft until its assets are uploaded.
 
+`publish` also counts. The two image artifacts come to about 27 GB, so it
+extracts them onto the runner's `/mnt` disk (the root disk ran out during beta
+11: the download step passed, five DDR4 images never arrived and the release
+went out without them). Before uploading it requires an image and a bundle per
+catalog device and bootloader, and before leaving draft it requires the release
+to hold `4 x devices + 5` assets.
+
 Limits of the gates:
 
 - The input test needs `/dev/uinput`. The workflow runs `modprobe uinput`; a

@@ -319,6 +319,11 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   `runtime` job (new derivations) took about 50 minutes, and every push to main
   cancels the run in progress before its cache is saved, so let the `runtime`
   job finish before pushing again.
+- Beta 11's release went out with 33 of 38 images: `publish` extracted both image
+  artifacts (about 27 GB) onto the runner's root disk, which ran out of space
+  during the DDR4 one, and nothing counted the files. Beta 12 repackaged it. The
+  job now extracts onto `/mnt` and checks counts before and after uploading; keep
+  an eye on artifact size as the runtime grows (beta 10 was 23 GB).
 - `scripts/acceptance.sh` ran on the RG40XX-V v2 against a fresh image built from
   main: Game Boy, GBA, SNES, Mega Drive, PlayStation and PSP games, 69 checks
   passed and the PSP save state was skipped by design, in 2 min 7 s. The menu path
@@ -341,17 +346,18 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
 
-- Beta 11 (the first release with every feature) was tagged without booting its
-  images on a handheld: the development RG40XX-V v2 stopped answering on the
-  network after its first boot of the Bluetooth-kernel test image (slot B,
-  `BOOT_B_LEFT=1`; cause unknown) and nobody could power-cycle it. Both kernel
-  flags are false in the release, so its kernel is the one that booted before.
-  First session: power-cycle (check the battery first), put the beta 11 image on
-  slot B (`flash-b.sh`, or System update from beta 10, which also proves the
-  updater: docs/release-checks.md step 6), read the boot time (~2.95 s
-  expected), run `scripts/acceptance.sh`, then work through the entries below,
-  Bluetooth and HDMI sound last because they need their kernel flag flipped.
-  Whatever fails there is a bug to fix in beta 12; slot A stays the fallback.
+- Betas 11 and 12 (the first releases with every feature) were tagged without
+  booting their images on a handheld: the development RG40XX-V v2 stopped
+  answering on the network after its first boot of the Bluetooth-kernel test
+  image (slot B, `BOOT_B_LEFT=1`; cause unknown) and nobody could power-cycle it.
+  Both kernel flags are false in the release, so its kernel is the one that
+  booted before. First session: power-cycle (check the battery first), put the
+  beta 12 image on slot B (`flash-b.sh`, or System update from beta 10, which
+  also proves the updater: docs/release-checks.md step 6), read the boot time
+  (~2.95 s expected), run `scripts/acceptance.sh`, then work through the entries
+  below, Bluetooth and HDMI sound last because they need their kernel flag
+  flipped. Whatever fails there is a bug to fix in beta 13; slot A stays the
+  fallback.
 
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the

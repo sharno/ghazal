@@ -193,20 +193,40 @@ jobs:
             . as $jobs |
             ["runtime", "checks / check", "release-tests", "vm-smoke", "images (ddr3)", "images (ddr4)"] as $required |
             all($required[]; . as $name | any($jobs[]; .name == $name and .conclusion == "success"))' >/dev/null
+      # The two image artifacts come to ~27 GB, more than the runner's root disk has
+      # free. Beta 11 ran out of space extracting the DDR4 one, the download step still
+      # passed and the release went out with 33 of 38 images. Extract onto /mnt, which
+      # has a disk of its own, and count what arrives before publishing anything.
+      - name: Make room for the image artifacts
+        run: |
+          sudo mkdir -p /mnt/dist
+          sudo chown "$(id -u):$(id -g)" /mnt/dist
+          df -h / /mnt
       - uses: actions/download-artifact@v4
         with:
           pattern: images-*
-          path: dist
+          path: /mnt/dist
           merge-multiple: true
           github-token: ${{ github.token }}
           run-id: ${{ inputs.artifact_run || github.run_id }}
       - name: Verify and publish the complete beta
+        env:
+          DIST: /mnt/dist
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
-          cd dist
+          df -h /mnt
+          cd "$DIST"
           sha256sum -c ./*.sha256
+          # Every catalog device must have an image and a bundle for each bootloader. A
+          # truncated download leaves the files that did arrive passing their checksums.
+          devices=$(grep -c '^  { id = ' "$GITHUB_WORKSPACE/config/h700/devices.toml")
+          for memory in ddr3 ddr4; do
+            test "$(ls ./*-"$memory".img.gz | wc -l)" -eq "$devices"
+            test "$(ls ./*-"$memory".raucb | wc -l)" -eq "$devices"
+          done
+          test "$(ls ./*.sha256 | wc -l)" -eq "$((2 * devices))"
           sha256sum ./*.img.gz ./*.raucb > SHA256SUMS
-          cd ..
+          cd "$GITHUB_WORKSPACE"
           # Tags are created before release builds. Omitting target_commitish avoids
           # requiring workflow-write permission when main has since advanced.
           if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft); then
@@ -214,5 +234,8 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --draft --prerelease --title "Ghazal $TAG — H700 beta" --notes-file docs/beta-release.md
           fi
-          gh release upload "$TAG" dist/*.img.gz dist/*.raucb dist/SHA256SUMS docs/installation.md docs/storage-layout.md docs/updates.md config/h700/devices.toml --clobber
+          gh release upload "$TAG" "$DIST"/*.img.gz "$DIST"/*.raucb "$DIST"/SHA256SUMS docs/installation.md docs/storage-layout.md docs/updates.md config/h700/devices.toml --clobber
+          # An image and a bundle per device and bootloader, plus the five shared files.
+          uploaded=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          test "$uploaded" -eq "$((4 * devices + 5))"
           gh release edit "$TAG" --draft=false

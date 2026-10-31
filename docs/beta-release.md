@@ -1,11 +1,15 @@
 # Ghazal H700 beta
 
+Beta 12 is beta 11 with the five DDR4 images that beta 11's release page went
+out without (RG40XX H, RG40XX H v2, RG40XX V, RG40XX V v2 and RG CubeXX); the
+code is identical, and publication now refuses an incomplete set. Use beta 12.
+
 Beta 11 puts every planned feature into one release so they can be tested and
 fixed together. Most of what is new has never run on a handheld in its final
 form; treat it as experimental and keep slot A (the previous release) as the
 fallback.
 
-**This release was not booted on a handheld before it was tagged.** The
+**Betas 11 and 12 were not booted on a handheld before they were tagged.** The
 development RG40XX-V v2 stopped answering after its first boot of a test image
 that had Bluetooth built into the kernel, and nobody could power-cycle it before
 tagging. Why it stopped is unknown. That kernel part is switched off in this
