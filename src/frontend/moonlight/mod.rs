@@ -582,7 +582,9 @@ mod tests {
     use std::sync::OnceLock;
     use std::time::Instant;
 
-    /// A stand-in for `moonlight` that answers like a paired Sunshine host.
+    /// A stand-in for `moonlight` that answers like a paired Sunshine host
+    /// whose apps are Desktop and Steam Big Picture (`list` prints them in
+    /// reverse, as the real one does).
     fn fake_moonlight() -> &'static PathBuf {
         static BIN: OnceLock<PathBuf> = OnceLock::new();
         BIN.get_or_init(|| {
@@ -595,7 +597,7 @@ case "$1" in
   list)
     echo "Connecting to $2..."
     if [ "$2" = 10.9.9.9 ]; then echo "You must pair with the PC first" >&2; exit 255; fi
-    echo "1. Desktop"; echo "2. Steam Big Picture";;
+    echo "1. Steam Big Picture"; echo "2. Desktop";;
   pair) echo "Please enter the following PIN on the target PC: $5"; sleep 0.05; echo "Succesfully paired";;
   unpair) echo "Succesfully unpaired";;
   quit) ;;

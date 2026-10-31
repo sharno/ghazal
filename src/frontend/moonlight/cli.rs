@@ -73,12 +73,16 @@ pub fn stream(config: &config::Moonlight, host: &Host, app: &str, settings: &Str
     args
 }
 
-/// The applications from `moonlight list`, which prints `1. Desktop`, `2. ...`.
+/// The applications from `moonlight list`, which prints `1. ...`, `2. ...`
+/// in the reverse of the host's order (it builds the list by prepending), so
+/// this reads them back to front; the numbers mean nothing.
 fn apps(output: &str) -> Vec<String> {
-    output.lines().filter_map(|line| {
+    let mut apps: Vec<String> = output.lines().filter_map(|line| {
         let (number, name) = line.split_once(". ")?;
         (!number.is_empty() && number.chars().all(|c| c.is_ascii_digit())).then(|| name.trim().to_owned()).filter(|name| !name.is_empty())
-    }).collect()
+    }).collect();
+    apps.reverse();
+    apps
 }
 
 /// The first of Moonlight's failure messages in its output, else the last
@@ -184,8 +188,10 @@ mod tests {
     }
 
     #[test]
-    fn the_app_list_is_read_from_numbered_lines() {
-        let output = "Connecting to 192.168.1.20...\n1. Desktop\n2. Steam Big Picture\n10. Half-Life 2: Episode One \n";
+    fn the_app_list_is_read_from_numbered_lines_in_the_hosts_order() {
+        // As the real `moonlight list` printed it for a host whose apps are
+        // Desktop, Steam Big Picture, Half-Life 2: Episode One.
+        let output = "Connecting to 192.168.1.20...\n1. Half-Life 2: Episode One \n2. Steam Big Picture\n3. Desktop\n";
         assert_eq!(listed(&exited(0, output)), Listed::Apps(vec!["Desktop".into(), "Steam Big Picture".into(), "Half-Life 2: Episode One".into()]));
         assert_eq!(listed(&exited(0, "Connecting to x...\n")), Listed::Apps(vec![]));
     }

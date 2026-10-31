@@ -61,6 +61,7 @@ mouse (SDL picks up any evdev device).
 | Pad mapping for SDL | `config/rg40xxv-rocknix/gamecontrollerdb.txt` |
 | Paths and environment | `[moonlight]` in `frontend.toml` |
 | Decode benchmark (not in the image) | `tools/decode-bench`, `nix build .#decode-bench` |
+| Stand-in for a paired host's app list (not in the image) | `tools/fake-host/fake_host.py` |
 
 The menu starts nothing at boot: the screens exist only while the entry is open,
 so boot time is unchanged. Everything that talks to a host runs as a job on its
@@ -93,6 +94,20 @@ Patches to Moonlight Embedded (`nix/runtime/moonlight-*.patch`):
   (pairing legitimately waits for the PIN).
 - `no-avahi`: ghazal does its own one-shot mDNS browse (`discover.rs`) and
   always passes the host's address, so Avahi and its D-Bus daemon are not needed.
+
+Moonlight Embedded behaviours the menu works around, checked against the real
+binary and a stand-in host (`tools/fake-host`, below):
+
+- `list` prints the apps in the reverse of the host's order; the menu reverses
+  them back. `pair`, `unpair` and `list` can fail with exit status 0 (after
+  `Failed to pair to server: ...` or `Can't get app list`), so the menu reads
+  the messages, not the status, and "Succesfully paired" is spelled that way.
+- Its own PIN comes from an unseeded `random()` and is the same every run, so
+  the menu generates the PIN and passes `-pin`.
+- The first run generates the client's RSA key ("Generating certificate...done");
+  an A53 takes a few seconds, which is why helpers get 25 s.
+- With the connect-timeout patch an unreachable host fails in five seconds with
+  `Can't connect to server <address>`; a refused connection fails at once.
 
 ## Decoding: what was measured and what is expected
 
@@ -154,6 +169,13 @@ Applications → Moonlight → Find hosts (the search reports "No hosts found"),
 host by IP address (any address), Games and apps (fails with
 `Can't connect to server`, within about five seconds), Pair (shows the PIN and
 waits; B cancels), and Stream settings.
+
+`tools/fake-host/fake_host.py` stands in for a host that is already paired: it
+answers `serverinfo` and `applist` on Sunshine's ports 47989 and 47984. Run it on
+a computer on the same network (commands in its header), add that computer's
+address as a host, and Games and apps lists Desktop, Steam Big Picture and
+Half-Life 2: Episode One, in that order. Started without `--paired` it makes the
+menu say "Not paired with ... yet: choose Pair". It cannot pair or stream.
 
 With a Sunshine host: pair, list, stream at 640x360@60, then 1280x720@60, and
 read `/var/log/ghazal/moonlight.log`. Moonlight's `-debug` output is not
