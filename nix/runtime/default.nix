@@ -24,8 +24,9 @@ let
   ppsspp = callPackage ./ppsspp.nix { inherit mesa sdl2 SDL2_ttf; };
   ppsspp-libretro = ppsspp.override { libretroCore = true; };
   cores = import ./cores.nix {
-    inherit (pkgs) lib stdenv libretro fetchFromGitHub cmake zlib libpng libzip;
-    inherit mesa rocknix ppsspp-libretro;
+    rocknixCore = import ./rocknix-core.nix { inherit (pkgs) lib stdenv fetchurl fetchgit cmake; inherit rocknix; };
+    inherit (pkgs) zlib libpng libzip;
+    inherit mesa ppsspp-libretro;
   };
 
   # Only the tools Ghazal runs or keeps for SSH debugging.

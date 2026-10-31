@@ -7,9 +7,15 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # ROCKNIX's source: kernel and U-Boot patches, panel descriptions, PPSSPP
+    # defaults and the emulator core recipes. No ROCKNIX binaries are used.
+    rocknix = {
+      url = "github:ROCKNIX/distribution/7cffc96617df2a051af091182e8a3d270fd794a4";
+      flake = false;
+    };
   };
 
-  outputs = { nixpkgs, rust-overlay, ... }:
+  outputs = { nixpkgs, rust-overlay, rocknix, ... }:
     let
       # x86_64 workstations/CI, and aarch64 Linux (e.g. a container on Apple Silicon),
       # where the device packages build natively.
@@ -18,14 +24,9 @@
         let
           pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
           # Target-architecture packages, native aarch64 builds. Stock packages
-          # come from cache.nixos.org; those it cannot have are built: the
-          # runtime's slimmed graphics stack and these non-commercial cores.
-          target = import nixpkgs {
-            system = "aarch64-linux";
-            config.allowUnfreePredicate = pkg: builtins.elem (nixpkgs.lib.getName pkg)
-              (map (core: "libretro-${core}") [ "snes9x" "genesis-plus-gx" "picodrive" "fbneo" "mame2003-plus" ]);
-          };
-          rocknix = pkgs.callPackage ./nix/rocknix.nix { };
+          # come from cache.nixos.org; the runtime's slimmed graphics stack and
+          # emulators are built.
+          target = import nixpkgs { system = "aarch64-linux"; };
           runtime = import ./nix/runtime { pkgs = target; inherit rocknix; profile = ./config/rg40xxv-rocknix; };
 
           ghazal = pkgs.callPackage ./nix/ghazal.nix { src = ./.; };
@@ -40,7 +41,7 @@
             kernel = h700-kernel;
             src = ./.;
             busybox = target.pkgsStatic.busybox;
-            sources = { nixpkgs = nixpkgs.rev; rocknix = rocknix.revision; };
+            sources = { nixpkgs = nixpkgs.rev; rocknix = rocknix.rev; };
             tools = with pkgs; [ util-linux e2fsprogs mtools dosfstools gzip coreutils fakeroot rauc ];
           };
 

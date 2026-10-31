@@ -8,7 +8,7 @@ The repository builds everything the handheld runs from pinned sources:
 `nix/uboot.nix` (mainline U-Boot with ROCKNIX's H700 DRAM patches and
 defconfig), `nix/h700-kernel.nix` (Linux with ROCKNIX's patch set and H700
 config) and `nix/runtime` (the userspace; see [Runtime](#runtime)). ROCKNIX
-contributes only its source tree at one commit (`nix/rocknix.nix`);
+contributes only its source tree at one commit (the flake's `rocknix` input);
 `/etc/ghazal/image.json` records it and the nixpkgs revision.
 Release images cover the device catalog with separate DDR3 and DDR4 bootloaders.
 Choose the image matching the board, panel and RAM revision; see
@@ -126,13 +126,14 @@ LLVM), so the graphics stack is rebuilt for this device only:
 - RetroArch: KMS/EGL with GLES 3.1, ALSA, udev and RGUI.
 - PPSSPP and its libretro core: GLES with ROCKNIX's H700 flags. Standalone
   states are named after the ROM file, as ROCKNIX's build names them.
-- Cores: `nix/runtime/cores.nix` maps each `core =` in `frontend.toml` to a
-  nixpkgs core rebuilt without its RetroArch wrapper; GL cores target GLES 3.
-  mGBA uses ROCKNIX's revision and CMake build; Yabasanshiro, absent from
-  nixpkgs, is built from libretro's fork. Evaluation fails if `frontend.toml`
-  names a core the table lacks.
-- Emulation code (cores, PPSSPP, RetroArch) is built without nixpkgs'
-  hardening flags, as ROCKNIX builds it; they cost cores 3-20%.
+- Cores: `nix/runtime/cores.nix` maps each `core =` in `frontend.toml` to
+  ROCKNIX's recipe for it. `rocknix-core.nix` reads the pinned revision, source
+  hash, patches and make or CMake options from its `package.mk` and builds with
+  ROCKNIX's H700 compiler flags, without nixpkgs' hardening; `cores.nix`
+  restates what package.mk sets in shell conditionals and hooks. Evaluation
+  fails if `frontend.toml` names a core the table lacks.
+- PPSSPP and RetroArch are also built without nixpkgs' hardening flags, which
+  cost cores 3-20%.
 
 The image builder copies the runtime's store closure to `/nix/store` on the
 root filesystem and the `tree` output's links (`/usr/bin/retroarch`,
@@ -145,9 +146,9 @@ Linux machine: CI uses `ubuntu-24.04-arm` and caches the closure; locally use
 an aarch64 Linux container or a remote builder. The first full build takes
 hours; later builds reuse the cache.
 
-Check cores after nixpkgs bumps: a Makefile variable can silently drop a
-dynarec (PicoDrive's 32X needs `ARCH=aarch64`, not nixpkgs' `arm64`) or build a
-JIT that crashes (melonDS). For software-rendered cores, RetroArch with
+Check cores after bumps: a build variable can silently drop a dynarec
+(PicoDrive's 32X needs `ARCH=aarch64`) or build a JIT that crashes (melonDS's
+with `ARCH=arm64`). For software-rendered cores, RetroArch with
 `video_driver = "null"`, `audio_driver = "null"` and `--max-frames=N` times
 emulation alone and runs over SSH beside the menu: time a 30-frame and a
 30+N-frame run and divide N by the difference. Unthrottled runs on the display

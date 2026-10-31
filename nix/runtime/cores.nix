@@ -1,81 +1,95 @@
-# libretro cores by the file name frontend.toml uses. nixpkgs' core packages
-# wrap RetroArch, so each is rebuilt with only the core; GL cores target GLES 3
-# like ROCKNIX's H700 builds. Like ROCKNIX's, cores are built without nixpkgs'
-# hardening flags, which cost 3-20% of emulation speed (mGBA, WonderSwan).
-{ lib, stdenv, libretro, fetchFromGitHub, cmake, mesa, zlib, libpng, libzip, rocknix, ppsspp-libretro }:
+# libretro cores by the file name frontend.toml uses, each built from
+# ROCKNIX's H700 recipe (rocknix-core.nix). Options its package.mk sets in
+# conditionals or shell functions are restated for the H700's aarch64 build
+# (no TARGET_FPU), GLES preferred over desktop GL, no Vulkan.
+{ rocknixCore, mesa, zlib, libpng, libzip, ppsspp-libretro }:
 let
-  core = drv: attrs: let package = drv.overrideAttrs ({ includeRetroArch = false; hardeningDisable = [ "all" ]; } // attrs); in
-    "${package}${package.libretroCore}/${lib.replaceStrings [ "-" ] [ "_" ] package.core}_libretro.so";
-  # ROCKNIX's revision and CMake build: GBA games run 1.5x faster than in
-  # nixpkgs' Makefile build of a later revision.
-  mgba = stdenv.mkDerivation {
-    pname = "libretro-mgba";
-    version = "0-unstable-2026-08-06";
-    src = fetchFromGitHub {
-      owner = "libretro";
-      repo = "mgba";
-      rev = "e31759b24e7a4e3899285ff720d7b573ac328ae7";
-      hash = "sha256-lP61Q/NVTAU5bIs6n3JgGkMsuM7BUcIU++XmG/VwM/Q=";
-    };
-    nativeBuildInputs = [ cmake ];
-    cmakeFlags = map (option: lib.cmakeBool option true) [ "LIBMGBA_ONLY" "BUILD_LIBRETRO" ];
-    hardeningDisable = [ "all" ];
-    installPhase = "install -Dm644 mgba_libretro.so -t $out/lib/libretro";
-    meta.license = lib.licenses.mpl20;
-  };
-  # Yabause's Saturn fork with its aarch64 dynarec, which nixpkgs lacks.
-  yabasanshiro = stdenv.mkDerivation {
-    pname = "libretro-yabasanshiro";
-    version = "0-unstable-2024-05-23";
-    src = fetchFromGitHub {
-      owner = "libretro";
-      repo = "yabause";
-      rev = "39535a6abcad5abf9f71c8b2a7975f005ee12ed6";
-      hash = "sha256-V7PNrh9Neys4xVPLs5rzh6rS5icc7mdWluKsnqODx0c=";
-    };
-    patches = [ "${rocknix}/projects/ROCKNIX/packages/emulators/libretro/yabasanshiro-lr/patches/aarch64/01-optimization.patch" ];
-    buildInputs = [ mesa zlib ];
-    hardeningDisable = [ "all" ];
-    enableParallelBuilding = true;
-    makeFlags = [ "-C" "yabause/src/libretro" "platform=rockpro64" "HAVE_NEON=0" "FORCE_GLES=1" ];
-    env.NIX_CFLAGS_COMPILE = "-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion";
-    installPhase = "install -Dm644 yabause/src/libretro/yabasanshiro_libretro.so -t $out/lib/libretro";
-    meta.license = lib.licenses.gpl2Only;
-  };
+  core = args: "${rocknixCore args}/lib/libretro/${baseNameOf args.library}";
 in
 {
-  "gambatte_libretro.so" = core libretro.gambatte { };
-  "mgba_libretro.so" = "${mgba}/lib/libretro/mgba_libretro.so";
-  "fceumm_libretro.so" = core libretro.fceumm { };
-  "snes9x_libretro.so" = core libretro.snes9x { };
-  "genesis_plus_gx_libretro.so" = core libretro.genesis-plus-gx { };
-  # nixpkgs passes ARCH=arm64; the Makefiles' native aarch64 name enables
-  # PicoDrive's SH2 (32X) dynarec.
-  "picodrive_libretro.so" = core libretro.picodrive { makeFlags = [ "platform=unix" "ARCH=aarch64" ]; };
-  "beetle_pce_fast_libretro.so" = core libretro.beetle-pce-fast { };
-  "beetle_ngp_libretro.so" = core libretro.beetle-ngp { };
-  "beetle_wswan_libretro.so" = core libretro.beetle-wswan { };
-  "beetle_vb_libretro.so" = core libretro.beetle-vb { };
-  "stella_libretro.so" = core libretro.stella { };
-  "handy_libretro.so" = core libretro.handy { };
-  "gw_libretro.so" = core libretro.gw { };
-  "bluemsx_libretro.so" = core libretro.bluemsx { };
-  "fbneo_libretro.so" = core libretro.fbneo { };
-  "mame2003_plus_libretro.so" = core libretro.mame2003-plus { };
-  # ari64 dynarec and the NEON GPU are the aarch64 defaults.
-  "pcsx_rearmed_libretro.so" = core libretro.pcsx-rearmed { };
-  # Software renderer; its OpenGL renderer is x86-only. ARCH=arm64 would build
-  # the aarch64 JIT, whose memory setup crashes on load even when disabled.
-  "melonds_libretro.so" = core libretro.melonds { makeFlags = [ "platform=unix" "ARCH=aarch64" ]; buildInputs = [ zlib ]; };
-  "mupen64plus_next_libretro.so" = core libretro.mupen64plus {
-    makeFlags = [ "platform=arm64_cortex_a53_gles3" ];
+  "gambatte_libretro.so" = core { package = "gambatte-lr"; library = "gambatte_libretro.so"; };
+  "mgba_libretro.so" = core { package = "mgba-lr"; builder = "cmake"; library = "mgba_libretro.so"; };
+  "fceumm_libretro.so" = core { package = "fceumm-lr"; library = "fceumm_libretro.so"; };
+  "snes9x_libretro.so" = core { package = "snes9x-lr"; library = "libretro/snes9x_libretro.so"; };
+  "genesis_plus_gx_libretro.so" = core { package = "genesis-plus-gx-lr"; library = "genesis_plus_gx_libretro.so"; };
+  "picodrive_libretro.so" = core {
+    package = "picodrive-lr";
+    hash = "sha256-fD3NHgPjbEpKNZQNJX4N6PYS+9pR405Szu/sqDDP+9s=";
+    library = "picodrive_libretro.so";
+  };
+  "beetle_pce_fast_libretro.so" = core { package = "beetle-pce-fast-lr"; library = "mednafen_pce_fast_libretro.so"; };
+  "beetle_ngp_libretro.so" = core { package = "beetle-ngp-lr"; library = "mednafen_ngp_libretro.so"; };
+  "beetle_wswan_libretro.so" = core { package = "beetle-wswan-lr"; library = "mednafen_wswan_libretro.so"; };
+  "beetle_vb_libretro.so" = core { package = "beetle-vb-lr"; library = "mednafen_vb_libretro.so"; };
+  "stella_libretro.so" = core {
+    package = "stella-lr";
+    extraMakeFlags = [ "-C" "../src/os/libretro" "platform=aarch64" ];
+    library = "src/os/libretro/stella_libretro.so";
+  };
+  "handy_libretro.so" = core { package = "handy-lr"; extraMakeFlags = [ "platform=emuelec" ]; library = "handy_libretro.so"; };
+  "gw_libretro.so" = core { package = "gw-lr"; library = "gw_libretro.so"; };
+  "bluemsx_libretro.so" = core { package = "bluemsx-lr"; library = "bluemsx_libretro.so"; };
+  "fbneo_libretro.so" = core {
+    package = "fbneo-lr";
+    prePatch = ''
+      sed -i "s|LDFLAGS += -static-libgcc -static-libstdc++|LDFLAGS += -static-libgcc|" src/burner/libretro/Makefile
+    '';
+    library = "src/burner/libretro/fbneo_libretro.so";
+  };
+  "mame2003_plus_libretro.so" = core { package = "mame2003-plus-lr"; library = "mame2003_plus_libretro.so"; };
+  "pcsx_rearmed_libretro.so" = core {
+    package = "pcsx_rearmed-lr";
+    makeFlags = [ "-f" "Makefile.libretro" "-C" ".." "platform=H700" ];
+    prePatch = "sed -i 's/\\-O[23]/-Ofast/' Makefile";
+    library = "pcsx_rearmed_libretro.so";
+  };
+  # Without its JIT: ROCKNIX's build has none, and its memory setup crashes.
+  "melonds_libretro.so" = core {
+    package = "melonds-lr";
+    preBuild = "rm -f CMakeLists.txt";
+    buildInputs = [ zlib ];
+    library = "melonds_libretro.so";
+  };
+  "mupen64plus_next_libretro.so" = core {
+    package = "mupen64plus-nx-lr";
+    extraMakeFlags = [ "GL_LIB=-lGLESv2" "GLES3=1" "platform=H700" ];
+    prePatch = ''
+      for source in mupen64plus-rsp-paraLLEl/rsp_disasm.cpp mupen64plus-rsp-paraLLEl/rsp_disasm.hpp; do
+        sed -i '/include <string>/a #include <cstdint>' $source
+      done
+      sed -e "s|^GIT_VERSION ?.*$|GIT_VERSION := \" ''${PKG_VERSION:0:7}\"|" -i Makefile
+      sed -i 's/\-O[23]/-Ofast/' Makefile
+    '';
+    cflags = [ "-DHAVE_UNISTD_H" "-Wno-error=incompatible-pointer-types" ];
+    cxxflags = [ "-mno-outline-atomics" ];
     buildInputs = [ mesa zlib libpng ];
+    library = "mupen64plus_next_libretro.so";
   };
-  "flycast_libretro.so" = core libretro.flycast {
-    cmakeFlags = map (option: lib.cmakeBool option true) [ "LIBRETRO" "USE_GLES" "USE_OPENMP" "WITH_SYSTEM_ZLIB" ]
-      ++ [ (lib.cmakeBool "USE_VULKAN" false) ];
+  "flycast_libretro.so" = core {
+    package = "flycast-lr";
+    hash = "sha256-/QfEDbodvtrfxe2qEqselWFyv6Lx77Z3fJOZhgwMAIk=";
+    builder = "cmake";
+    extraCmakeFlags = [ "-DUSE_OPENGL=ON" "-DUSE_GLES=ON" "-DUSE_VULKAN=OFF" "-Wno-dev" "-DLIBRETRO=ON" "-DWITH_SYSTEM_ZLIB=ON" "-DUSE_OPENMP=ON" ];
+    # ROCKNIX names its options flycast_*, so settings saved under ROCKNIX apply.
+    prePatch = ''
+      sed -i 's/"reicast"/"flycast"/g' shell/libretro/libretro_core_option_defines.h
+      sed -i 's/\-O[23]/-Ofast/' CMakeLists.txt
+    '';
     buildInputs = [ mesa zlib libzip ];
+    library = "flycast_libretro.so";
   };
-  "yabasanshiro_libretro.so" = "${yabasanshiro}/lib/libretro/yabasanshiro_libretro.so";
+  "yabasanshiro_libretro.so" = core {
+    package = "yabasanshiro-lr";
+    hash = "sha256-Fo5s2GyEtCEbKpiXXyJ0Aki5ZQMbYTnCIMIhVFeGi1o=";
+    extraMakeFlags = [ "-C" "yabause/src/libretro" "FORCE_GLES=1" "platform=rockpro64" "HAVE_NEON=0" ];
+    prePatch = "sed -i 's/\\-O[23]/-Ofast -ffast-math/' yabause/src/libretro/Makefile";
+    # GCC 15 also errors on what ROCKNIX's GCC 16 build accepts.
+    cflags = [ "-Wno-implicit-function-declaration" "-Wno-error=incompatible-pointer-types" "-Wno-error=int-conversion"
+      "-flto" "-fipa-pta" "-mno-outline-atomics" ];
+    cxxflags = [ "-flto" "-fipa-pta" "-mno-outline-atomics" ];
+    ldflags = [ "-flto" "-fipa-pta" ];
+    buildInputs = [ mesa zlib ];
+    library = "yabause/src/libretro/yabasanshiro_libretro.so";
+  };
   "ppsspp_libretro.so" = "${ppsspp-libretro}/lib/libretro/ppsspp_libretro.so";
 }

@@ -8,7 +8,7 @@ stdenv.mkDerivation {
   inherit (ppsspp) version src;
   strictDeps = true;
   enableParallelBuilding = true;
-  # Built like ROCKNIX's, without nixpkgs' hardening flags (see cores.nix).
+  # Built like ROCKNIX's, without nixpkgs' hardening flags (see rocknix-core.nix).
   hardeningDisable = [ "all" ];
   nativeBuildInputs = [ cmake pkg-config python3 ];
   buildInputs = [ mesa libzip snappy zlib ] ++ lib.optionals (!libretroCore) [ sdl2 SDL2_ttf ];

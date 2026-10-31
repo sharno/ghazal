@@ -16,9 +16,27 @@
         "type": "github"
       }
     },
+    "rocknix": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791579870,
+        "narHash": "sha256-T1nXydmvY4+65P0AR82xMm/xTm0aaq1SP00QlukCLMc=",
+        "owner": "ROCKNIX",
+        "repo": "distribution",
+        "rev": "7cffc96617df2a051af091182e8a3d270fd794a4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ROCKNIX",
+        "repo": "distribution",
+        "rev": "7cffc96617df2a051af091182e8a3d270fd794a4",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
+        "rocknix": "rocknix",
         "rust-overlay": "rust-overlay"
       }
     },

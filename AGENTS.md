@@ -7,9 +7,9 @@ service supervision, the menu, input handling and power policy. Everything on
 the device is built from pinned sources: U-Boot and the kernel
 (`nix/uboot.nix`, `nix/h700-kernel.nix`) and the userspace runtime of Mesa,
 RetroArch, cores, PPSSPP and system daemons (`nix/runtime`) from the flake's
-nixpkgs. ROCKNIX's source tree (`nix/rocknix.nix`) supplies kernel and U-Boot
-patches, panel descriptions and PPSSPP's H700 defaults; no ROCKNIX binaries
-are used.
+nixpkgs. ROCKNIX's source tree (the flake's `rocknix` input) supplies kernel
+and U-Boot patches, panel descriptions, PPSSPP's H700 defaults and the libretro
+core recipes; no ROCKNIX binaries are used.
 
 Prioritize fast boot, responsive menus, emulator performance and reliable saves.
 Keep the code lean and configuration ownership explicit. Measure changes rather
@@ -119,9 +119,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   libraries through their store RPATHs, never `/usr/lib`. Stock nixpkgs
   graphics closures do not fit the 1 GiB slot; keep overrides free of X11,
   Wayland, LLVM, Vulkan and FFmpeg, and check the root's size after bumps.
-  Also launch every system and compare core speed against the previous build
-  (docs/standalone.md, Runtime): nixpkgs' `ARCH=arm64` silently changes which
-  dynarecs and JITs some cores build.
+  Cores follow ROCKNIX's recipes (`nix/runtime/rocknix-core.nix`): after a
+  `rocknix` bump, restate changed package.mk conditionals and hooks in
+  `cores.nix`, launch every system and compare core speed against the previous
+  build (docs/standalone.md, Runtime).
 - Exercise application writes with the root mounted read-only. RetroArch core
   options, its home and caches belong on the selected data card; `/root` must
   not be assumed writable just because launching and saving a game succeeded.

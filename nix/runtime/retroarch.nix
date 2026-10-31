@@ -7,7 +7,7 @@ stdenv.mkDerivation {
   inherit (retroarch-bare) version src;
   strictDeps = true;
   enableParallelBuilding = true;
-  # Built like ROCKNIX's, without nixpkgs' hardening flags (see cores.nix).
+  # Built like ROCKNIX's, without nixpkgs' hardening flags (see rocknix-core.nix).
   hardeningDisable = [ "all" ];
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ mesa libdrm alsa-lib udev zlib ];
