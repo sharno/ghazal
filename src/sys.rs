@@ -125,11 +125,6 @@ pub fn kill_by_name(name: &str) {
     });
 }
 
-/// Whether a process whose /proc/<pid>/comm equals `name` is running.
-pub fn running(name: &str) -> bool {
-    pids_named(name).next().is_some()
-}
-
 pub fn mount(source: &str, target: &Path, fstype: &str, flags: libc::c_ulong, data: &str) -> Result<()> {
     let (s, t, f, d) = (cstr(source)?, cstr(target)?, cstr(fstype)?, cstr(data)?);
     let data_ptr = if data.is_empty() { std::ptr::null() } else { d.as_ptr().cast() };

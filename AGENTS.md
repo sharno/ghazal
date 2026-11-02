@@ -365,6 +365,16 @@ validated. Remove an entry once it has been checked on a handheld.
   of every alternative beyond one captured intro frame with PCM running. The
   Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
   have only been run for a few seconds each.
+- Configuration → Syncthing (docs/syncthing.md): checked only against Syncthing
+  2.1.3 in a container (`ghazal syncthing` and the REST client: pending devices
+  and folders accepted and ignored, rescans, a folder merged into an existing
+  directory, on/off, the web interface on the network with its login and a new
+  password, the no-login guard in `serve`) and in the desktop simulator with a
+  pretend Syncthing (the QR code decodes). Not yet on a handheld: the supervisor
+  holding Syncthing back after Off and restarting it after a web interface
+  change, `syncthing-restore` at boot, an existing paired card syncing on after
+  the update, pairing a phone by QR and a PC by nearby devices, the web
+  interface from another computer, the status icon over time, and battery cost.
 - Moonlight game streaming: no stream against a real Sunshine or GeForce host
   (needs a PC and a person to type the PIN): pairing itself, the SDL window and
   GLES YV12 renderer, audio, pad mapping, letterboxing, Menu + Start during a

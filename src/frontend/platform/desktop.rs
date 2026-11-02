@@ -103,11 +103,11 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
         if let Some(Effect::Launch { spec, .. }) = app.update(button) {
             eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
         }
-        // The Wi-Fi screen answers from a worker thread; show the settled result.
+        // Wi-Fi and Syncthing answer from worker threads; show the settled result.
         let settle = Instant::now() + Duration::from_secs(5);
         loop {
             app.tick(Instant::now());
-            if !app.wifi_working() || Instant::now() >= settle { break; }
+            if !(app.wifi_working() || app.syncthing_working()) || Instant::now() >= settle { break; }
             std::thread::sleep(Duration::from_millis(5));
         }
         save(&mut screen, &app)?;

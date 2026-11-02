@@ -1,11 +1,14 @@
 //! The status bar's icons for what runs in the background: Wi-Fi, Bluetooth,
 //! Syncthing and HDMI. Each is read from sysfs or /proc without starting a
-//! process, so the menu can look every few seconds.
+//! process, so the menu can look every few seconds. Syncthing's needs REST
+//! calls, so the app asks for it on a thread (`frontend::syncthing::Status`)
+//! and hands the last answer in.
 
 use std::path::Path;
 
 use super::wifi::Signal;
 use crate::hdmi::{self, Connection, Layout};
+use crate::syncthing::Summary;
 use crate::ui::{IndicatorIcons, Indicators, Lamp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,23 +30,17 @@ pub enum Bluetooth {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Syncthing {
-    Stopped,
-    Running,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Readings {
     pub wifi: Wifi,
     pub bluetooth: Bluetooth,
-    pub syncthing: Syncthing,
+    pub syncthing: Summary,
     /// From the frontend's own connector polling; `None` before the first poll.
     pub hdmi: Option<hdmi::Status>,
 }
 
 impl Readings {
-    pub fn read(hdmi: Option<hdmi::Status>) -> Self {
-        Self { wifi: read_wifi(), bluetooth: read_bluetooth(), syncthing: read_syncthing(), hdmi }
+    pub fn read(hdmi: Option<hdmi::Status>, syncthing: Summary) -> Self {
+        Self { wifi: read_wifi(), bluetooth: read_bluetooth(), syncthing, hdmi }
     }
 
     pub fn view(&self) -> Indicators {
@@ -59,8 +56,11 @@ impl Readings {
             Bluetooth::Connected => Lamp::On,
         };
         let syncthing = match self.syncthing {
-            Syncthing::Stopped => Lamp::Off,
-            Syncthing::Running => Lamp::Idle,
+            Summary::Off => Lamp::Off,
+            Summary::Stopped | Summary::NoDevices => Lamp::Idle,
+            Summary::UpToDate => Lamp::On,
+            Summary::Syncing => Lamp::Busy,
+            Summary::Error => Lamp::Fault,
         };
         let hdmi = match self.hdmi.map(|status| (status.connection, status.layout)) {
             None | Some((Connection::Absent | Connection::Disconnected, _)) => Lamp::Off,
@@ -106,10 +106,6 @@ fn read_bluetooth() -> Bluetooth {
     }
 }
 
-fn read_syncthing() -> Syncthing {
-    if crate::sys::running("syncthing") { Syncthing::Running } else { Syncthing::Stopped }
-}
-
 /// The icons build.rs rasterized, for `AppWindow::set_indicator_icons`.
 pub fn icons() -> IndicatorIcons {
     /// Matches ICON_SIZE in build.rs.
@@ -148,24 +144,31 @@ mod tests {
         assert_eq!(signal(&WIRELESS.replace("-56.", "0."), "wlan0"), None);
     }
 
-    fn view(wifi: Wifi, bluetooth: Bluetooth, syncthing: Syncthing, hdmi: Option<(Connection, Layout)>) -> Indicators {
+    fn view(wifi: Wifi, bluetooth: Bluetooth, syncthing: Summary, hdmi: Option<(Connection, Layout)>) -> Indicators {
         Readings { wifi, bluetooth, syncthing, hdmi: hdmi.map(|(connection, layout)| hdmi::Status { connection, layout, mode: None }) }.view()
     }
 
     #[test]
     fn idle_services_are_dim_and_absent_ones_hidden() {
-        let quiet = view(Wifi::Absent, Bluetooth::Off, Syncthing::Stopped, Some((Connection::Disconnected, Layout::Panel)));
+        let quiet = view(Wifi::Absent, Bluetooth::Off, Summary::Off, Some((Connection::Disconnected, Layout::Panel)));
         assert_eq!((quiet.wifi, quiet.bluetooth, quiet.syncthing, quiet.hdmi), (Lamp::Off, Lamp::Off, Lamp::Off, Lamp::Off));
-        let idle = view(Wifi::Disconnected, Bluetooth::On, Syncthing::Running, Some((Connection::Connected, Layout::Panel)));
+        let idle = view(Wifi::Disconnected, Bluetooth::On, Summary::NoDevices, Some((Connection::Connected, Layout::Panel)));
         assert_eq!((idle.wifi, idle.wifi_arcs, idle.bluetooth, idle.syncthing, idle.hdmi), (Lamp::Idle, 0, Lamp::Idle, Lamp::Idle, Lamp::Idle));
     }
 
     #[test]
     fn signal_bars_light_the_arcs_above_the_dot() {
-        let arcs = |signal| view(Wifi::Connected(signal), Bluetooth::Connected, Syncthing::Running, Some((Connection::Connected, Layout::Hdmi))).wifi_arcs;
+        let arcs = |signal| view(Wifi::Connected(signal), Bluetooth::Connected, Summary::UpToDate, Some((Connection::Connected, Layout::Hdmi))).wifi_arcs;
         assert_eq!([-50, -65, -70, -80].map(|dbm| arcs(Some(Signal::from_dbm(dbm)))), [3, 2, 1, 0]);
         assert_eq!(arcs(None), 3);
-        let busy = view(Wifi::Connected(None), Bluetooth::Connected, Syncthing::Running, Some((Connection::Connected, Layout::Mirror)));
+        let busy = view(Wifi::Connected(None), Bluetooth::Connected, Summary::UpToDate, Some((Connection::Connected, Layout::Mirror)));
         assert_eq!((busy.wifi, busy.bluetooth, busy.hdmi), (Lamp::On, Lamp::On, Lamp::On));
+    }
+
+    #[test]
+    fn syncthings_lamp_follows_its_summary() {
+        let lamp = |summary| view(Wifi::Absent, Bluetooth::Off, summary, None).syncthing;
+        let lamps = [Summary::Off, Summary::Stopped, Summary::NoDevices, Summary::UpToDate, Summary::Syncing, Summary::Error].map(lamp);
+        assert_eq!(lamps, [Lamp::Off, Lamp::Idle, Lamp::Idle, Lamp::On, Lamp::Busy, Lamp::Fault]);
     }
 }

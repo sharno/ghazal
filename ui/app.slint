@@ -248,6 +248,12 @@ export component AppWindow inherits Window {
     in property <image> art;
     in property <bool> art-visible;
     in property <bool> art-ready;
+    /// This handheld's Syncthing ID as a QR code, one pixel per module, shown in
+    /// the box art's panel (see App::sync).
+    in property <image> code;
+    in property <bool> code-visible;
+    /// The ID spelled out under the code.
+    in property <string> code-caption;
     /// -1 means the menu is closed.
     in property <int> menu-selected: -1;
     in property <string> toast;
@@ -356,8 +362,9 @@ export component AppWindow inherits Window {
             // Keep the cursor roughly centred once the list scrolls.
             property <int> first-row: max(0, min(root.selected - floor(self.visible-rows / 2), root.row-count - self.visible-rows));
             property <bool> scrolls: root.row-count > self.visible-rows;
-            // Box art takes the right side of game lists when thumbnails are on.
-            property <length> art-width: root.art-visible && !Theme.compact ? 256px : 0px;
+            // Box art takes the right side of game lists when thumbnails are on,
+            // and the QR code that of Syncthing's screen.
+            property <length> art-width: (root.art-visible || root.code-visible) && !Theme.compact ? 256px : 0px;
             property <length> list-width: self.width - self.art-width;
             // Not animated: opening another list would visibly scroll through
             // every row between the old and new positions.
@@ -415,6 +422,38 @@ export component AppWindow inherits Window {
                     vertical-alignment: center;
                     font-size: 16px;
                     color: Theme.dim;
+                }
+            }
+
+            if root.code-visible && !Theme.compact: Rectangle {
+                x: area.list-width;
+                y: 8px;
+                width: area.art-width - Theme.pad;
+                height: area.visible-rows * Theme.row-height;
+                border-radius: 10px;
+                background: Theme.panel;
+                clip: true;
+                property <length> side: self.width - 16px;
+                // Square modules: scanners need crisp edges, not smoothed ones.
+                Image {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.side;
+                    height: parent.side;
+                    source: root.code;
+                    image-fit: contain;
+                    image-rendering: pixelated;
+                }
+                Text {
+                    x: 8px;
+                    y: parent.side + 16px;
+                    width: parent.side;
+                    height: parent.height - parent.side - 24px;
+                    text: root.code-caption;
+                    horizontal-alignment: center;
+                    vertical-alignment: top;
+                    font-size: 14px;
+                    color: Theme.text;
                 }
             }
 

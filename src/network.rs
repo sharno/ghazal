@@ -2,7 +2,7 @@
 //! phase and takes seconds to connect, so a game that needs the network (it
 //! signs in to RetroAchievements, or joins a netplay host) waits a little for it.
 
-use std::net::UdpSocket;
+use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -19,10 +19,21 @@ pub fn configured(iwd_state: &Path) -> bool {
     })
 }
 
-/// The kernel has a route out. Connecting a UDP socket picks a route without
-/// sending anything, and fails while the interface has no address.
+/// The address other devices on the network reach this handheld at. Connecting
+/// a UDP socket picks a route without sending anything, and fails while the
+/// interface has no address.
+pub fn lan_address() -> Option<Ipv4Addr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        IpAddr::V4(address) if !address.is_loopback() => Some(address),
+        IpAddr::V4(_) | IpAddr::V6(_) => None,
+    }
+}
+
+/// The kernel has a route out.
 pub fn online() -> bool {
-    UdpSocket::bind("0.0.0.0:0").and_then(|socket| socket.connect("192.0.2.1:9").map(|()| socket)).is_ok_and(|socket| socket.local_addr().is_ok_and(|addr| !addr.ip().is_loopback()))
+    lan_address().is_some()
 }
 
 /// Waits up to `limit` for a route. Returns whether there is one.

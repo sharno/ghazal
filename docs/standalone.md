@@ -102,15 +102,21 @@ readings, daemon policy or update safety checks. Omit it to observe host status.
 Configuration and Information, and `GHAZAL_SNAPSHOT_NOTICE=1` the screen the
 handheld shows while a game runs on HDMI. `GHAZAL_SNAPSHOT_INDICATORS=1` lights
 every status icon (Wi-Fi at three of four bars, Bluetooth with a device,
-Syncthing, and HDMI as `GHAZAL_SNAPSHOT_HDMI` sets it).
+Syncthing syncing, and HDMI as `GHAZAL_SNAPSHOT_HDMI` sets it). The simulator's
+Configuration → Syncthing uses a pretend Syncthing (`src/frontend/syncthing/fake.rs`);
+`GHAZAL_SYNCTHING_REAL=1` points it at the host's `/mnt/games/.ghazal/syncthing`
+instead.
 
 The status bar shows an icon for each service working in the background, next
 to the clock: Wi-Fi (bars by signal; dim while not connected), Bluetooth (dim
-while on, bright with a device linked), Syncthing (while it runs) and HDMI (dim
-with a display plugged in, bright while it shows the picture). An icon is
-hidden while its service is off or the board lacks it. They are read from
-sysfs and /proc every 5 seconds (`src/frontend/indicators.rs`); the icons are
-SVGs in `assets/icons`, rasterized by build.rs and colored by Slint.
+while on, bright with a device linked), Syncthing (dim while starting or with no
+device connected, bright when up to date, accent while syncing, red on folder
+errors) and HDMI (dim with a display plugged in, bright while it shows the
+picture). An icon is hidden while its service is off or the board lacks it.
+They are read from sysfs and /proc every 5 seconds (`src/frontend/indicators.rs`);
+Syncthing's comes from its REST API on a background thread at most every 10
+seconds. The icons are SVGs in `assets/icons`, rasterized by build.rs and
+colored by Slint.
 
 Create a private `secrets/` directory containing `ssid`, `passphrase` and
 `authorized_keys` (one SSH public key per line). SSID and passphrase files each
@@ -593,19 +599,23 @@ refuses an already converted destination.
 
 ## Syncthing
 
-The image includes Syncthing from nixpkgs. Its supervised
-service waits for `/mnt/games/ROMS` on the prepared data card. Device identity,
-configuration and database live at `/mnt/games/.ghazal/syncthing`, so an OS-card
-reflash preserves pairing. Without SD2 it stays pending.
+The image includes Syncthing from nixpkgs, managed from Configuration →
+Syncthing: on and off, this handheld's ID as a QR code, pairing and folder
+requests, and its web interface on the network with a generated login. See
+[Syncthing](syncthing.md).
 
-The management UI listens only on localhost. From your computer:
+The supervisor runs it as `ghazal syncthing serve`, which adds the web interface
+address the player chose (on the handheld only by default), after the
+`syncthing-restore` oneshot has released it at boot; turning it off removes that
+marker (`/run/ghazal/syncthing-requested`), and a service waits for its
+`wait_for` paths again whenever it exits. It also waits for `/mnt/games/ROMS` on
+the prepared data card. Device identity, configuration, database and the
+player's choices (`ghazal.toml`) live at `/mnt/games/.ghazal/syncthing`, so an
+OS-card reflash preserves pairing. Without SD2 it stays pending.
 
-```sh
-ssh -N -L 8385:127.0.0.1:8384 root@DEVICE_IP
-```
-
-Open `http://localhost:8385`, pair your computer and add `/mnt/games/SAVES` as a
-sync folder. ROMs and BIOS can be added separately. Shut down games before
-syncing saves; simultaneous gameplay on two devices can produce conflicts.
-Do not sync `.ghazal/syncthing` itself. Automatic binary upgrades are disabled;
-Syncthing is updated with the OS image. Logs: `/var/log/ghazal/syncthing.log`.
+An SSH tunnel to the local web interface still works:
+`ssh -N -L 8385:127.0.0.1:8384 root@DEVICE_IP`, then `http://localhost:8385`.
+Shut down games before syncing saves; simultaneous gameplay on two devices can
+produce conflicts. Do not sync `.ghazal/syncthing` itself. Automatic binary
+upgrades are disabled; Syncthing is updated with the OS image. Logs:
+`/var/log/ghazal/syncthing.log`.

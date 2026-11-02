@@ -183,13 +183,25 @@ name = "data-directories"
 kind = "oneshot"
 exec = ["/opt/ghazal/ghazal", "data-directories"]
 start = "background"
+# Syncthing runs unless the player turned it off (Configuration → Syncthing,
+# kept on the data card): `syncthing-restore` makes the marker it waits for at
+# boot, and turning it off removes the marker and stops it. `ghazal syncthing
+# serve` runs Syncthing with its web interface on this handheld only, or on the
+# network once the player chose that and Syncthing has a login.
+[[supervisor.service]]
+name = "syncthing-restore"
+kind = "oneshot"
+exec = ["/opt/ghazal/ghazal", "syncthing", "restore"]
+after = ["data-directories"]
+wait_for = ["/mnt/games/ROMS"]
+start = "background"
 [[supervisor.service]]
 name = "syncthing"
-exec = ["/usr/bin/syncthing", "serve", "--home=/mnt/games/.ghazal/syncthing", "--no-browser", "--no-restart", "--no-upgrade", "--gui-address=http://127.0.0.1:8384"]
+exec = ["/opt/ghazal/ghazal", "syncthing", "serve"]
 # ROMS exists only on the prepared data card; never write identity/database to
 # the empty mount point on the OS card when SD2 is absent.
 after = ["data-directories"]
-wait_for = ["/mnt/games/ROMS"]
+wait_for = ["/mnt/games/ROMS", "/run/ghazal/syncthing-requested"]
 restart = "always"
 start = "background"
 env = { HOME = "/root", GOMAXPROCS = "2" }

@@ -24,6 +24,9 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   RetroArch settings from Configuration. RetroArch's menu confirms with A and goes
   back with B, like Ghazal's.
 - See Wi-Fi signal, Bluetooth, Syncthing and HDMI at a glance in the status bar.
+- Sync saves with Syncthing from Configuration → Syncthing: pair a phone by
+  scanning a QR code, accept devices and shared folders, and open Syncthing's
+  web interface on the network with a generated login ([Syncthing](docs/syncthing.md)).
 - Earn RetroAchievements and play RetroArch games together over Wi-Fi: host a
   netplay session or pick a host on the network from a game's actions.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a
@@ -36,8 +39,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 - Install signed system updates from GitHub through Configuration → System update
   on A/B installations; see [updates and migration](docs/updates.md).
 - Join Wi-Fi networks from Configuration → Wi-Fi with an on-screen keyboard
-  ([Wi-Fi setup](docs/wifi.md)), connect over SSH, sync files with Syncthing,
-  and fall back to the other OS slot when one fails to start. Kernel panics show
+  ([Wi-Fi setup](docs/wifi.md)), connect over SSH, and fall back to the other OS slot when one fails to start. Kernel panics show
   the kernel log on screen; on the RG40XX-V v2 they then need a power cycle.
 
 ## What we care about

@@ -53,7 +53,7 @@ GHAZALDATA/                 # or the root of your TF2 partition
     ├── ports/home/       # writable home for PortMaster ports
     ├── cache/            # disposable emulator caches
     ├── moonlight/        # game streaming: known hosts, settings and this device's pairing keys
-    └── syncthing/        # this card's Syncthing identity and database
+    └── syncthing/        # this card's Syncthing identity and database, and ghazal.toml (on/off, web interface login)
 ```
 
 Folder names and extension matching come from `/etc/ghazal/frontend.toml`.
@@ -73,9 +73,11 @@ the libretro PSP core instead of standalone PPSSPP, so core states are separate.
 that keeps it stays paired, and copying it to a second handheld makes the two
 indistinguishable to the host.
 
-Back up **ROMS, BIOS, SAVES and .ghazal**, including hidden files. Syncthing's GUI
-is local-only on port 8384; use an SSH tunnel to configure it. Avoid cloning a
-running Syncthing identity to two handhelds; create a separate identity on each.
+Back up **ROMS, BIOS, SAVES and .ghazal**, including hidden files. Manage
+Syncthing from Configuration → Syncthing ([Syncthing](syncthing.md)); its web
+interface listens on the handheld only unless you turn it on for the network
+there. Avoid cloning a running Syncthing identity to two handhelds; create a
+separate identity on each.
 
 ## Boot and OS files
 

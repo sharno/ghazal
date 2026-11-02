@@ -17,6 +17,7 @@ pub mod netplay;
 pub mod platform;
 pub mod retroarch_menu;
 mod settings;
+mod syncthing;
 mod thumbnails;
 mod wifi;
 

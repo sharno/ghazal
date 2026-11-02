@@ -16,6 +16,7 @@ use super::library::{Game, Library, System};
 use super::moonlight::{self, Notice};
 use super::netplay::{self, Choosing, Pick, Polled, Role, Scanning, Session, Target};
 use super::settings::{Settings, StartupMode};
+use super::syncthing;
 use super::thumbnails::{self, Art, Loader, Progress};
 use super::indicators;
 use super::wifi;
@@ -57,6 +58,7 @@ enum View {
     Updates,
     Wifi,
     Bluetooth,
+    Syncthing,
     /// Hosts to join; leaving returns to that game list, or to Applications.
     Netplay(Option<GameList>),
 }
@@ -134,6 +136,7 @@ enum MenuItem {
     InstallPortMaster,
     Wifi,
     Bluetooth,
+    Syncthing,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
     Moonlight,
@@ -177,6 +180,7 @@ impl MenuItem {
             Self::InstallPortMaster => "Install PortMaster",
             Self::Wifi => "Wi-Fi",
             Self::Bluetooth => "Bluetooth",
+            Self::Syncthing => "Syncthing",
             Self::Lights(preset) => preset.menu_label(),
             Self::Moonlight => "Moonlight game streaming",
             Self::Achievements => "Achievements",
@@ -323,6 +327,14 @@ pub struct App {
     wifi: Option<wifi::Controller>,
     /// What the Wi-Fi screen last drew, refreshed whenever it reacts.
     wifi_view: Option<wifi::View>,
+    /// Open while View::Syncthing is shown; its worker thread lives and dies with it.
+    syncthing: Option<syncthing::Controller>,
+    /// What the Syncthing screen last drew, refreshed whenever it reacts.
+    syncthing_view: Option<syncthing::View>,
+    /// The QR code of this handheld's Syncthing ID, made once per ID.
+    syncthing_code: Option<(crate::syncthing::DeviceId, slint::Image)>,
+    /// Syncthing's status icon, asked for in the background.
+    syncthing_status: syncthing::Status,
     /// Keys currently in the keyboard's UI model, so it is only rebuilt on change.
     keyboard_keys: Vec<keyboard::KeyView>,
 }
@@ -408,6 +420,10 @@ impl App {
             hints_for: None,
             wifi: None,
             wifi_view: None,
+            syncthing: None,
+            syncthing_view: None,
+            syncthing_code: None,
+            syncthing_status: syncthing::Status::new(Instant::now()),
             keyboard_keys: Vec::new(),
         };
         app.start_scan(false);
@@ -538,7 +554,7 @@ impl App {
                         MenuItem::Hdmi(_) => self.step_hdmi(button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
-                        MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth if button == Button::A => { self.activate(item); }
+                        MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth | MenuItem::Syncthing if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         MenuItem::Achievements if button == Button::A => { self.cycle_achievements(); self.rows_for = None; }
                         MenuItem::AchievementsAccount if button == Button::A => return self.activate(item),
@@ -557,6 +573,7 @@ impl App {
                 button => self.updater.cursor = navigate(self.updater.cursor, 4, button),
             },
             View::Wifi => self.wifi_button(button),
+            View::Syncthing => self.syncthing_button(button),
             View::Bluetooth => match self.bluetooth.as_mut().map(|screen| screen.press(button)) {
                 Some(bluetooth::Press::Stay(notice)) => if let Some(notice) = notice { self.show(notice) },
                 Some(bluetooth::Press::Leave) | None => { self.bluetooth = None; self.view = View::Configuration; }
@@ -647,6 +664,73 @@ impl App {
     /// For the snapshot renderer: the Wi-Fi screen is waiting on its worker.
     #[cfg(feature = "desktop")]
     pub fn wifi_working(&self) -> bool { self.wifi.as_ref().is_some_and(wifi::Controller::working) }
+
+    /// Opens Configuration → Syncthing. Its worker starts here, not at boot.
+    fn open_syncthing(&mut self) {
+        match syncthing::open(Instant::now()) {
+            Ok(controller) => {
+                self.syncthing_view = Some(controller.view(crate::syncthing::clock()));
+                self.syncthing = Some(controller);
+                self.view = View::Syncthing;
+                self.rows_for = None;
+            }
+            Err(error) => self.error(format!("Syncthing: {error}")),
+        }
+    }
+
+    fn syncthing_button(&mut self, button: Button) {
+        let Some(controller) = &mut self.syncthing else {
+            // Not reachable by design; never leave the user on a screen with no owner.
+            self.view = View::Configuration;
+            return;
+        };
+        let reaction = controller.handle(button, Instant::now());
+        self.syncthing_reacted(reaction, Instant::now());
+    }
+
+    /// Takes in what the Syncthing screen did: a new picture, a message, or its end.
+    fn syncthing_reacted(&mut self, reaction: syncthing::Reaction, now: Instant) {
+        match reaction.notice {
+            Some(syncthing::Notice::Info(text)) => self.notice(&text),
+            Some(syncthing::Notice::Error(text)) => self.error(text),
+            None => {}
+        }
+        if !reaction.changed { return; }
+        self.rows_for = None;
+        match self.syncthing.as_ref() {
+            Some(controller) if !controller.closed() => {
+                self.syncthing_view = Some(controller.view(crate::syncthing::clock()));
+                // The screen just looked: the status icon needs no question of its own.
+                if controller.summary().is_some_and(|summary| self.syncthing_status.record(summary, now)) { self.refresh_indicators(now); }
+            }
+            _ => {
+                self.syncthing = None;
+                self.syncthing_view = None;
+                self.view = View::Configuration;
+            }
+        }
+    }
+
+    fn poll_syncthing(&mut self, now: Instant) {
+        if let Some(controller) = &mut self.syncthing {
+            let reaction = controller.poll(now);
+            self.syncthing_reacted(reaction, now);
+        } else if self.syncthing_status.poll(now, syncthing::summary) {
+            self.refresh_indicators(now);
+        }
+    }
+
+    /// For the snapshot renderer: the Syncthing screen is waiting on its worker.
+    #[cfg(feature = "desktop")]
+    pub fn syncthing_working(&self) -> bool { self.syncthing.as_ref().is_some_and(syncthing::Controller::working) }
+
+    /// The QR code for this handheld's ID, made when the ID first shows.
+    fn syncthing_code(&mut self, id: &crate::syncthing::DeviceId) -> Option<slint::Image> {
+        if self.syncthing_code.as_ref().is_none_or(|(shown, _)| shown != id) {
+            self.syncthing_code = syncthing::qr_image(id).map(|image| (id.clone(), image));
+        }
+        self.syncthing_code.as_ref().map(|(_, image)| image.clone())
+    }
 
     fn launch(&mut self, list: GameList, cursor: usize) -> Option<Effect> {
         let (system, game) = self.game_at(list, cursor)?;
@@ -750,6 +834,7 @@ impl App {
         }
         self.poll_wifi(now);
         self.poll_bluetooth();
+        self.poll_syncthing(now);
         if self.toast.as_ref().is_some_and(|toast| now >= toast.shown + TOAST_DURATION) {
             self.toast = None;
         }
@@ -922,6 +1007,11 @@ impl App {
         if self.bluetooth.is_some() { deadline = deadline.min(Instant::now() + BLUETOOTH_POLL); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
         if let Some(wake) = self.wifi.as_ref().and_then(|wifi| wifi.next_deadline(Instant::now())) { deadline = deadline.min(wake); }
+        let syncthing = match &self.syncthing {
+            Some(controller) => controller.next_deadline(Instant::now()),
+            None => Some(self.syncthing_status.next_deadline(Instant::now())),
+        };
+        if let Some(wake) = syncthing { deadline = deadline.min(wake); }
         deadline
     }
 
@@ -955,8 +1045,8 @@ impl App {
     /// Every status icon lit, with HDMI as GHAZAL_SNAPSHOT_HDMI set it.
     #[cfg(feature = "desktop")]
     pub(crate) fn snapshot_indicators(&self) {
-        use indicators::{Bluetooth, Readings, Syncthing, Wifi};
-        let readings = Readings { wifi: Wifi::Connected(Some(wifi::Signal::from_dbm(-62))), bluetooth: Bluetooth::Connected, syncthing: Syncthing::Running, hdmi: self.hdmi };
+        use indicators::{Bluetooth, Readings, Wifi};
+        let readings = Readings { wifi: Wifi::Connected(Some(wifi::Signal::from_dbm(-62))), bluetooth: Bluetooth::Connected, syncthing: crate::syncthing::Summary::Syncing, hdmi: self.hdmi };
         self.ui.set_indicators(readings.view());
     }
 
@@ -977,13 +1067,14 @@ impl App {
 
     fn refresh_indicators(&mut self, now: Instant) {
         self.indicators_checked = now;
-        self.ui.set_indicators(indicators::Readings::read(self.hdmi).view());
+        self.ui.set_indicators(indicators::Readings::read(self.hdmi, self.syncthing_status.summary()).view());
     }
 
     fn configuration_items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::Startup, MenuItem::Thumbnails, MenuItem::RetroArchSettings, MenuItem::Achievements, MenuItem::AchievementsAccount];
         if wifi::available() { items.push(MenuItem::Wifi); }
         if crate::bluetooth::available() { items.push(MenuItem::Bluetooth); }
+        if syncthing::available() { items.push(MenuItem::Syncthing); }
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -1045,12 +1136,7 @@ impl App {
         let uptime = std::fs::read_to_string("/proc/uptime").ok()
             .and_then(|text| text.split_whitespace().next()?.parse::<f64>().ok())
             .map(|seconds| format!("{} min", (seconds / 60.0) as u64)).unwrap_or_else(|| "Unavailable".into());
-        // UDP connect selects a local route without transmitting a packet.
-        let address = (|| -> std::io::Result<String> {
-            let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
-            socket.connect("192.0.2.1:9")?;
-            Ok(socket.local_addr()?.ip().to_string())
-        })().unwrap_or_else(|_| "Disconnected".into());
+        let address = crate::network::lan_address().map_or_else(|| "Disconnected".into(), |address| address.to_string());
         self.information_rows = [
             ("Software", format!("ghazal {}", env!("CARGO_PKG_VERSION"))),
             ("Device name", hostname.trim().to_owned()),
@@ -1134,6 +1220,7 @@ impl App {
                 None
             },
             MenuItem::Wifi => { self.open_wifi(); None }
+            MenuItem::Syncthing => { self.open_syncthing(); None }
             MenuItem::Bluetooth => {
                 match bluetooth::Screen::open() {
                     Ok(screen) => { self.bluetooth = Some(screen); self.view = View::Bluetooth; self.rows_for = None; }
@@ -1451,6 +1538,10 @@ impl App {
                 Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
             }
             View::Bluetooth => { let line = self.bluetooth.as_ref()?.line(index)?; Row { label: line.label.into(), detail: line.detail.into(), glyph: line.glyph.into() } }
+            View::Syncthing => {
+                let row = self.syncthing_view.as_ref()?.rows.get(index)?;
+                Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
+            }
             View::Information => self.information_rows.get(index)?.clone(),
             View::Netplay(_) => {
                 let Some(Join::Choosing(hosts)) = &self.join else { return None };
@@ -1487,6 +1578,7 @@ impl App {
             (None, View::Updates) => OPTIONS_HINTS,
             (None, View::Wifi) => self.wifi_view.as_ref().map_or(INFORMATION_HINTS, |view| if self.ui.window().size().width < 560 { view.narrow_hints } else { view.hints }),
             (None, View::Bluetooth) => self.bluetooth.as_ref().map_or(OPTIONS_HINTS, bluetooth::Screen::hints),
+            (None, View::Syncthing) => self.syncthing_view.as_ref().map_or(INFORMATION_HINTS, |view| view.hints),
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
             (None, View::Games(_)) => COLLECTION_HINTS,
@@ -1546,6 +1638,7 @@ impl App {
             View::Updates => (self.updater.cursor, 4),
             View::Wifi => self.wifi_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
             View::Bluetooth => self.bluetooth.as_ref().map_or((0, 0), |screen| (screen.cursor(), screen.len())),
+            View::Syncthing => self.syncthing_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
             View::Information => (self.information_cursor, self.information_rows.len()),
             View::Netplay(_) => match &self.join {
                 Some(Join::Choosing(hosts)) => (hosts.cursor, hosts.len()),
@@ -1583,6 +1676,7 @@ impl App {
             View::Updates => "System update",
             View::Wifi => "Wi-Fi",
             View::Bluetooth => "Bluetooth",
+            View::Syncthing => "Syncthing",
             View::Information => "Information",
             View::Netplay(_) => "Join netplay",
         }.into());
@@ -1609,7 +1703,15 @@ impl App {
             ui.set_menu_wide(wide);
         }
         let show_art = self.settings.show_thumbnails && matches!(self.view, View::Games(_)) && total > 0;
-        ui.set_art_visible(show_art);
+        self.ui.set_art_visible(show_art);
+        let device_id = self.syncthing_view.as_ref().filter(|_| self.view == View::Syncthing).and_then(|view| view.device_id.clone());
+        let code = device_id.as_ref().and_then(|id| Some((id, self.syncthing_code(id)?)));
+        self.ui.set_code_visible(code.is_some());
+        if let Some((id, image)) = code {
+            self.ui.set_code(image);
+            self.ui.set_code_caption(id.lines().join("\n").into());
+        }
+        let ui = &self.ui;
 
         let (toast, is_error) = self.toast.as_ref().map_or(("", false), |toast| (toast.text.as_str(), toast.error));
         ui.set_toast(toast.into());

@@ -295,13 +295,7 @@ impl Supervisor {
                 }
             }
             for i in 0..self.services.len() {
-                let ready = match &self.services[i].state {
-                    State::Pending => (booted || self.services[i].cfg.start == Phase::Boot)
-                        && self.deps_met(i) && self.services[i].cfg.wait_for.iter().all(|p| p.exists()),
-                    State::Backoff { until } => now >= *until && self.deps_met(i),
-                    _ => false,
-                };
-                if ready {
+                if self.services[i].due(now, booted) && self.deps_met(i) {
                     self.spawn(i);
                     changed = true;
                 }
@@ -401,11 +395,7 @@ impl Supervisor {
         let poll = if now.duration_since(self.created) < BOOT_PERIOD { BOOT_POLL } else { IDLE_POLL };
         let mut timeout: Option<Duration> = None;
         for (i, s) in self.services.iter().enumerate() {
-            let t = match &s.state {
-                State::Backoff { until } if self.deps_met(i) => until.saturating_duration_since(now),
-                State::Pending if self.deps_met(i) => poll,
-                _ => continue,
-            };
+            let Some(t) = s.wake(now, poll).filter(|_| self.deps_met(i)) else { continue };
             timeout = Some(timeout.map_or(t, |x| x.min(t)));
         }
         timeout
@@ -448,6 +438,28 @@ impl Supervisor {
 }
 
 impl Service {
+    /// Whether it may start now, dependencies aside. `wait_for` gates every
+    /// start, not just the first: a service whose marker is gone (Syncthing
+    /// turned off) waits for it again after it exits.
+    fn due(&self, now: Instant, booted: bool) -> bool {
+        let gates_open = || self.cfg.wait_for.iter().all(|path| path.exists());
+        match &self.state {
+            State::Pending => (booted || self.cfg.start == Phase::Boot) && gates_open(),
+            State::Backoff { until } => now >= *until && gates_open(),
+            State::Running { .. } | State::Done | State::Dead => false,
+        }
+    }
+
+    /// How soon `due` may change, dependencies aside: at the end of a backoff,
+    /// or at the next poll of `wait_for` paths.
+    fn wake(&self, now: Instant, poll: Duration) -> Option<Duration> {
+        match &self.state {
+            State::Backoff { until } if *until > now => Some(*until - now),
+            State::Backoff { .. } | State::Pending => Some(poll),
+            State::Running { .. } | State::Done | State::Dead => None,
+        }
+    }
+
     /// Marks the service dead and hands back its log worker, if it had one.
     fn retire(&mut self) -> Option<crate::logging::LogPump> {
         match std::mem::replace(&mut self.state, State::Dead) {
@@ -565,6 +577,37 @@ mod tests {
         b.after = vec!["a".into()];
         let cfg = SupervisorConfig { log_dir: "/unused".into(), replaces: Vec::new(), services: vec![a, b], boot: None };
         assert!(Supervisor::new(&cfg, false).is_err());
+    }
+
+    #[test]
+    fn a_service_waits_for_its_marker_again_after_exiting() {
+        let marker = std::env::temp_dir().join(format!("ghazal-supervisor-gate-{}", std::process::id()));
+        std::fs::write(&marker, "1").unwrap();
+        let mut gated = service("syncthing");
+        gated.cfg.wait_for = vec![marker.clone()];
+        let now = Instant::now();
+        gated.state = State::Backoff { until: now + Duration::from_secs(1) };
+        assert!(!gated.due(now, true));
+        assert_eq!(gated.wake(now, IDLE_POLL), Some(Duration::from_secs(1)));
+        let later = now + Duration::from_secs(1);
+        assert!(gated.due(later, true));
+        std::fs::remove_file(&marker).unwrap();
+        assert!(!gated.due(later, true));
+        // Looked at again at the next poll, not in a busy loop.
+        assert_eq!(gated.wake(later, IDLE_POLL), Some(IDLE_POLL));
+        gated.state = State::Pending;
+        assert!(!gated.due(later, true));
+    }
+
+    #[test]
+    fn background_services_wait_for_the_boot() {
+        let mut background = service("sshd");
+        background.cfg.start = Phase::Background;
+        assert!(!background.due(Instant::now(), false));
+        assert!(background.due(Instant::now(), true));
+        background.state = State::Done;
+        assert!(!background.due(Instant::now(), true));
+        assert_eq!(background.wake(Instant::now(), IDLE_POLL), None);
     }
 
     #[test]
