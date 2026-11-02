@@ -397,7 +397,9 @@ fn service_detail(observation: &Observation) -> String {
 fn web_detail(observation: &Observation, listening: Listening) -> String {
     match (observation.web.exposure(), listening, observation.address) {
         (Exposure::Local, Listening::Local, _) => "Off".into(),
-        (Exposure::Local, Listening::Network, _) | (Exposure::Network, Listening::Local, _) => "Restarting…".into(),
+        (Exposure::Local, Listening::Network, _) => "Leaving the network…".into(),
+        // Restarting, or held back by `serve` because Syncthing has no login.
+        (Exposure::Network, Listening::Local, _) => "Not on the network yet".into(),
         (Exposure::Network, Listening::Network, Some(address)) => format!("http://{address}:8384"),
         (Exposure::Network, Listening::Network, None) => "On, not on a network".into(),
     }
@@ -691,7 +693,7 @@ mod tests {
         // Chosen, but Syncthing has not restarted yet.
         let restarting = Observation { web: WebInterface::Network(password), ..observation(Service::Running(snapshot())) };
         let screen = Screen::Browse(Browse::new(restarting));
-        assert_eq!(Run::from(screen.clone()).labels().iter().rev().nth(1).unwrap().1, "Restarting…");
+        assert_eq!(Run::from(screen.clone()).labels().iter().rev().nth(1).unwrap().1, "Not on the network yet");
         assert_eq!(screen.refresh_interval(), Some(Duration::from_secs(2)));
     }
 

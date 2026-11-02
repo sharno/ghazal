@@ -84,7 +84,9 @@ Turning it off restarts Syncthing with the web interface on the handheld only.
 The address comes from the command line (`ghazal syncthing serve`), so an
 address set in Syncthing's own settings never exposes it, and the interface
 never goes on the network without a login: when `config.xml` has none, it stays
-on the handheld and `/var/log/ghazal/syncthing.log` says so.
+on the handheld, `/var/log/ghazal/syncthing.log` says so, and the row reads
+`Not on the network yet` (also its wording for the few seconds of a restart).
+Turning it off and on again gives Syncthing the login again.
 
 The interface uses plain HTTP: turn it on only on a network you trust, and off
 when you are done. An SSH tunnel still works too:
