@@ -1,5 +1,16 @@
 # Ghazal H700 beta
 
+Beta 13 adds Configuration → Syncthing: turn it on or off, pair a phone by
+scanning this handheld's ID as a QR code, accept or ignore new devices and
+shared folders, see each folder's state and rescan it, and open Syncthing's own
+web interface on the network with a generated password
+([Syncthing](syncthing.md)). The status bar shows Wi-Fi signal, Bluetooth,
+Syncthing (orange while syncing, red on errors) and HDMI. RetroArch's menu now
+confirms with A and goes back with B, like Ghazal's; an existing RetroArch
+config is changed once, and setting it back in RetroArch is kept. None of this
+has run on a handheld yet: it was checked with unit tests, the desktop
+simulator and, for Syncthing, a real Syncthing 2.1.3 in a container.
+
 Beta 12 is beta 11 republished. Beta 11's release lacked five DDR4 images
 (RG40XX H, RG40XX H v2, RG40XX V, RG40XX V v2 and RG CubeXX) and was withdrawn;
 the code is identical, and publication now refuses an incomplete set.
