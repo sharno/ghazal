@@ -10,7 +10,7 @@ pub mod backend;
 mod bluez;
 mod cli;
 mod dbus;
-mod hardware;
+pub(crate) mod hardware;
 pub mod model;
 mod worker;
 

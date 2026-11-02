@@ -7,6 +7,7 @@ pub mod config;
 pub mod emulator;
 pub mod emulator_choice;
 mod emulator_picker;
+mod indicators;
 pub mod input;
 mod keyboard;
 pub mod launcher;

@@ -86,6 +86,7 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
             Err(std::env::VarError::NotPresent) => {},
             Err(error) => return Err(error.into()),
         }
+        if std::env::var_os("GHAZAL_SNAPSHOT_INDICATORS").is_some() { app.snapshot_indicators(); }
         screen.fast_forward(Duration::from_secs(1));
         screen.render();
         let path = dir.join(format!("{frame:02}.png"));

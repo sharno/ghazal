@@ -221,9 +221,10 @@ Never commit personal provisioning, game inventories, credentials or device-sess
   The commit before emulator choice (ca9352d) does it too. `present()` copies
   rows at the damage's x, so look at Slint's output and the scanout buffer
   before blaming the panel; check whether the panel itself shows it.
-- Check status icons with the desktop snapshot power override at normal and
-  compact sizes (docs/standalone.md). The software renderer has no Path support
-  unless explicitly enabled; embedded-font symbols avoid adding that dependency.
+- Check status icons with the desktop snapshot overrides (power, HDMI,
+  `GHAZAL_SNAPSHOT_INDICATORS`) at normal and compact sizes (docs/standalone.md).
+  The software renderer has no Path support unless explicitly enabled: draw new
+  icons as SVGs in `assets/icons`, which build.rs rasterizes for Slint to colorize.
 
 ### Updates and build independence
 

@@ -21,7 +21,9 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 - Automatically save and resume supported RetroArch games. Manual saves retain
   ten rolling numbered states, separate from the automatic resume state.
 - Change brightness, volume, stick lights (RG40XX H/V, RG CubeXX) and persistent
-  RetroArch settings from Configuration.
+  RetroArch settings from Configuration. RetroArch's menu confirms with A and goes
+  back with B, like Ghazal's.
+- See Wi-Fi signal, Bluetooth, Syncthing and HDMI at a glance in the status bar.
 - Earn RetroAchievements and play RetroArch games together over Wi-Fi: host a
   netplay session or pick a host on the network from a game's actions.
 - Mute the speaker while headphones are plugged in, and run lighter systems at a

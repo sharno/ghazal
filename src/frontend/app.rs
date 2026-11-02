@@ -17,6 +17,7 @@ use super::moonlight::{self, Notice};
 use super::netplay::{self, Choosing, Pick, Polled, Role, Scanning, Session, Target};
 use super::settings::{Settings, StartupMode};
 use super::thumbnails::{self, Art, Loader, Progress};
+use super::indicators;
 use super::wifi;
 use crate::daemon::ctl;
 use crate::hdmi;
@@ -27,6 +28,8 @@ use crate::ui::{AppWindow, Hint, KeyCap, KeyboardState, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
 const STATUS_REFRESH: Duration = Duration::from_secs(20);
+/// Status icons read a few small files, so they can follow changes closely.
+const INDICATOR_REFRESH: Duration = Duration::from_secs(5);
 /// The daemon only needs to know the user is present, not every key repeat.
 const ACTIVITY_REPORT: Duration = Duration::from_secs(1);
 const SCAN_POLL: Duration = Duration::from_millis(50);
@@ -310,6 +313,7 @@ pub struct App {
     /// None on boards without HDMI, which hides its entry.
     hdmi: Option<hdmi::Status>,
     status_checked: Instant,
+    indicators_checked: Instant,
     activity_reported: Option<Instant>,
     /// Which view the row model currently shows, so it's only rebuilt on change.
     rows_for: Option<View>,
@@ -397,6 +401,7 @@ impl App {
             levels_visible_until: None,
             hdmi: None,
             status_checked: Instant::now(),
+            indicators_checked: Instant::now(),
             activity_reported: None,
             rows_for: None,
             row_start: 0,
@@ -755,6 +760,9 @@ impl App {
         if now >= self.status_checked + STATUS_REFRESH {
             self.refresh_status(now);
         }
+        if now >= self.indicators_checked + INDICATOR_REFRESH {
+            self.refresh_indicators(now);
+        }
         self.sync();
     }
 
@@ -909,6 +917,7 @@ impl App {
             || self.ports.as_ref().is_some_and(|ports| ports.install.is_some())
             || matches!(self.join, Some(Join::Scanning(_)));
         let mut deadline = if busy { Instant::now() + if self.scan.is_some() { SCAN_POLL } else { BACKGROUND_POLL } } else { self.status_checked + STATUS_REFRESH };
+        deadline = deadline.min(self.indicators_checked + INDICATOR_REFRESH);
         if let Some(until) = self.levels_visible_until { deadline = deadline.min(until); }
         if self.bluetooth.is_some() { deadline = deadline.min(Instant::now() + BLUETOOTH_POLL); }
         if let Some(toast) = &self.toast { deadline = deadline.min(toast.shown + TOAST_DURATION); }
@@ -943,6 +952,14 @@ impl App {
         self.ui.set_battery_charging(charging);
     }
 
+    /// Every status icon lit, with HDMI as GHAZAL_SNAPSHOT_HDMI set it.
+    #[cfg(feature = "desktop")]
+    pub(crate) fn snapshot_indicators(&self) {
+        use indicators::{Bluetooth, Readings, Syncthing, Wifi};
+        let readings = Readings { wifi: Wifi::Connected(Some(wifi::Signal::from_dbm(-62))), bluetooth: Bluetooth::Connected, syncthing: Syncthing::Running, hdmi: self.hdmi };
+        self.ui.set_indicators(readings.view());
+    }
+
     fn refresh_status(&mut self, now: Instant) {
         self.status_checked = now;
         let (h, m) = battery::local_time();
@@ -955,6 +972,12 @@ impl App {
             None => self.ui.set_battery_percent(-1),
         }
         if self.view == View::Information { self.refresh_information(); }
+        self.refresh_indicators(now);
+    }
+
+    fn refresh_indicators(&mut self, now: Instant) {
+        self.indicators_checked = now;
+        self.ui.set_indicators(indicators::Readings::read(self.hdmi).view());
     }
 
     fn configuration_items(&self) -> Vec<MenuItem> {
@@ -973,6 +996,7 @@ impl App {
     /// What the screens are doing about HDMI; a failure reaches the user as a toast.
     pub fn set_hdmi(&mut self, status: hdmi::Status, error: Option<String>) {
         self.hdmi = Some(status);
+        self.refresh_indicators(Instant::now());
         if let Some(error) = error { self.error(format!("HDMI: {error}")); }
         if self.view == View::Information { self.refresh_information(); }
         self.rows_for = None;

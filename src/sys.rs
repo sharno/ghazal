@@ -107,21 +107,27 @@ pub fn kill(pid: i32, signal: i32) {
     unsafe { libc::kill(pid, signal) };
 }
 
+/// Processes other than this one and PID 1 whose /proc/<pid>/comm equals `name`.
+fn pids_named(name: &str) -> impl Iterator<Item = i32> + '_ {
+    let me = std::process::id() as i32;
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().filter_map(move |entry| {
+        let pid = entry.file_name().to_str()?.parse::<i32>().ok().filter(|pid| *pid != me && *pid != 1)?;
+        let comm = std::fs::read_to_string(entry.path().join("comm")).ok()?;
+        (comm.trim_end() == name).then_some(pid)
+    })
+}
+
 /// SIGTERMs every process whose /proc/<pid>/comm equals `name`.
 pub fn kill_by_name(name: &str) {
-    let me = std::process::id() as i32;
-    let Ok(entries) = std::fs::read_dir("/proc") else { return };
-    for entry in entries.flatten() {
-        let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
-        if pid == me || pid == 1 {
-            continue;
-        }
-        let comm = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
-        if comm.trim_end() == name {
-            log(format_args!("ghazal: stopping {name} (pid {pid})"));
-            kill(pid, libc::SIGTERM);
-        }
-    }
+    pids_named(name).for_each(|pid| {
+        log(format_args!("ghazal: stopping {name} (pid {pid})"));
+        kill(pid, libc::SIGTERM);
+    });
+}
+
+/// Whether a process whose /proc/<pid>/comm equals `name` is running.
+pub fn running(name: &str) -> bool {
+    pids_named(name).next().is_some()
 }
 
 pub fn mount(source: &str, target: &Path, fstype: &str, flags: libc::c_ulong, data: &str) -> Result<()> {

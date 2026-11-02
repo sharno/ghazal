@@ -18,6 +18,30 @@ export struct Hint {
     label: string,
 }
 
+/// How a status icon is drawn; `off` hides it.
+export enum Lamp { off, idle, on, busy, fault }
+
+/// The status icons for what runs in the background (src/frontend/indicators.rs).
+export struct Indicators {
+    wifi: Lamp,
+    /// Lit Wi-Fi arcs above the dot, 0 to 3.
+    wifi-arcs: int,
+    bluetooth: Lamp,
+    syncthing: Lamp,
+    hdmi: Lamp,
+}
+
+/// White shapes on transparent, rasterized at build time (build.rs).
+export struct IndicatorIcons {
+    wifi-dot: image,
+    wifi-near: image,
+    wifi-mid: image,
+    wifi-far: image,
+    bluetooth: image,
+    syncthing: image,
+    hdmi: image,
+}
+
 export global Theme {
     in-out property <bool> compact: false;
     out property <color> bg: #0f1216;
@@ -119,6 +143,36 @@ component BatteryIcon {
     }
 }
 
+global Lamps {
+    public pure function color(lamp: Lamp) -> color {
+        return lamp == Lamp.fault ? Theme.warn : lamp == Lamp.busy ? Theme.accent : lamp == Lamp.on ? Theme.text : Theme.dim;
+    }
+}
+
+component StatusIcon inherits Image {
+    in property <Lamp> lamp;
+    width: Theme.compact ? 16px : 20px;
+    height: self.width;
+    colorize: Lamps.color(lamp);
+}
+
+/// The dot and up to three arcs, lit by signal strength.
+component WifiIcon {
+    in property <IndicatorIcons> icons;
+    in property <Lamp> lamp;
+    in property <int> arcs;
+    property <color> lit: Lamps.color(lamp);
+    property <color> unlit: Theme.dim.with-alpha(0.35);
+    width: Theme.compact ? 16px : 20px;
+    height: self.width;
+    for layer[index] in [icons.wifi-dot, icons.wifi-near, icons.wifi-mid, icons.wifi-far]: Image {
+        width: parent.width;
+        height: parent.height;
+        source: layer;
+        colorize: index <= arcs ? lit : unlit;
+    }
+}
+
 component HintPill {
     in property <Hint> hint;
     HorizontalLayout {
@@ -176,6 +230,8 @@ export component AppWindow inherits Window {
     /// -1 hides the battery indicator (no battery found).
     in property <int> battery-percent: -1;
     in property <bool> battery-charging;
+    in property <Indicators> indicators;
+    in property <IndicatorIcons> indicator-icons;
     /// A window of the list: rows[0] is item number `row-offset` of `row-count`.
     in property <[Row]> rows;
     in property <int> row-offset;
@@ -241,6 +297,31 @@ export component AppWindow inherits Window {
                     vertical-alignment: center;
                     font-size: 16px;
                     color: Theme.dim;
+                }
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: Theme.compact ? 6px : 8px;
+                    if root.indicators.syncthing != Lamp.off: StatusIcon {
+                        y: (parent.height - self.height) / 2;
+                        source: root.indicator-icons.syncthing;
+                        lamp: root.indicators.syncthing;
+                    }
+                    if root.indicators.hdmi != Lamp.off: StatusIcon {
+                        y: (parent.height - self.height) / 2;
+                        source: root.indicator-icons.hdmi;
+                        lamp: root.indicators.hdmi;
+                    }
+                    if root.indicators.bluetooth != Lamp.off: StatusIcon {
+                        y: (parent.height - self.height) / 2;
+                        source: root.indicator-icons.bluetooth;
+                        lamp: root.indicators.bluetooth;
+                    }
+                    if root.indicators.wifi != Lamp.off: WifiIcon {
+                        y: (parent.height - self.height) / 2;
+                        icons: root.indicator-icons;
+                        lamp: root.indicators.wifi;
+                        arcs: root.indicators.wifi-arcs;
+                    }
                 }
                 Text {
                     text: root.clock;

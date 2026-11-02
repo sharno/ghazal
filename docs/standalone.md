@@ -100,7 +100,17 @@ is desktop-only and accepts `charging` or `discharging`; it never changes hardwa
 readings, daemon policy or update safety checks. Omit it to observe host status.
 `GHAZAL_SNAPSHOT_HDMI=disconnected|unused|active|mirror` shows the HDMI entry in
 Configuration and Information, and `GHAZAL_SNAPSHOT_NOTICE=1` the screen the
-handheld shows while a game runs on HDMI.
+handheld shows while a game runs on HDMI. `GHAZAL_SNAPSHOT_INDICATORS=1` lights
+every status icon (Wi-Fi at three of four bars, Bluetooth with a device,
+Syncthing, and HDMI as `GHAZAL_SNAPSHOT_HDMI` sets it).
+
+The status bar shows an icon for each service working in the background, next
+to the clock: Wi-Fi (bars by signal; dim while not connected), Bluetooth (dim
+while on, bright with a device linked), Syncthing (while it runs) and HDMI (dim
+with a display plugged in, bright while it shows the picture). An icon is
+hidden while its service is off or the board lacks it. They are read from
+sysfs and /proc every 5 seconds (`src/frontend/indicators.rs`); the icons are
+SVGs in `assets/icons`, rasterized by build.rs and colored by Slint.
 
 Create a private `secrets/` directory containing `ssid`, `passphrase` and
 `authorized_keys` (one SSH public key per line). SSID and passphrase files each

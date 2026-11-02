@@ -18,6 +18,7 @@ mod types;
 
 pub use controller::{Controller, Reaction};
 pub use screen::{Notice, View};
+pub use types::Signal;
 
 use std::sync::OnceLock;
 

@@ -48,6 +48,12 @@ pub fn controller() -> Controller {
     controller_in(Path::new(DRIVER), Path::new(CLASS))
 }
 
+/// Whether a device has a link: the kernel lists each connection as
+/// `hci0:<handle>` next to its controller.
+pub fn linked() -> bool {
+    std::fs::read_dir(CLASS).is_ok_and(|entries| entries.flatten().any(|entry| entry.file_name().to_string_lossy().contains(':')))
+}
+
 /// Whether this device can do Bluetooth at all.
 pub fn present() -> bool {
     controller() != Controller::Absent

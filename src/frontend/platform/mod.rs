@@ -131,6 +131,7 @@ fn build_app(config: FrontendConfig) -> Result<App> {
     let mut logo = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(64, 64);
     logo.make_mut_bytes().copy_from_slice(include_bytes!(concat!(env!("OUT_DIR"), "/ghazal-logo.rgba")));
     ui.set_brand_logo(slint::Image::from_rgba8_premultiplied(logo));
+    ui.set_indicator_icons(super::indicators::icons());
     ui.global::<crate::ui::Theme>().set_compact(ui.window().size().width < 400);
     ui.show().map_err(|e| anyhow!("showing UI: {e}"))?;
     App::new(config, ui)
