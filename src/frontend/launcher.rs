@@ -96,17 +96,22 @@ impl LaunchSpec {
     }
 
     /// RetroArch's writable config, created from the template on first use.
-    /// A RetroAchievements account from provisioning is merged in here, once;
-    /// that is never fatal and never logged beyond its cause.
+    /// A RetroAchievements account from provisioning and each default Ghazal
+    /// changed later are merged in here, once; that is never fatal and never
+    /// logged beyond its cause.
     pub fn user_config(config: &FrontendConfig) -> Result<Option<PathBuf>> {
         let ra = &config.retroarch;
         let Some(path) = &ra.user_config else { return Ok(None) };
         if !path.exists() {
             let template = ra.configs.iter().find(|path| path.is_file()).context("RetroArch configuration template is missing")?;
             crate::sys::write_atomic(path, &std::fs::read(template)?)?;
+            retroarch_cfg::record_default_changes(path)?;
         }
         if let Err(error) = retroarch_cfg::apply_seed(path, &ra.account_seed) {
             eprintln!("ghazal: RetroAchievements account from provisioning: {error:#}");
+        }
+        if let Err(error) = retroarch_cfg::apply_default_changes(path) {
+            eprintln!("ghazal: changing RetroArch's defaults: {error:#}");
         }
         Ok(Some(path.clone()))
     }

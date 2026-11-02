@@ -2,7 +2,8 @@
 //!
 //! RetroArch rewrites its whole config when it exits, so Ghazal only changes a
 //! few keys in place (the provisioned RetroAchievements account, the
-//! Achievements switch) and reads a few back for the menu. Nothing here logs a
+//! Achievements switch, defaults changed since a config was made) and reads a
+//! few back for the menu. Nothing here logs a
 //! value: the keys it handles include passwords and login tokens.
 
 use std::collections::BTreeMap;
@@ -178,6 +179,42 @@ pub fn account_seed(username: &str, password: &str) -> Result<Edits> {
     Edits::try_from(seed).map_err(|_| anyhow::anyhow!("invalid RetroAchievements account values"))
 }
 
+/// Defaults Ghazal changed after players' RetroArch configs already existed,
+/// oldest first. RetroArch saves every setting when it exits, so a new template
+/// value never reaches an existing config: each change is applied once, and a
+/// player who sets it back keeps their choice. Append only.
+const DEFAULT_CHANGES: &[(&str, &str)] = &[
+    // Nintendo-style menu like Ghazal's own: A (right) confirms, B (bottom) goes back.
+    ("menu_swap_ok_cancel_buttons", "false"),
+];
+
+/// Counts the default changes applied to `user_config`; a count written by a
+/// newer OS is higher than this one knows and changes nothing.
+fn default_changes_counter(user_config: &Path) -> std::path::PathBuf {
+    user_config.with_file_name("ghazal-defaults-applied")
+}
+
+/// A config made from the template already has every changed default.
+pub fn record_default_changes(user_config: &Path) -> Result<()> {
+    crate::sys::write_atomic(&default_changes_counter(user_config), DEFAULT_CHANGES.len().to_string().as_bytes())
+}
+
+/// Applies the default changes `user_config` has not had yet.
+pub fn apply_default_changes(user_config: &Path) -> Result<()> {
+    let applied = match std::fs::read_to_string(default_changes_counter(user_config)) {
+        Ok(text) => text.trim().parse::<usize>().context("reading how many RetroArch default changes are applied")?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error).context("reading how many RetroArch default changes are applied"),
+    };
+    let Some(pending) = DEFAULT_CHANGES.get(applied..).filter(|pending| !pending.is_empty()) else { return Ok(()) };
+    let edits = Edits::try_from(pending.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect::<BTreeMap<_, _>>())
+        .map_err(anyhow::Error::msg)?;
+    let current = std::fs::read_to_string(user_config).context("reading RetroArch's config")?;
+    // Private: the config can hold a RetroAchievements login token.
+    crate::sys::write_atomic_private(user_config, edits.apply(&current).as_bytes())?;
+    record_default_changes(user_config)
+}
+
 /// Merges a pending account seed into RetroArch's user config and deletes the
 /// seed once the config is written. Returns whether a seed was applied.
 /// The config is rewritten privately: it holds the password until RetroArch
@@ -298,5 +335,38 @@ mod tests {
         assert!(apply_seed(&config, &seed).unwrap());
         assert_eq!(value(&std::fs::read_to_string(&config).unwrap(), CHEEVOS_ENABLE), Some("true"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn default_changes_apply_once_and_then_leave_the_players_choice() {
+        let dir = temp("defaults");
+        let config = dir.join("retroarch.cfg");
+        std::fs::write(&config, "video_driver = \"gl\"\nmenu_swap_ok_cancel_buttons = \"true\"\n").unwrap();
+        apply_default_changes(&config).unwrap();
+        assert_eq!(value(&std::fs::read_to_string(&config).unwrap(), "menu_swap_ok_cancel_buttons"), Some("false"));
+        // The player swaps it back in RetroArch's menu: that choice stays.
+        std::fs::write(&config, "menu_swap_ok_cancel_buttons = \"true\"\n").unwrap();
+        apply_default_changes(&config).unwrap();
+        assert_eq!(value(&std::fs::read_to_string(&config).unwrap(), "menu_swap_ok_cancel_buttons"), Some("true"));
+        // A newer OS slot applied more changes than this one knows.
+        std::fs::write(dir.join("ghazal-defaults-applied"), "99").unwrap();
+        apply_default_changes(&config).unwrap();
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "menu_swap_ok_cancel_buttons = \"true\"\n");
+        // A config made from the template is left as the template made it.
+        std::fs::remove_file(dir.join("ghazal-defaults-applied")).unwrap();
+        record_default_changes(&config).unwrap();
+        apply_default_changes(&config).unwrap();
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "menu_swap_ok_cancel_buttons = \"true\"\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The template already has every changed default, so a fresh config needs none of them.
+    #[test]
+    fn the_template_has_every_changed_default() {
+        let template = include_str!("../config/rg40xxv-rocknix/retroarch.cfg");
+        for (key, changed) in DEFAULT_CHANGES {
+            assert!(valid_key(key) && !changed.contains('"'), "{key}");
+            assert_eq!(value(template, key), Some(*changed), "{key}");
+        }
     }
 }
