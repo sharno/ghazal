@@ -41,6 +41,8 @@ pub enum Selection {
 #[derive(Clone, Debug)]
 pub struct Browse {
     observation: Observation,
+    /// The player's row. A restart lists only the switch for a few seconds;
+    /// the row stays chosen and is selected again when the list returns.
     selection: Selection,
 }
 
@@ -136,15 +138,21 @@ impl Browse {
 
     fn cursor(&self) -> usize { self.entries().iter().position(|entry| *entry == self.selection).unwrap_or(0) }
 
+    /// The row the cursor is on: the player's, or the switch while the list is hidden.
+    fn selected(&self) -> Selection {
+        if self.entries().contains(&self.selection) { self.selection.clone() } else { Selection::Service }
+    }
+
     fn snapshot(&self) -> Option<&Snapshot> { self.observation.service.snapshot() }
 
-    /// Takes a new observation. When the selected row is gone (an accepted
-    /// request, a removed folder) the cursor stays where it was on the screen.
+    /// Takes a new observation. When the selected row is gone from a listed
+    /// Syncthing (an accepted request, a removed folder) the cursor stays where
+    /// it was on the screen.
     fn accept(&mut self, observation: Observation) {
         let cursor = self.cursor();
         self.observation = observation;
         let entries = self.entries();
-        if !entries.contains(&self.selection) {
+        if self.snapshot().is_some() && !entries.contains(&self.selection) {
             self.selection = entries.get(cursor).or(entries.last()).cloned().unwrap_or(Selection::Service);
         }
     }
@@ -219,7 +227,7 @@ fn browse_button(mut browse: Browse, button: Button) -> Step {
 }
 
 fn activate(browse: Browse) -> Step {
-    let selection = browse.selection.clone();
+    let selection = browse.selected();
     let observation = &browse.observation;
     let snapshot = browse.snapshot();
     match selection {
@@ -267,7 +275,7 @@ fn accept_folder(browse: Browse, folder: PendingFolder) -> Step {
 
 fn ignore(browse: Browse) -> Step {
     let snapshot = browse.snapshot();
-    let question = match &browse.selection {
+    let question = match &browse.selected() {
         Selection::PendingDevice(id) => snapshot.and_then(|snapshot| snapshot.pending_device(id)).cloned().map(Question::IgnoreDevice),
         Selection::PendingFolder(id) => snapshot.and_then(|snapshot| snapshot.pending_folder(id)).cloned().map(Question::IgnoreFolder),
         Selection::Service | Selection::Me | Selection::Folder(_) | Selection::Device(_) | Selection::Web | Selection::Login => None,
@@ -438,7 +446,7 @@ fn browse_rows(browse: &Browse, now: Timestamp) -> Vec<RowView> {
 }
 
 fn browse_hints(browse: &Browse) -> Hints {
-    match &browse.selection {
+    match browse.selected() {
         Selection::Service => SERVICE_HINTS,
         Selection::Me => ME_HINTS,
         Selection::PendingDevice(_) | Selection::PendingFolder(_) => PENDING_HINTS,
@@ -482,7 +490,7 @@ pub fn view(screen: &Screen, now: Timestamp) -> View {
             rows: browse_rows(browse, now),
             cursor: browse.cursor(),
             hints: browse_hints(browse),
-            device_id: browse.snapshot().filter(|_| browse.selection == Selection::Me).map(|snapshot| snapshot.me.id.clone()),
+            device_id: browse.snapshot().filter(|_| browse.selected() == Selection::Me).map(|snapshot| snapshot.me.id.clone()),
         },
         Screen::Confirm(confirm) => {
             let (question, yes) = question_rows(&confirm.question);
@@ -557,7 +565,7 @@ mod tests {
         fn select(self, target: Selection) -> Self {
             let mut run = self;
             for _ in 0..30 {
-                if run.browse().selection == target { return run; }
+                if run.browse().selected() == target { return run; }
                 run = run.press(&[Button::Down]);
             }
             panic!("never reached {target:?}");
@@ -675,10 +683,22 @@ mod tests {
         let mut after = snapshot();
         after.pending_folders.retain(|folder| folder.id != folder_id("shots"));
         let run = run.event(Event::Observed(observation(Service::Running(after))));
-        assert_eq!(run.browse().selection, Selection::PendingFolder(folder_id("old")));
+        assert_eq!(run.browse().selected(), Selection::PendingFolder(folder_id("old")));
         // Everything gone but the switch: the cursor goes to it.
         let run = run.event(Event::Observed(observation(Service::Off)));
-        assert_eq!(run.browse().selection, Selection::Service);
+        assert_eq!(run.browse().selected(), Selection::Service);
+    }
+
+    #[test]
+    fn a_restart_returns_the_cursor_to_its_row() {
+        let run = Run::browsing().select(Selection::Web).press(&[Button::A]);
+        assert!(matches!(run.last_order(), Some(Order::Expose(Exposure::Network))));
+        // Syncthing restarts on the new address: only the switch is listed, and A there turns Syncthing off.
+        let run = run.event(Event::Done(Order::Expose(Exposure::Network), Ok(()))).event(Event::Observed(observation(Service::Starting)));
+        assert_eq!((view(&run.screen, Timestamp::from_unix(NOW)).cursor, run.browse().selected()), (0, Selection::Service));
+        assert_eq!(Run::from(run.screen.clone()).press(&[Button::A]).last_order(), Some(&Order::Switch(Switch::Off)));
+        let run = run.event(Event::Observed(observation(Service::Running(snapshot()))));
+        assert_eq!(run.browse().selected(), Selection::Web);
     }
 
     #[test]

@@ -346,35 +346,22 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
 
-- Betas 11 and 12 (the first releases with every feature) were tagged without
-  booting their images on a handheld: the development RG40XX-V v2 stopped
-  answering on the network after its first boot of the Bluetooth-kernel test
-  image (slot B, `BOOT_B_LEFT=1`; cause unknown) and nobody could power-cycle it.
-  Both kernel flags are false in the release, so its kernel is the one that
-  booted before. First session: power-cycle (check the battery first), put the
-  beta 12 image on slot B (`flash-b.sh`, or System update from beta 10, which
-  also proves the updater: docs/release-checks.md step 6), read the boot time
-  (~2.95 s expected), run `scripts/acceptance.sh`, then work through the entries
-  below, Bluetooth and HDMI sound last because they need their kernel flag
-  flipped. Whatever fails there is a bug to fix in beta 13; slot A stays the
-  fallback.
-
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the
   libretro PSP core (unit test only, no RG28XX), and the sound and frame pacing
   of every alternative beyond one captured intro frame with PCM running. The
   Snes9x 2010, VBA-Next and Nestopia cores were built from ROCKNIX recipes and
   have only been run for a few seconds each.
-- Configuration → Syncthing (docs/syncthing.md): checked only against Syncthing
-  2.1.3 in a container (`ghazal syncthing` and the REST client: pending devices
-  and folders accepted and ignored, rescans, a folder merged into an existing
-  directory, on/off, the web interface on the network with its login and a new
-  password, the no-login guard in `serve`) and in the desktop simulator with a
-  pretend Syncthing (the QR code decodes). Not yet on a handheld: the supervisor
-  holding Syncthing back after Off and restarting it after a web interface
-  change, `syncthing-restore` at boot, an existing paired card syncing on after
-  the update, pairing a phone by QR and a PC by nearby devices, the web
-  interface from another computer, the status icon over time, and battery cost.
+- Configuration → Syncthing (docs/syncthing.md): checked against Syncthing
+  2.1.3 in a container (pending devices and folders accepted and ignored, a
+  folder merged into an existing directory, a new password, the no-login guard
+  in `serve`) and on the RG40XX-V v2 with beta 13: an existing paired card kept
+  syncing after the update, the status icon, Off stopping it and On starting
+  it, the QR code (it decodes to the device ID), and the web interface on the
+  network from another computer (the shown password logs in, a wrong one is
+  refused) and back. Not yet: Off surviving a reboot (`syncthing-restore`),
+  pairing a phone by QR and a PC by nearby devices, a request on the handheld,
+  and battery cost.
 - Moonlight game streaming: no stream against a real Sunshine or GeForce host
   (needs a PC and a person to type the PIN): pairing itself, the SDL window and
   GLES YV12 renderer, audio, pad mapping, letterboxing, Menu + Start during a
@@ -458,20 +445,17 @@ validated. Remove an entry once it has been checked on a handheld.
   handheld). After that: scan, pair, reconnect and play with the pads in the
   hardware coverage entry. When it works, make the flag `true`, drop this entry
   and restore the README bullet.
-- HDMI output (docs/hdmi.md): it has never run with a display, and the merged
-  tree has not run on a handheld at all (the handheld was unreachable when it
-  was integrated), so even the no-cable behaviour (boot time ~2.95 s, menu,
-  game launch, Menu + Start, audio, the 2 s connector poll after the first
-  frame) is only covered by unit tests and builds. HDMI sound's kernel part is
+- HDMI output (docs/hdmi.md): it has never run with a display. Without a
+  cable, beta 13 booted in 3.03 s and passed `scripts/acceptance.sh` (menu,
+  game launch, sound, Menu + Start) and Configuration → HDMI shows "No
+  display". HDMI sound's kernel part is
   switched off (`hdmiAudioKernel = false` in `flake.nix`): with it off the
   kernel carries none of the audio hub driver, configfs overlays or DT changes,
   `ghazal-hdmi-audio.dtbo` is absent from the image, and a request for HDMI
   sound fails cleanly to the speaker (`daemon.log`). Why: the kernel with the
   hub driver (ROCKNIX's vendor port plus three fixes for 7.2, never run) has not
-  booted on a handheld. To test, in this order: (1) the default image, no
-  cable: the regression list above and Configuration → HDMI showing "No
-  display"; (2) the checklist in docs/hdmi.md with a display, video only, sound
-  on the speaker; (3) set `hdmiAudioKernel = true`, build and flash slot B with
+  booted on a handheld. To test, in this order: (1) the checklist in
+  docs/hdmi.md with a display, video only, sound on the speaker; (2) set `hdmiAudioKernel = true`, build and flash slot B with
   `BOOT_B_LEFT=1`; check it boots, boot time (the Image grows by 2 KiB),
   `/proc/asound/cards` lists only the codec and no `ahub` platform device
   exists; then, attended, `ghazal ctl output panel=off sound=hdmi` applies the
