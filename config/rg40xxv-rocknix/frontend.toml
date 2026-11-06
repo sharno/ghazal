@@ -214,7 +214,38 @@ name = "Nintendo 64"
 dirs = ["N64", "Nintendo 64"]
 extensions = ["n64", "z64", "v64", "zip", "7z"]
 core = "mupen64plus_next_libretro.so"
+label = "Mupen64Plus-Next"
 art = { libretro = "Nintendo - Nintendo 64", muos = "Nintendo N64" }
+
+# Standalone Mupen64Plus with the Rice video plugin, ROCKNIX's H700 choice. It
+# keeps its own config on the data card and its saves beside the cores'. Menu +
+# R1 / L1 save and load a state, Menu + A pauses, Menu + R2 fast-forwards and
+# Menu + Select takes a screenshot (pad buttons 10, 5, 4, 1, 7, 8); Menu +
+# Start quits through SIGTERM, which SDL turns into a clean stop that writes
+# the game's save. It does not resume where it left off.
+[[system.alternative]]
+name = "mupen64plus"
+label = "Mupen64Plus (standalone)"
+command = [
+  "/usr/bin/mupen64plus", "--fullscreen", "--resolution", "640x480", "--nosaveoptions",
+  "--configdir", "/mnt/games/.ghazal/mupen64plus", "--datadir", "/usr/share/mupen64plus",
+  "--gfx", "mupen64plus-video-rice", "--rsp", "mupen64plus-rsp-hle",
+  "--audio", "mupen64plus-audio-sdl", "--input", "mupen64plus-input-sdl",
+  "--set", "Core[SaveSRAMPath]=/mnt/games/SAVES/file/Mupen64Plus",
+  "--set", "Core[SaveStatePath]=/mnt/games/SAVES/state/Mupen64Plus",
+  "--set", "Core[ScreenshotPath]=/mnt/games/SAVES/screenshots",
+  "--set", "Audio-SDL[DEFAULT_FREQUENCY]=33600",
+  "--set", "Audio-SDL[RESAMPLE]=trivial",
+  "--set", "CoreEvents[Joy Mapping Stop]=",
+  "--set", "CoreEvents[Joy Mapping Save State]=J0B10/B5",
+  "--set", "CoreEvents[Joy Mapping Load State]=J0B10/B4",
+  "--set", "CoreEvents[Joy Mapping Pause]=J0B10/B1",
+  "--set", "CoreEvents[Joy Mapping Fast Forward]=J0B10/B7",
+  "--set", "CoreEvents[Joy Mapping Screenshot]=J0B10/B8",
+  "{rom}",
+]
+env = { HOME = "/root", XDG_RUNTIME_DIR = "/run" }
+log = "/var/log/ghazal/mupen64plus.log"
 
 [[system]]
 name = "Arcade"

@@ -5,7 +5,7 @@
 # brings ROCKNIX's tested emulator builds. package.mk is shell: its unconditional
 # `NAME="value"` lines are read here; the caller restates conditional options
 # and its unpack, patch and build hooks, which see $PKG_VERSION as there.
-{ lib, stdenv, fetchurl, fetchgit, cmake, rocknix }:
+{ lib, stdenv, cmake, rocknixPackage }:
 {
   package,
   # The built core, relative to the source root (CMake: its build directory).
@@ -27,36 +27,20 @@
 }:
 assert lib.elem builder [ "make" "cmake" ];
 let
-  dir = "${rocknix}/projects/ROCKNIX/packages/emulators/libretro/${package}";
-  # A value continued with a trailing backslash is one line, as in shell.
-  lines = lib.splitString "\n" (lib.replaceStrings [ "\\\n" ] [ " " ] (builtins.readFile "${dir}/package.mk"));
-  field = name:
-    let line = lib.findFirst (lib.hasPrefix "${name}=\"") null lines;
-    in if line == null then null else lib.removeSuffix "\"" (lib.removePrefix "${name}=\"" line);
-  rev = field "PKG_VERSION";
-  site = field "PKG_SITE";
-  url = lib.replaceStrings [ "\${PKG_SITE}" "\${PKG_VERSION}" ] [ site rev ] (field "PKG_URL");
+  source = rocknixPackage { inherit hash; path = "emulators/libretro/${package}"; };
+  inherit (source) field rev;
   options = name:
     let value = lib.defaultTo "" (field name); in
     assert lib.assertMsg (!lib.hasInfix "$" value) "${package}: restate ${name} (${value})";
     lib.filter (option: option != "") (lib.splitString " " value);
-  # ROCKNIX applies patches/, then patches/<arch>/ and patches/<version>/.
-  patchesIn = sub:
-    let path = "${dir}/patches${sub}"; in
-    lib.optionals (builtins.pathExists path) (map (name: "${path}/${name}")
-      (lib.sort lib.lessThan (lib.attrNames (lib.filterAttrs
-        (name: type: type == "regular" && lib.hasSuffix ".patch" name) (builtins.readDir path)))));
   # config/arch.aarch64 and config/optimize for TARGET_CPU=cortex-a53.
   targetFlags = [ "-march=armv8-a+crc+fp+simd" "-mabi=lp64" "-Wno-psabi" "-mtune=cortex-a53" "-O2" "-fomit-frame-pointer" ];
 in
 stdenv.mkDerivation {
   pname = "libretro-${package}";
   version = builtins.substring 0 7 rev;
-  src = if lib.hasSuffix ".git" url
-    then fetchgit { url = site; inherit rev hash; fetchSubmodules = true; }
-    else fetchurl { inherit url; sha256 = field "PKG_SHA256"; };
+  inherit (source) src patches;
   inherit buildInputs prePatch;
-  patches = lib.concatMap patchesIn [ "" "/aarch64" "/${rev}" "/${rev}/aarch64" ];
   # Patches name the device and CPU through placeholders.
   patchPhase = ''
     runHook prePatch

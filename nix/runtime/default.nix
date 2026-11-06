@@ -27,8 +27,10 @@ let
   decode-bench = callPackage ./decode-bench.nix { ffmpeg = ffmpeg-h264; };
   ppsspp = callPackage ./ppsspp.nix { inherit mesa sdl2 SDL2_ttf; };
   ppsspp-libretro = ppsspp.override { libretroCore = true; };
+  n64 = callPackage ./mupen64plus.nix { inherit rocknixPackage mesa sdl2 busybox; };
+  rocknixPackage = import ./rocknix-package.nix { inherit (pkgs) lib fetchurl fetchgit; inherit rocknix; };
   cores = import ./cores.nix {
-    rocknixCore = import ./rocknix-core.nix { inherit (pkgs) lib stdenv fetchurl fetchgit cmake; inherit rocknix; };
+    rocknixCore = import ./rocknix-core.nix { inherit (pkgs) lib stdenv cmake; inherit rocknixPackage; };
     inherit (pkgs) zlib libpng libzip flac libogg libvorbis;
     inherit mesa ppsspp-libretro;
   };
@@ -93,6 +95,8 @@ let
   links = {
     "usr/bin/retroarch" = "${retroarch}/bin/retroarch";
     "usr/bin/ppsspp" = "${ppsspp}/bin/ppsspp";
+    "usr/bin/mupen64plus" = "${n64.launcher}";
+    "usr/share/mupen64plus" = "${n64.data}";
     "usr/bin/moonlight" = "${moonlight}/bin/moonlight";
     "usr/bin/syncthing" = "${pkgs.syncthing}/bin/syncthing";
     "usr/bin/amixer" = "${alsa-utils}/bin/amixer";
