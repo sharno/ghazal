@@ -76,10 +76,16 @@ enum Join {
 /// Searching every game by title: Select (or Home → Search) opens a keyboard
 /// over the current screen, and Start lists the matches.
 enum Searching {
-    /// `under` is the screen the keyboard covers, where cancelling returns;
-    /// `back` is where the results' B will return.
-    Typing { keyboard: Keyboard, under: View, back: View },
+    Typing(Typing),
     Results { back: View },
+}
+
+/// `under` is the screen the keyboard covers, where cancelling returns;
+/// `back` is where the results' B will return.
+struct Typing {
+    keyboard: Keyboard,
+    under: View,
+    back: View,
 }
 
 /// The game a game-actions menu was opened on, checked again when an action is chosen.
@@ -544,9 +550,9 @@ impl App {
             }
             return None;
         }
-        if matches!(self.search, Some(Searching::Typing { .. })) {
-            self.search_typed(button);
-            return None;
+        match self.search.take() {
+            Some(Searching::Typing(typing)) => { self.search_typed(typing, button); return None; }
+            other => self.search = other,
         }
         // The on-screen keyboard uses Start to confirm and Menu to cancel.
         if matches!(button, Button::Menu | Button::Start) && !self.wifi.as_ref().is_some_and(wifi::Controller::typing) {
@@ -671,14 +677,14 @@ impl App {
             Some(Searching::Results { back }) if self.view == View::Games(GameList::Search) => back,
             _ => self.view,
         };
-        self.search = Some(Searching::Typing { keyboard: Keyboard::new(SEARCH_LIMIT, Echo::Plain), under: self.view, back });
+        self.search = Some(Searching::Typing(Typing { keyboard: Keyboard::new(SEARCH_LIMIT, Echo::Plain), under: self.view, back }));
     }
 
-    fn search_typed(&mut self, button: Button) {
-        let Some(Searching::Typing { keyboard, under, back }) = &mut self.search else { return };
-        let (under, back) = (*under, *back);
-        match keyboard.press(button) {
-            None => {}
+    /// A button while typing: keep typing, list the results, or close.
+    fn search_typed(&mut self, mut typing: Typing, button: Button) {
+        let Typing { under, back, .. } = typing;
+        match typing.keyboard.press(button) {
+            None => self.search = Some(Searching::Typing(typing)),
             Some(Outcome::Submit(query)) if !query.trim().is_empty() => {
                 self.catalog.search(query);
                 self.game_cursors.insert(GameList::Search, 0);
@@ -1694,7 +1700,7 @@ impl App {
     }
 
     fn hints(&self) -> Hints {
-        if matches!(self.search, Some(Searching::Typing { .. })) {
+        if matches!(self.search, Some(Searching::Typing(_))) {
             return if self.ui.window().size().width < 560 { keyboard::NARROW_HINTS } else { keyboard::HINTS };
         }
         let compact = self.ui.window().size().width < 400;
@@ -1743,7 +1749,7 @@ impl App {
     /// The keyboard some screen is asking for. A screen that takes typed text
     /// adds itself here.
     fn active_keyboard(&self) -> Option<keyboard::Display> {
-        if let Some(Searching::Typing { keyboard, .. }) = &self.search {
+        if let Some(Searching::Typing(Typing { keyboard, .. })) = &self.search {
             return Some(keyboard.display("Search games".to_owned(), keyboard::Note::Help("Every word must be in the title".to_owned()), keyboard::TEXT_COLUMNS));
         }
         self.wifi_view.as_ref().and_then(|view| view.keyboard.clone()).filter(|_| self.view == View::Wifi)
