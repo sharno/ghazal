@@ -1,7 +1,7 @@
 # H700 suspend diagnostics
 
-The normal standalone profile disables suspend until physical wake, display,
-input and audio recovery have passed repeated tests. The production kernel
+The normal standalone profile starts with [sleep](sleep.md) off until physical
+wake, display, input and audio recovery have passed repeated tests. The production kernel
 does not expose `pm_test` or a persistent console backend.
 
 Build the separate diagnostic kernel with:

@@ -21,17 +21,22 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 
 ### Reliable native suspend and wake
 
-- Suspend is unresolved and intentionally disabled in the standalone profile:
-  `[power].suspend = "disabled"` and `[daemon.idle].sleep_after = 0` in
-  `config/rg40xxv-rocknix/system.toml`. Idle poweroff is enabled instead.
+- Suspend is unresolved. Configuration → Sleep (docs/sleep.md) offers it as a
+  player option that starts Off (`[power].sleep = "off"`, `sleep_after = 0` in
+  `config/rg40xxv-rocknix/system.toml`); idle poweroff stays the default path.
+  Turned on, a short Power press sleeps and the RTC alarm wakes the handheld
+  to power off after 1 to 12 hours. None of it has run on hardware: run the
+  hardware test in docs/sleep.md, in order, before changing the default.
 - Establish repeated deep suspend/resume on real hardware, from both menu and
   emulator. Verify display, controls, audio, Wi-Fi, wake sources and sleep battery
   drain. A lit screen or surviving menu frame alone is not a successful resume.
-- Add emulator save-state coordination before enabling sleep. Saving on normal
-  emulator exit is implemented; it does not cover entering suspend.
+- The limit is measured on the wall clock across the sleep; confirm `date`
+  advances while asleep, or the alarm wake resumes instead of powering off.
+- Entering sleep saves nothing: the limit's poweroff writes the game's saves, but
+  a resume that hangs or a battery that empties while asleep loses unsaved play.
 - Implement and validate lid behavior for clamshell models before offering lid sleep.
-- Use docs/kernel-debugging.md for diagnostics. Keep suspend disabled until wake
-  and restored device functionality are demonstrated.
+- Use docs/kernel-debugging.md for diagnostics. Keep Sleep's default Off until
+  wake and restored device functionality are demonstrated.
 - A Linux RAM reservation does not protect logs from U-Boot's allocator. Keep
   persistent logs outside bootloader working memory, enable error correction,
   and verify a readable marker after restart; driver registration alone is

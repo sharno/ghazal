@@ -133,7 +133,7 @@ write = { path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", value 
 # PID 1 (busybox in stage 3, ghazal in stage 4) stops everything and powers off.
 poweroff = "signal-init"
 reboot = "signal-init"
-sleep_poweroff_after = 3600
+sleep = "1h"
 # The wifi driver doesn't survive sleep well; muOS unloads it too (suspend.sh).
 before_suspend = [["modprobe", "-r", "8821cs"]]
 after_resume = [["modprobe", "8821cs"]]

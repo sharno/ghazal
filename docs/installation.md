@@ -146,7 +146,7 @@ userspace watchdog starts can require Reset. If neither slot boots, back up
 the data partition from a computer and reflash TF1.
 
 Logs persist in `/var/log/ghazal/`; include the image filename, board/panel
-revision and `/etc/ghazal/image.json` in a bug report. Native suspend remains
-disabled. Use Shutdown before removing a card.
+revision and `/etc/ghazal/image.json` in a bug report. Sleep is off by
+default and untested ([sleep](sleep.md)). Use Shutdown before removing a card.
 
 See [storage layout](storage-layout.md) and [beta limitations](beta-release.md).

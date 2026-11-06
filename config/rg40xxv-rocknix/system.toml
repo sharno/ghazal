@@ -46,13 +46,16 @@ write = { path = "/proc/sys/kernel/sched_util_clamp_min_rt_default", value = "0"
 mkdir = "/run/sshd"
 
 [power]
-suspend = "disabled"
+# Native wake is not yet validated on this board, so Configuration → Sleep
+# starts Off: a short Power press does nothing and holding Power shuts down.
+# Turned on, a short press sleeps and the RTC alarm powers off after the limit.
+suspend = "enabled"
+sleep = "off"
 suspend_checkpoint = "/var/lib/ghazal/suspend-checkpoint"
 poweroff = "signal-init"
 reboot = "signal-init"
 # Require true suspend-to-RAM; do not silently select s2idle.
 mem_sleep = "deep"
-sleep_poweroff_after = 3600
 before_suspend = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "off"]]
 after_resume = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]]
 
@@ -60,9 +63,9 @@ after_resume = [["/usr/bin/amixer", "-c", "0", "sset", "DAC", "on"]]
 state = "/var/lib/ghazal/settings.toml"
 socket = "/run/ghazal/daemon.sock"
 [daemon.idle]
-# Native wake is under investigation; keep the device usable until validated.
+# Only Power puts the handheld to sleep: idle leads to a clean shutdown, which
+# boots back in seconds, instead of an untested resume.
 sleep_after = 0
-# Until sleep works, an untouched device shuts down instead of draining.
 poweroff_after = 1800
 [[daemon.hotkey]]
 keys = ["vol_up"]

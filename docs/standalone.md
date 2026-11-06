@@ -247,6 +247,7 @@ under `/var/log/ghazal`, even when the interface crashes. Useful commands:
 /opt/ghazal/ghazal ctl status
 cat /sys/power/mem_sleep
 tail -n 100 /var/log/ghazal/kernel-log.log
+/opt/ghazal/ghazal ctl sleep 2h
 /opt/ghazal/ghazal ctl suspend
 /opt/ghazal/ghazal ctl poweroff
 ```
@@ -280,15 +281,15 @@ rings red at low battery. The rings' microcontroller sits behind UART5
 follow muOS's serial protocol. `ghazal ctl lights next|prev|<preset>` changes
 it over SSH.
 
-Native suspend is disabled in this profile: both deep and s2idle trials have
-failed to restore a usable device. Automatic sleep is off, the menu hides Sleep,
-and a brief Power press leaves the device awake. Instead, 30 minutes without a
-button press power the device off cleanly, even with a game running (SSH
-sessions postpone it). Hold Power for a clean shutdown.
-The daemon rejects `ctl suspend` while disabled. Dimming still works and input
-activity restores brightness; an emulator or SSH session inhibits idle actions.
-Physical wake, display/audio/input recovery and battery drain require acceptance
-before enabling suspend. Launch targets are RetroArch games, standalone PPSSPP
+Sleep is off by default in this profile: earlier deep and s2idle trials failed
+to restore a usable device. Configuration → Sleep turns it on with a limit after
+which the handheld wakes and powers off ([sleep](sleep.md), with its hardware
+test). While it is off, a brief Power press leaves the device awake, the menu
+hides Sleep and the daemon rejects `ctl suspend`. Idle never sleeps: 30 minutes
+without a button press power the device off cleanly, even with a game running
+(SSH sessions postpone it). Hold Power for a clean shutdown. Dimming still works
+and input activity restores brightness; an emulator or SSH session inhibits idle
+actions. Launch targets are RetroArch games, standalone PPSSPP
 and [PortMaster ports](ports.md); muOS applications and themes are not. Bluetooth
 controllers pair from Configuration → Bluetooth once the kernel option is on
 ([Bluetooth](bluetooth.md)).

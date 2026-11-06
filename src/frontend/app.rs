@@ -27,6 +27,7 @@ use crate::hdmi;
 use crate::hw::battery;
 use crate::ports;
 use crate::retroarch_cfg::{Achievements, Mode};
+use crate::sleep::Sleep;
 use crate::timezone::{Rules, Store, Zone};
 use crate::ui::{AppWindow, Hint, KeyCap, KeyboardState, Row};
 
@@ -163,6 +164,8 @@ enum MenuItem {
     TimeZone,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
+    /// Configuration → Sleep; `Sleep` above is the Start menu's action.
+    SleepChoice,
     Moonlight,
     /// RetroAchievements off, on or hardcore; its row shows the account.
     Achievements,
@@ -207,6 +210,7 @@ impl MenuItem {
             Self::Syncthing => "Syncthing",
             Self::TimeZone => "Time zone",
             Self::Lights(preset) => preset.menu_label(),
+            Self::SleepChoice => "Sleep",
             Self::Moonlight => "Moonlight game streaming",
             Self::Achievements => "Achievements",
             Self::AchievementsAccount => "Achievements account",
@@ -349,6 +353,8 @@ pub struct App {
     levels: Option<crate::levels::Levels>,
     /// None on boards without stick lights.
     lights: Option<crate::hw::lights::Preset>,
+    /// None on boards that cannot sleep, which hides Configuration → Sleep.
+    sleep: Option<Sleep>,
     levels_visible_until: Option<Instant>,
     /// None on boards without HDMI, which hides its entry.
     hdmi: Option<hdmi::Status>,
@@ -393,11 +399,9 @@ impl App {
             ctl::request(&config.daemon_socket, "status").inspect_err(|error| eprintln!("ghazal: daemon unavailable: {error:#}")).ok()
         } else { None };
         let mut main_items = vec![MenuItem::Rescan, MenuItem::Options];
-        if let Some(reply) = &daemon_status {
-            if reply.split_whitespace().any(|field| field == "suspend=1") {
-                main_items.push(MenuItem::Sleep);
-            }
-            main_items.extend([MenuItem::Restart, MenuItem::PowerOff]);
+        if daemon_status.is_some() {
+            // Sleep is listed only while it is on (`page_items`).
+            main_items.extend([MenuItem::Sleep, MenuItem::Restart, MenuItem::PowerOff]);
         }
         if std::env::var_os("GHAZAL_EMBEDDED").is_none() {
             main_items.push(MenuItem::Quit);
@@ -455,6 +459,7 @@ impl App {
             toast: None,
             levels: None,
             lights: daemon_status.as_deref().and_then(ctl::lights),
+            sleep: daemon_status.as_deref().and_then(ctl::sleep),
             levels_visible_until: None,
             hdmi: None,
             status_checked: Instant::now(),
@@ -603,6 +608,7 @@ impl App {
                     match item {
                         MenuItem::Brightness | MenuItem::Volume => self.adjust_level(item, button != Button::Left),
                         MenuItem::Lights(_) => { self.step_lights(button != Button::Left); self.rows_for = None; }
+                        MenuItem::SleepChoice => { self.step_sleep(button != Button::Left); self.rows_for = None; }
                         MenuItem::Hdmi(_) => self.step_hdmi(button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
@@ -1208,6 +1214,7 @@ impl App {
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
+        items.extend(self.sleep.map(|_| MenuItem::SleepChoice));
         if self.hdmi.is_some() { items.push(MenuItem::Hdmi(self.settings.hdmi)); }
         items
     }
@@ -1244,6 +1251,13 @@ impl App {
     fn step_lights(&mut self, forward: bool) {
         match ctl::request(&self.config.daemon_socket, if forward { "lights next" } else { "lights prev" }) {
             Ok(reply) => self.lights = ctl::lights(&reply),
+            Err(error) => self.error(format!("{error:#}")),
+        }
+    }
+
+    fn step_sleep(&mut self, forward: bool) {
+        match ctl::request(&self.config.daemon_socket, if forward { "sleep next" } else { "sleep prev" }) {
+            Ok(reply) => self.sleep = ctl::sleep(&reply),
             Err(error) => self.error(format!("{error:#}")),
         }
     }
@@ -1302,7 +1316,10 @@ impl App {
 
     fn page_items(&self, page: MenuPage) -> Vec<MenuItem> {
         match page {
-            MenuPage::Main => self.main_items.clone(),
+            MenuPage::Main => {
+                let sleep_on = self.sleep.and_then(Sleep::limit).is_some();
+                self.main_items.iter().copied().filter(|item| *item != MenuItem::Sleep || sleep_on).collect()
+            }
             MenuPage::Options => OPTION_ITEMS.to_vec(),
             MenuPage::Game => self.game_actions(),
         }
@@ -1424,6 +1441,7 @@ impl App {
             MenuItem::Quit => Some(Effect::Quit),
             MenuItem::Brightness | MenuItem::Volume => { self.adjust_level(item, true); None }
             MenuItem::Lights(_) => { self.step_lights(true); None }
+            MenuItem::SleepChoice => { self.step_sleep(true); None }
             MenuItem::Hdmi(_) => { self.step_hdmi(true); None }
             MenuItem::Moonlight => {
                 match moonlight::Moonlight::open(&self.config) {
@@ -1662,6 +1680,7 @@ impl App {
                     (MenuItem::Volume, Some(levels)) => format!("{}%", u8::from(levels.volume)),
                     (MenuItem::Achievements, _) => self.achievements.detail(),
                     (MenuItem::Hdmi(_), _) => self.hdmi.map_or_else(String::new, hdmi::Status::describe),
+                    (MenuItem::SleepChoice, _) => self.sleep.map_or("", Sleep::describe).to_owned(),
                     (MenuItem::TimeZone, _) => Store::system().current().map_or_else(|| "UTC".to_owned(), |zone| zone.name().replace('_', " ")),
                     _ => String::new(),
                 };

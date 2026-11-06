@@ -140,9 +140,9 @@ pub struct PowerConfig {
     pub reboot: PowerMethod,
     /// Written to /sys/power/mem_sleep before suspending, if set (e.g. "deep").
     pub mem_sleep: Option<String>,
-    /// Power off instead of resuming once asleep this many seconds (0 = never). Uses the
-    /// RTC wake alarm from device.toml.
-    pub sleep_poweroff_after: u64,
+    /// Configuration → Sleep until the player chooses (`crate::sleep`). The
+    /// limit uses the RTC wake alarm from device.toml.
+    pub sleep: crate::sleep::Sleep,
     /// Commands run before sleeping and after waking (e.g. unloading the wifi driver).
     pub before_suspend: Vec<Vec<String>>,
     pub after_resume: Vec<Vec<String>>,
@@ -156,13 +156,14 @@ impl Default for PowerConfig {
             suspend_checkpoint: None,
             reboot: PowerMethod::SignalInit,
             mem_sleep: None,
-            sleep_poweroff_after: 3600,
+            sleep: crate::sleep::Sleep::OneHour,
             before_suspend: Vec::new(),
             after_resume: Vec::new(),
         }
     }
 }
 
+/// Whether this board can sleep at all; `Disabled` also hides Configuration → Sleep.
 #[derive(Debug, Deserialize, Clone, Copy, Default, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SuspendPolicy {

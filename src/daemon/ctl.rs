@@ -4,6 +4,7 @@
 //!   brightness 50|+10|-10  -> ok ...
 //!   volume 40|+5|-5        -> ok ...
 //!   lights next|prev|<preset>  -> ok ... lights=<preset> (only on boards with stick lights)
+//!   sleep next|prev|off|1h|2h|3h|6h|12h -> ok ... sleep=<choice> (only on boards that can sleep)
 //!   output panel=on|off sound=speaker|hdmi -> ok panel=off sound=hdmi (what the daemon could do)
 //!   suspend | poweroff | reboot
 //!
@@ -17,6 +18,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 
 use super::Daemon;
+use crate::sleep::Sleep;
 use crate::system::Action;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,7 +27,8 @@ pub struct Status {
     pub volume: u8,
     pub battery: Option<u8>,
     pub charging: bool,
-    pub suspend: bool,
+    /// None on boards that cannot sleep.
+    pub sleep: Option<Sleep>,
     pub lights: Option<crate::hw::lights::Preset>,
 }
 
@@ -33,12 +36,13 @@ impl Status {
     fn to_line(self) -> String {
         let battery = self.battery.map_or("none".to_string(), |b| b.to_string());
         let lights = self.lights.map_or(String::new(), |preset| format!(" lights={}", preset.id()));
-        format!("ok brightness={} volume={} battery={battery} charging={} suspend={}{lights}", self.brightness, self.volume, self.charging as u8, self.suspend as u8)
+        let sleep = self.sleep.map_or(String::new(), |sleep| format!(" sleep={}", sleep.id()));
+        format!("ok brightness={} volume={} battery={battery} charging={}{sleep}{lights}", self.brightness, self.volume, self.charging as u8)
     }
 
     #[cfg(test)]
     fn parse(line: &str) -> Result<Self> {
-        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false, suspend: false, lights: None };
+        let mut s = Status { brightness: 0, volume: 0, battery: None, charging: false, sleep: None, lights: None };
         let body = line.strip_prefix("ok").ok_or_else(|| anyhow!("{}", line.trim()))?;
         for kv in body.split_whitespace() {
             let Some((k, v)) = kv.split_once('=') else { continue };
@@ -47,7 +51,7 @@ impl Status {
                 "volume" => s.volume = v.parse()?,
                 "battery" => s.battery = v.parse().ok(),
                 "charging" => s.charging = v == "1",
-                "suspend" => s.suspend = v == "1",
+                "sleep" => s.sleep = sleep(line),
                 "lights" => s.lights = lights(line),
                 _ => {}
             }
@@ -59,6 +63,11 @@ impl Status {
 /// The stick-light preset in a status reply; None on boards without them.
 pub fn lights(reply: &str) -> Option<crate::hw::lights::Preset> {
     reply.split_whitespace().find_map(|field| field.strip_prefix("lights=")).and_then(crate::hw::lights::Preset::parse)
+}
+
+/// The sleep choice in a status reply; None on boards that cannot sleep.
+pub fn sleep(reply: &str) -> Option<Sleep> {
+    reply.split_whitespace().find_map(|field| field.strip_prefix("sleep=")).and_then(Sleep::parse)
 }
 
 /// Parses "50", "+10" or "-10" relative to `current`.
@@ -96,6 +105,16 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
                 };
                 d.set_lights(preset);
             }
+            Some("sleep") => {
+                let Some(current) = d.sleep() else { bail!("this device cannot sleep") };
+                let sleep = match words.next() {
+                    Some("next") => current.step(true),
+                    Some("prev") => current.step(false),
+                    Some(id) => Sleep::parse(id).with_context(|| format!("unknown sleep choice {id:?}"))?,
+                    None => bail!("sleep needs next, prev, off or a limit such as 2h"),
+                };
+                d.set_sleep(sleep);
+            }
             Some("output") => {
                 let outputs = d.set_outputs(crate::hdmi::Outputs::parse(&mut words)?);
                 return Ok(format!("ok {}", outputs.to_args()));
@@ -103,8 +122,8 @@ pub(super) fn handle(d: &mut Daemon, stream: UnixStream) -> Result<()> {
             Some("stop-emulator") => crate::emulator::stop()?,
             // Reply before acting: these may not return (poweroff) or block (suspend).
             Some(cmd @ ("suspend" | "poweroff" | "reboot")) => {
-                if cmd == "suspend" && d.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
-                    bail!("suspend is disabled until native wake is validated");
+                if cmd == "suspend" && d.sleep_limit().is_none() {
+                    bail!("sleep is off; turn it on with `ghazal ctl sleep 2h` or Configuration → Sleep");
                 }
                 (&stream).write_all(b"ok\n")?;
                 let action = match cmd {
@@ -156,9 +175,9 @@ mod tests {
 
     #[test]
     fn status_roundtrip() {
-        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true, suspend: true, lights: Some(crate::hw::lights::Preset::Rainbow) };
+        let s = Status { brightness: 40, volume: 55, battery: Some(80), charging: true, sleep: Some(Sleep::ThreeHours), lights: Some(crate::hw::lights::Preset::Rainbow) };
         assert_eq!(Status::parse(&s.to_line()).unwrap(), s);
-        let none = Status { battery: None, lights: None, ..s };
+        let none = Status { battery: None, sleep: None, lights: None, ..s };
         assert_eq!(Status::parse(&none.to_line()).unwrap(), none);
         assert!(Status::parse("err nope").is_err());
     }

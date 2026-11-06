@@ -169,7 +169,8 @@ Other models, panel revisions and DDR3 targets are experimental; a
 successful CI build does not prove their display, controls, sound or Wi-Fi.
 Test on a spare card and report the exact image and hardware revision.
 
-Native suspend/wake remains disabled. Clamshell lid suspend is not implemented.
+Sleep is off by default: Configuration → Sleep turns it on, but wake has not
+been validated on hardware and a failed resume needs Reset ([sleep](sleep.md)). Clamshell lid suspend is not implemented.
 Charging stability is unresolved on RG40XX-V v2: USB power detection can cycle
 and the battery can continue discharging while connected. The lightning-bolt
 indicator does not fix this power-detection issue. Charging is not hardware-accepted yet.

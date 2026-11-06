@@ -8,7 +8,7 @@
 poweroff = { exec = ["/opt/muos/script/system/halt.sh", "poweroff"] }
 reboot = { exec = ["/opt/muos/script/system/halt.sh", "reboot"] }
 # Power off instead of waking up after an hour asleep.
-sleep_poweroff_after = 3600
+sleep = "1h"
 
 [daemon]
 state = "/opt/ghazal/state/settings.toml"

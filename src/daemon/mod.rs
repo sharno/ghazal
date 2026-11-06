@@ -17,7 +17,8 @@ use crate::device::DeviceConfig;
 use crate::hdmi::connector::{Connector, DRM_CLASS};
 use crate::hdmi::{self, Connection, Outputs, Sound};
 use crate::hw::{self, battery, lights, Hardware};
-use crate::system::{Action, PowerMethod, SystemConfig};
+use crate::sleep::Sleep;
+use crate::system::{Action, PowerMethod, SuspendPolicy, SystemConfig};
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -25,11 +26,13 @@ struct Settings {
     brightness: u8,
     volume: u8,
     lights: lights::Preset,
+    /// None until the player chooses; the image's `[power].sleep` applies.
+    sleep: Option<Sleep>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { brightness: 70, volume: 60, lights: lights::Preset::Off }
+        Self { brightness: 70, volume: 60, lights: lights::Preset::Off, sleep: None }
     }
 }
 
@@ -300,7 +303,7 @@ impl Daemon<'_> {
         if idle.dim_after > 0 && !self.dimmed {
             t = t.min(idle_due(self.last_presence + Duration::from_secs(idle.dim_after)));
         }
-        if idle.sleep_after > 0 {
+        if idle.sleep_after > 0 && self.sleep_limit().is_some() {
             t = t.min(idle_due(self.last_presence + Duration::from_secs(idle.sleep_after)));
         }
         if idle.poweroff_after > 0 {
@@ -413,7 +416,7 @@ impl Daemon<'_> {
             return;
         }
         let quiet = now.duration_since(self.last_presence);
-        if idle.sleep_after > 0 && quiet >= Duration::from_secs(idle.sleep_after) {
+        if idle.sleep_after > 0 && self.sleep_limit().is_some() && quiet >= Duration::from_secs(idle.sleep_after) {
             let charging = self.battery.is_some_and(|b| b.charging);
             if !(charging && idle.stay_awake_charging) {
                 eprintln!("ghazal-daemon: idle for {quiet:?}, sleeping");
@@ -500,14 +503,31 @@ impl Daemon<'_> {
         }
     }
 
+    /// Configuration → Sleep as it applies now: None when this board cannot
+    /// sleep (`[power].suspend`).
+    fn sleep(&self) -> Option<Sleep> {
+        match self.sys.power.suspend {
+            SuspendPolicy::Disabled => None,
+            SuspendPolicy::Enabled => Some(self.settings.sleep.unwrap_or(self.sys.power.sleep)),
+        }
+    }
+
+    /// How long a sleep may last; None when the handheld must not sleep.
+    fn sleep_limit(&self) -> Option<Duration> { self.sleep().and_then(Sleep::limit) }
+
+    fn set_sleep(&mut self, sleep: Sleep) {
+        self.settings.sleep = Some(sleep);
+        self.settings_dirty = Some(Instant::now());
+    }
+
     /// Mirrors muOS's suspend.sh: LED off, mute, backlight off, panel blank, hooks, then
-    /// sleep; an RTC alarm wakes us to power off after a long sleep.
+    /// sleep; an RTC alarm wakes us to power off after the chosen limit.
     fn suspend(&mut self) {
         if crate::update::busy() { return; }
-        if self.sys.power.suspend == crate::system::SuspendPolicy::Disabled {
-            eprintln!("ghazal-daemon: suspend disabled until native wake is validated");
+        let Some(limit) = self.sleep_limit() else {
+            eprintln!("ghazal-daemon: sleep is off; ignoring the request");
             return;
-        }
+        };
         self.save();
         let power = &self.sys.power;
         hw::set_led(&self.hw.leds.power, false);
@@ -516,21 +536,25 @@ impl Daemon<'_> {
         blank(self.dev, true);
         run_hooks(&power.before_suspend);
 
-        let alarm = self.dev.rtc.wakealarm.as_ref().filter(|_| power.sleep_poweroff_after > 0);
+        let alarm = self.dev.rtc.wakealarm.as_ref();
         if let Some(path) = alarm {
             // The kernel refuses a new alarm while one is set.
             let _ = crate::sys::write_file(path, "0");
-            let _ = crate::sys::write_file(path, &format!("+{}", power.sleep_poweroff_after));
+            if let Err(error) = crate::sys::write_file(path, &format!("+{}", limit.as_secs())) {
+                eprintln!("ghazal-daemon: arming the wake alarm: {error:#}; sleep will not end on its own");
+            }
         }
+        eprintln!("ghazal-daemon: sleeping; powering off if still asleep after {limit:?}");
         let slept_from = std::time::SystemTime::now();
         if let Err(e) = hw::suspend(power.mem_sleep.as_deref(), power.suspend_checkpoint.as_deref()) {
             eprintln!("ghazal-daemon: {e:#}");
         }
         // Back from sleep. Wall-clock time keeps counting while suspended.
         let slept = slept_from.elapsed().unwrap_or_default();
+        eprintln!("ghazal-daemon: awake after {slept:?}");
         if let Some(path) = alarm {
             let _ = crate::sys::write_file(path, "0");
-            if slept + Duration::from_secs(2) >= Duration::from_secs(power.sleep_poweroff_after) {
+            if slept + Duration::from_secs(2) >= limit {
                 eprintln!("ghazal-daemon: asleep for {slept:?}, powering off");
                 self.act(&Action::Poweroff);
                 return;
@@ -661,7 +685,7 @@ impl Daemon<'_> {
             volume: if self.muted_from.is_some() { 0 } else { self.settings.volume },
             battery: battery.map(|b| b.percent),
             charging: battery.is_some_and(|b| b.charging),
-            suspend: self.sys.power.suspend == crate::system::SuspendPolicy::Enabled,
+            sleep: self.sleep(),
             lights: self.hw.lights.as_ref().map(|_| self.settings.lights),
         }
     }

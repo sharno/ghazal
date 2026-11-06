@@ -19,6 +19,7 @@ mod observe;
 mod ports;
 mod profile;
 mod retroarch_cfg;
+mod sleep;
 mod supervisor;
 mod sys;
 mod syncthing;
@@ -47,7 +48,7 @@ COMMANDS:
   supervise              run the services in system.toml [--pidfile PATH]
   init                   boot the system from system.toml (as PID 1 or busybox sysinit)
   input-bridge           republish the raw gamepad as muOS-Keys (muinput replacement)
-  ctl CMD...             talk to the daemon: status, brightness 50|+10, volume -5, suspend, poweroff, reboot
+  ctl CMD...             talk to the daemon: status, brightness 50|+10, volume -5, sleep 2h|next, suspend, poweroff, reboot
   install frontend|init  move a muOS install to stage 2 or 3 [--dry-run]
   uninstall              restore muOS's boot scripts
   status                 show what's installed

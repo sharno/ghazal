@@ -58,7 +58,7 @@ low_battery = "/sys/class/power_supply/axp2202-battery/lowpwr_led"
 path = "/sys/class/power_supply/axp2202-battery/moto"
 
 [rtc]
-# Used to wake from sleep and power off after `power.sleep_poweroff_after`.
+# Used to wake from sleep and power off after the Configuration → Sleep limit.
 wakealarm = "/sys/class/rtc/rtc1/wakealarm"
 
 [poweroff]
