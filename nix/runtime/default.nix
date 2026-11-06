@@ -131,11 +131,23 @@ let
     "usr/lib/ghazal/ports" = "${ports}";
     "etc/dbus-1/system.d/iwd.conf" = "${pkgs.iwd}/share/dbus-1/system.d/iwd-dbus.conf";
     "etc/ssl/certs/ca-certificates.crt" = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+    "usr/share/zoneinfo" = "${zoneinfo}";
   } // lib.mapAttrs' (name: path: lib.nameValuePair "usr/lib/libretro/${name}" path) cores
     # PortMaster's launcher sets PYSDL2_DLL_PATH=/usr/lib for its GUI, whatever
     # the system: pysdl2 looks for SDL there and cannot search LD_LIBRARY_PATH.
     // lib.genAttrs (map (name: "usr/lib/${name}") [ "libSDL2-2.0.so.0" "libSDL2_image-2.0.so.0" "libSDL2_mixer-2.0.so.0" "libSDL2_ttf-2.0.so.0" ])
       (link: "${ports}/lib/${baseNameOf link}");
+
+  # Configuration → Time zone lists zone.tab's zones (src/timezone.rs). Only
+  # those and UTC are kept: tzdata's posix/ and right/ trees and its backward
+  # links would triple the size for names the menu never offers.
+  zoneinfo = pkgs.runCommand "ghazal-zoneinfo" { } ''
+    cd ${pkgs.tzdata}/share/zoneinfo
+    install -Dm444 -t $out zone.tab UTC
+    for zone in $(grep -v '^#' zone.tab | cut -f3 | sort -u); do
+      install -Dm444 $zone $out/$zone
+    done
+  '';
 
   tree = pkgs.runCommand "ghazal-runtime-tree" { } ''
     ${lib.concatStrings (lib.mapAttrsToList (link: target: ''

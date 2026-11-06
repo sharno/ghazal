@@ -362,6 +362,10 @@ validated. Remove an entry once it has been checked on a handheld.
   refused) and back. Not yet: Off surviving a reboot (`syncthing-restore`),
   pairing a phone by QR and a PC by nearby devices, a request on the handheld,
   and battery cost.
+- Configuration → Time zone (docs/standalone.md): checked in unit tests and the
+  desktop simulator only. On a handheld, check the image's `/etc/localtime`
+  link, the menu clock changing at once, the choice surviving a reboot and a
+  slot switch, and RetroArch's clock in its menu using the zone.
 - Moonlight game streaming: no stream against a real Sunshine or GeForce host
   (needs a PC and a person to type the PIN): pairing itself, the SDL window and
   GLES YV12 renderer, audio, pad mapping, letterboxing, Menu + Start during a

@@ -19,6 +19,7 @@ pub mod retroarch_menu;
 mod settings;
 mod syncthing;
 mod thumbnails;
+mod timezone;
 mod wifi;
 
 pub fn benchmark_recent(config: &config::FrontendConfig) -> anyhow::Result<()> { activity::benchmark(config) }

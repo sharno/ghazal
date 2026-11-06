@@ -29,14 +29,3 @@ pub fn read(cfg: Option<&device::Battery>) -> Option<Status> {
     };
     Some(Status { percent, charging: online || status == "Charging" || status == "Full" })
 }
-
-/// Local wall-clock time as (hour, minute).
-pub fn local_time() -> (u8, u8) {
-    // SAFETY: time/localtime_r only write into the stack values we pass.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&now, &mut tm);
-        (tm.tm_hour as u8, tm.tm_min as u8)
-    }
-}

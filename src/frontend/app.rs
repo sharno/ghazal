@@ -18,6 +18,7 @@ use super::netplay::{self, Choosing, Pick, Polled, Role, Scanning, Session, Targ
 use super::settings::{Settings, StartupMode};
 use super::syncthing;
 use super::thumbnails::{self, Art, Loader, Progress};
+use super::timezone;
 use super::indicators;
 use super::wifi;
 use crate::daemon::ctl;
@@ -25,6 +26,7 @@ use crate::hdmi;
 use crate::hw::battery;
 use crate::ports;
 use crate::retroarch_cfg::{Achievements, Mode};
+use crate::timezone::{Rules, Store, Zone};
 use crate::ui::{AppWindow, Hint, KeyCap, KeyboardState, Row};
 
 const TOAST_DURATION: Duration = Duration::from_secs(3);
@@ -59,6 +61,7 @@ enum View {
     Wifi,
     Bluetooth,
     Syncthing,
+    TimeZone,
     /// Hosts to join; leaving returns to that game list, or to Applications.
     Netplay(Option<GameList>),
 }
@@ -137,6 +140,7 @@ enum MenuItem {
     Wifi,
     Bluetooth,
     Syncthing,
+    TimeZone,
     /// Shown with the daemon's current preset.
     Lights(crate::hw::lights::Preset),
     Moonlight,
@@ -181,6 +185,7 @@ impl MenuItem {
             Self::Wifi => "Wi-Fi",
             Self::Bluetooth => "Bluetooth",
             Self::Syncthing => "Syncthing",
+            Self::TimeZone => "Time zone",
             Self::Lights(preset) => preset.menu_label(),
             Self::Moonlight => "Moonlight game streaming",
             Self::Achievements => "Achievements",
@@ -281,6 +286,10 @@ pub struct App {
     updater: crate::update::Menu,
     /// Open only while Configuration → Bluetooth is on screen: it owns a worker thread.
     bluetooth: Option<bluetooth::Screen>,
+    /// Open only while Configuration → Time zone is on screen.
+    time_zone: Option<timezone::Screen>,
+    /// The chosen zone's rules, for the status bar's clock.
+    clock: Rules,
     information_cursor: usize,
     information_rows: Vec<Row>,
     /// RetroAchievements as RetroArch's config has it; read when Configuration opens.
@@ -385,6 +394,11 @@ impl App {
             configuration_cursor: 0,
             updater: crate::update::Menu::default(),
             bluetooth: None,
+            time_zone: None,
+            clock: Store::system().rules().unwrap_or_else(|error| {
+                eprintln!("ghazal: time zone: {error:#}; showing UTC");
+                Rules::utc()
+            }),
             information_cursor: 0,
             information_rows: Vec::new(),
             achievements: Achievements::default(),
@@ -554,7 +568,7 @@ impl App {
                         MenuItem::Hdmi(_) => self.step_hdmi(button != Button::Left),
                         MenuItem::Startup => { self.activate(item); self.rows_for = None; }
                         MenuItem::Thumbnails if button == Button::A => { self.activate(item); self.rows_for = None; }
-                        MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth | MenuItem::Syncthing if button == Button::A => { self.activate(item); }
+                        MenuItem::SystemUpdate | MenuItem::Wifi | MenuItem::Bluetooth | MenuItem::Syncthing | MenuItem::TimeZone if button == Button::A => { self.activate(item); }
                         MenuItem::RetroArchSettings if button == Button::A => return self.activate(item),
                         MenuItem::Achievements if button == Button::A => { self.cycle_achievements(); self.rows_for = None; }
                         MenuItem::AchievementsAccount if button == Button::A => return self.activate(item),
@@ -574,6 +588,7 @@ impl App {
             },
             View::Wifi => self.wifi_button(button),
             View::Syncthing => self.syncthing_button(button),
+            View::TimeZone => self.time_zone_button(button),
             View::Bluetooth => match self.bluetooth.as_mut().map(|screen| screen.press(button)) {
                 Some(bluetooth::Press::Stay(notice)) => if let Some(notice) = notice { self.show(notice) },
                 Some(bluetooth::Press::Leave) | None => { self.bluetooth = None; self.view = View::Configuration; }
@@ -675,6 +690,41 @@ impl App {
                 self.rows_for = None;
             }
             Err(error) => self.error(format!("Syncthing: {error}")),
+        }
+    }
+
+    /// Opens Configuration → Time zone on the current zone.
+    fn open_time_zone(&mut self) {
+        let store = Store::system();
+        match store.zones() {
+            Ok(zones) => {
+                self.time_zone = Some(timezone::Screen::new(zones, store.current().unwrap_or_else(Zone::utc)));
+                self.view = View::TimeZone;
+                self.rows_for = None;
+            }
+            Err(error) => self.error(format!("Time zone: {error:#}")),
+        }
+    }
+
+    fn time_zone_button(&mut self, button: Button) {
+        let press = self.time_zone.as_mut().map_or(timezone::Press::Leave, |screen| screen.press(button));
+        self.rows_for = None;
+        match press {
+            timezone::Press::Stay => {}
+            timezone::Press::Leave => { self.time_zone = None; self.view = View::Configuration; }
+            timezone::Press::Choose(zone) => {
+                let store = Store::system();
+                match store.choose(&zone).and_then(|()| store.rules()) {
+                    Ok(rules) => {
+                        self.clock = rules;
+                        self.refresh_status(Instant::now());
+                        self.notice(&format!("Time zone: {}", zone.place()));
+                    }
+                    Err(error) => self.error(format!("Saving time zone: {error:#}")),
+                }
+                self.time_zone = None;
+                self.view = View::Configuration;
+            }
         }
     }
 
@@ -1052,7 +1102,8 @@ impl App {
 
     fn refresh_status(&mut self, now: Instant) {
         self.status_checked = now;
-        let (h, m) = battery::local_time();
+        let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+        let (h, m) = self.clock.wall_clock(unix);
         self.ui.set_clock(format!("{h:02}:{m:02}").into());
         match battery::read(None) {
             Some(b) => {
@@ -1075,6 +1126,7 @@ impl App {
         if wifi::available() { items.push(MenuItem::Wifi); }
         if crate::bluetooth::available() { items.push(MenuItem::Bluetooth); }
         if syncthing::available() { items.push(MenuItem::Syncthing); }
+        if Store::system().available() { items.push(MenuItem::TimeZone); }
         if std::path::Path::new("/etc/rauc/system.conf").exists() { items.push(MenuItem::SystemUpdate); }
         if self.levels.is_some() { items.extend([MenuItem::Brightness, MenuItem::Volume]); }
         items.extend(self.lights.map(MenuItem::Lights));
@@ -1221,6 +1273,7 @@ impl App {
             },
             MenuItem::Wifi => { self.open_wifi(); None }
             MenuItem::Syncthing => { self.open_syncthing(); None }
+            MenuItem::TimeZone => { self.open_time_zone(); None }
             MenuItem::Bluetooth => {
                 match bluetooth::Screen::open() {
                     Ok(screen) => { self.bluetooth = Some(screen); self.view = View::Bluetooth; self.rows_for = None; }
@@ -1528,6 +1581,7 @@ impl App {
                     (MenuItem::Volume, Some(levels)) => format!("{}%", u8::from(levels.volume)),
                     (MenuItem::Achievements, _) => self.achievements.detail(),
                     (MenuItem::Hdmi(_), _) => self.hdmi.map_or_else(String::new, hdmi::Status::describe),
+                    (MenuItem::TimeZone, _) => Store::system().current().map_or_else(|| "UTC".to_owned(), |zone| zone.name().replace('_', " ")),
                     _ => String::new(),
                 };
                 Row { label: item.label(&self.settings).into(), detail: detail.into(), glyph: "".into() }
@@ -1538,6 +1592,7 @@ impl App {
                 Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
             }
             View::Bluetooth => { let line = self.bluetooth.as_ref()?.line(index)?; Row { label: line.label.into(), detail: line.detail.into(), glyph: line.glyph.into() } }
+            View::TimeZone => { let line = self.time_zone.as_ref()?.line(index)?; Row { label: line.label.into(), detail: line.detail.into(), glyph: "".into() } }
             View::Syncthing => {
                 let row = self.syncthing_view.as_ref()?.rows.get(index)?;
                 Row { label: row.label.as_str().into(), detail: row.detail.as_str().into(), glyph: row.glyph.into() }
@@ -1578,6 +1633,7 @@ impl App {
             (None, View::Updates) => OPTIONS_HINTS,
             (None, View::Wifi) => self.wifi_view.as_ref().map_or(INFORMATION_HINTS, |view| if self.ui.window().size().width < 560 { view.narrow_hints } else { view.hints }),
             (None, View::Bluetooth) => self.bluetooth.as_ref().map_or(OPTIONS_HINTS, bluetooth::Screen::hints),
+            (None, View::TimeZone) => self.time_zone.as_ref().map_or(OPTIONS_HINTS, timezone::Screen::hints),
             (None, View::Syncthing) => self.syncthing_view.as_ref().map_or(INFORMATION_HINTS, |view| view.hints),
             (None, View::Information) => INFORMATION_HINTS,
             (None, View::Games(GameList::System(_))) => GAME_HINTS,
@@ -1638,6 +1694,7 @@ impl App {
             View::Updates => (self.updater.cursor, 4),
             View::Wifi => self.wifi_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
             View::Bluetooth => self.bluetooth.as_ref().map_or((0, 0), |screen| (screen.cursor(), screen.len())),
+            View::TimeZone => self.time_zone.as_ref().map_or((0, 0), |screen| (screen.cursor(), screen.len())),
             View::Syncthing => self.syncthing_view.as_ref().map_or((0, 0), |view| (view.cursor, view.rows.len())),
             View::Information => (self.information_cursor, self.information_rows.len()),
             View::Netplay(_) => match &self.join {
@@ -1677,6 +1734,7 @@ impl App {
             View::Wifi => "Wi-Fi",
             View::Bluetooth => "Bluetooth",
             View::Syncthing => "Syncthing",
+            View::TimeZone => "Time zone",
             View::Information => "Information",
             View::Netplay(_) => "Join netplay",
         }.into());

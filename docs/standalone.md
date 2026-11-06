@@ -297,6 +297,16 @@ Configuration → HDMI sends the menu and games to a connected display, with the
 handheld's screen off (Auto) or showing the menu too (Mirror); see [HDMI](hdmi.md).
 `ghazal observe hdmi` prints the connector, its modes and the sound card.
 
+Configuration → Time zone lists the zones in tzdata's `zone.tab` by region,
+with UTC first. The choice is the symlink `/var/lib/ghazal/localtime`, which
+points at `/usr/share/zoneinfo/<zone>`; the image's `/etc/localtime` points at
+that link, so programs started afterwards (RetroArch, PPSSPP, ports) use the
+zone, and without it libc keeps UTC. The menu reads the zone file itself
+(`src/timezone.rs`, with tz-rs), since libc reads `/etc/localtime` once per
+process, so its clock changes at once. The image keeps only `zone.tab`'s zones
+and `UTC` (about 1.7 MB). Nothing sets the clock from the network: it is the
+battery-backed RTC's, in UTC.
+
 ## Recovery and logs
 
 A/B boots that fail before the menu reports healthy are retried and then

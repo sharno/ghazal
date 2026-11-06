@@ -604,6 +604,9 @@ fn main() -> Result<()> {
     symlink("/var/lib/ghazal/machine-id", root.join("etc/machine-id"))?;
     fs::remove_file(root.join("etc/resolv.conf"))?;
     symlink("/run/ghazal/resolv.conf", root.join("etc/resolv.conf"))?;
+    // Configuration → Time zone points the /var link at a zone file; until then
+    // it dangles and libc keeps UTC (src/timezone.rs).
+    symlink("/var/lib/ghazal/localtime", root.join("etc/localtime"))?;
     // Filesystems are built without the build host's extended attributes
     // (e.g. SELinux labels): the device uses none.
     let state_image = work.join("state.ext4");

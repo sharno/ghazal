@@ -23,6 +23,7 @@ mod supervisor;
 mod sys;
 mod syncthing;
 mod system;
+mod timezone;
 mod update;
 
 mod ui {

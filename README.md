@@ -68,6 +68,7 @@ Choose **Configuration → Startup** for menu or last-game startup.
 **Configuration → RetroArch settings** opens the native emulator settings menu;
 changes persist on the data card. **Configuration → Achievements** switches
 RetroAchievements on once an account is set up under **Achievements account**.
+**Configuration → Time zone** sets the clock's zone; it is UTC until chosen.
 
 ## Beta status
 
