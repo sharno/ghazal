@@ -1,5 +1,24 @@
 # Ghazal H700 beta
 
+Beta 14 adds:
+
+- **Search** (Home → Search, or Select in Explore) across every system, and
+  **play time** per game in History and in each game's actions.
+- **Configuration → Time zone**. The clock is also set over the network once
+  Wi-Fi joins.
+- **Configuration → Sleep**: Off, or on with a power-off limit of 1, 2, 3, 6 or
+  12 hours. It starts Off because waking has never been shown to work on the
+  H700. A short Power press does nothing until Sleep is turned on
+  ([sleep](sleep.md)).
+- **13 smaller systems**: Atari 7800 and 5200, ColecoVision, Intellivision,
+  Vectrex, Odyssey 2, Pokémon Mini, Supervision, Neo Geo CD, SG-1000, PICO-8,
+  TIC-80 and Arduboy.
+- **Standalone Mupen64Plus** as an N64 alternative.
+- **Screenshots** with Menu + Select, saved to `SAVES/screenshots`.
+
+None of it has run on a handheld yet. It was checked with unit tests, the
+desktop simulator and CI's release gates.
+
 Beta 13 adds Configuration → Syncthing: turn it on or off, pair a phone by
 scanning this handheld's ID as a QR code, accept or ignore new devices and
 shared folders, see each folder's state and rescan it, and open Syncthing's own
