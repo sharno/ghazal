@@ -95,6 +95,10 @@ GHAZAL_SNAPSHOT_POWER=charging cargo sim --snapshot /tmp/ghazal-menu ""
 GHAZAL_SNAPSHOT_POWER=discharging GHAZAL_SNAPSHOT_SIZE=480x640 cargo sim --snapshot /tmp/ghazal-portrait ""
 ```
 
+The last argument lists buttons to press (`down,a,start`), one frame each, and
+each frame advances the clock one second; `wait` adds a frame without a press,
+for scrolling titles and other timed changes.
+
 Snapshots use a fixed 50% battery when the power override is supplied. The override
 is desktop-only and accepts `charging` or `discharging`; it never changes hardware
 readings, daemon policy or update safety checks. Omit it to observe host status.

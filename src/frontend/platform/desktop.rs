@@ -99,9 +99,12 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     };
     save(&mut screen, &app)?;
     for name in buttons.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
-        if let Some(Effect::Launch { spec, .. }) = app.update(button) {
-            eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
+        // `wait` presses nothing: its frame shows one more second passing.
+        if name != "wait" {
+            let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
+            if let Some(Effect::Launch { spec, .. }) = app.update(button) {
+                eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
+            }
         }
         // Wi-Fi, Syncthing and updates answer from worker threads; show the settled result.
         let settle = Instant::now() + Duration::from_secs(5);

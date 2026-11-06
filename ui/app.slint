@@ -82,14 +82,37 @@ component ListRow {
             font-size: Theme.compact ? 18px : 24px;
             color: selected ? Theme.on-accent : Theme.dim;
         }
-        Text {
-            text: item.label;
+        // A label too long for the row is elided, and scrolls while selected:
+        // a pause at the start, a slide to the end, a pause, a jump back. The
+        // timer starts each slide, so the menu only redraws while text moves.
+        label-area := Rectangle {
             horizontal-stretch: 1;
-            vertical-alignment: center;
-            overflow: elide;
-            font-size: Theme.compact ? 16px : 20px;
-            font-weight: selected ? 700 : 400;
-            color: selected ? Theme.on-accent : Theme.text;
+            clip: true;
+            property <length> overflow-width: label.preferred-width - self.width;
+            property <bool> scrolling: selected && self.overflow-width > 0;
+            property <bool> at-end;
+            property <duration> slide: self.overflow-width / 50px * 1s;
+            // A row is reused for another game when the list moves under it.
+            property <string> shown: item.label;
+            changed scrolling => { self.at-end = false; }
+            changed shown => { self.at-end = false; }
+            Timer {
+                interval: label-area.at-end ? label-area.slide + 1500ms : 1500ms;
+                running: label-area.scrolling;
+                triggered => { label-area.at-end = !label-area.at-end; }
+            }
+            label := Text {
+                x: label-area.scrolling && label-area.at-end ? -label-area.overflow-width : 0;
+                width: label-area.scrolling ? self.preferred-width : parent.width;
+                height: parent.height;
+                animate x { duration: label-area.at-end ? label-area.slide : 0ms; }
+                text: item.label;
+                vertical-alignment: center;
+                overflow: elide;
+                font-size: Theme.compact ? 16px : 20px;
+                font-weight: selected ? 700 : 400;
+                color: selected ? Theme.on-accent : Theme.text;
+            }
         }
         if item.detail != "": Text {
             text: item.detail;
