@@ -99,12 +99,13 @@ pub fn snapshot(config: FrontendConfig, _device: &DeviceConfig, dir: &Path, butt
     };
     save(&mut screen, &app)?;
     for name in buttons.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        // `wait` presses nothing: its frame shows one more second passing.
-        if name != "wait" {
-            let Some(button) = parse_button(name) else { bail!("unknown button {name:?}") };
-            if let Some(Effect::Launch { spec, .. }) = app.update(button) {
-                eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
+        match parse_step(name).ok_or_else(|| anyhow::anyhow!("unknown button {name:?}"))? {
+            Step::Press(button) => {
+                if let Some(Effect::Launch { spec, .. }) = app.update(button) {
+                    eprintln!("ghazal: would launch {} {:?}", spec.program.display(), spec.args);
+                }
             }
+            Step::Wait => {}
         }
         // Wi-Fi, Syncthing and updates answer from worker threads; show the settled result.
         let settle = Instant::now() + Duration::from_secs(5);
@@ -127,6 +128,16 @@ fn snapshot_hdmi(state: &str) -> Result<Status> {
         _ => bail!("snapshot HDMI must be disconnected, unused, active or mirror"),
     };
     Ok(Status { connection, layout, mode })
+}
+
+/// One snapshot frame: a press, or `wait`, which only lets a second pass.
+enum Step {
+    Press(Button),
+    Wait,
+}
+
+fn parse_step(name: &str) -> Option<Step> {
+    if name.eq_ignore_ascii_case("wait") { Some(Step::Wait) } else { parse_button(name).map(Step::Press) }
 }
 
 fn parse_button(name: &str) -> Option<Button> {
