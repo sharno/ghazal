@@ -29,7 +29,7 @@ let
   ppsspp-libretro = ppsspp.override { libretroCore = true; };
   cores = import ./cores.nix {
     rocknixCore = import ./rocknix-core.nix { inherit (pkgs) lib stdenv fetchurl fetchgit cmake; inherit rocknix; };
-    inherit (pkgs) zlib libpng libzip;
+    inherit (pkgs) zlib libpng libzip flac libogg libvorbis;
     inherit mesa ppsspp-libretro;
   };
 

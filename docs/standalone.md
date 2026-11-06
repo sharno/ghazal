@@ -304,8 +304,10 @@ that link, so programs started afterwards (RetroArch, PPSSPP, ports) use the
 zone, and without it libc keeps UTC. The menu reads the zone file itself
 (`src/timezone.rs`, with tz-rs), since libc reads `/etc/localtime` once per
 process, so its clock changes at once. The image keeps only `zone.tab`'s zones
-and `UTC` (about 1.7 MB). Nothing sets the clock from the network: it is the
-battery-backed RTC's, in UTC.
+and `UTC` (about 1.7 MB). The clock itself is kept in UTC: the kernel reads
+the battery-backed RTC at boot, BusyBox's `ntpd` (the `time` service) sets it
+from `pool.ntp.org` once Wi-Fi is up, and the kernel writes the synced time back
+to the RTC every 11 minutes (`RTC_SYSTOHC`).
 
 ## Recovery and logs
 
@@ -361,6 +363,7 @@ wrong code). On the RG40XX-V:
 | Menu + L1 | Load state from the selected slot |
 | Menu + A | Pause/resume |
 | Menu + Y | Toggle the FPS display |
+| Menu + Select | Screenshot to `SAVES/screenshots` |
 | Menu + Start | Exit to ghazal |
 
 Save slots and other core options are available through the RetroArch quick menu.
@@ -465,14 +468,21 @@ the appropriate user-provided files in `/mnt/games/BIOS`. A system with
 `requires_any` in `frontend.toml` stays hidden until one of those files is
 in `bios_dir`; rescan after adding one. On the RG40XX-V that applies to PC
 Engine CD (`syscard3.pce`), Mega CD (`bios_CD_U.bin`/`_E`/`_J`), Saturn
-(`saturn_bios.bin`) and Naomi (`dc/naomi.zip`). MSX needs blueMSX's
+(`saturn_bios.bin`), Naomi (`dc/naomi.zip`), Atari 5200 (`5200.rom`),
+ColecoVision (`colecovision.rom`), Intellivision (`exec.bin`, and FreeIntv also
+needs `grom.bin`), Odyssey 2 (`o2rom.bin`) and Neo Geo CD (one of NeoCD's BIOS
+files in `neocd/`, plus `000-lo.lo`). MSX needs blueMSX's
 `Databases/` and its free C-BIOS `Machines/` folders (`MSX - C-BIOS`,
 `MSX2 - C-BIOS`, `MSX2+ - C-BIOS`) from libretro's blueMSX-libretro
 repository; its `Shared Roms` folder holds copyrighted ROMs and is not
 needed. With "Auto", the core falls back to C-BIOS. Dreamcast and Nintendo DS
-can run without BIOS files.
+can run without BIOS files, as can Atari 7800, Vectrex, Pokémon Mini,
+Supervision, SG-1000 and the fantasy consoles: PICO-8 carts (`.p8`, `.p8.png`,
+directly in `ROMS/PICO`) run in the open-source fake-08, not PICO-8 itself;
+TIC-80 and Arduboy games run in their libretro cores.
 Failed launches display the core's diagnostic when available, including missing
-firmware names. `ROMS/MAME` uses MAME 2003 Plus; `ROMS/FBNEO` uses FBNeo. Keep ROM
+firmware names. `ROMS/MAME` uses MAME 2003 Plus; `ROMS/FBNEO` and `ROMS/VARCADE` (vertical
+arcade games, as stock Anbernic cards name it) use FBNeo. Keep ROM
 sets matched to the selected core. Dreamcast and Naomi are separate systems;
 Naomi needs its own BIOS even when Dreamcast games load without one.
 

@@ -362,6 +362,16 @@ validated. Remove an entry once it has been checked on a handheld.
   refused) and back. Not yet: Off surviving a reboot (`syncthing-restore`),
   pairing a phone by QR and a PC by nearby devices, a request on the handheld,
   and battery cost.
+- Smaller systems: Atari 7800 and 5200, ColecoVision, Intellivision, Vectrex,
+  Odyssey 2, Pokémon Mini, Supervision, Neo Geo CD, SG-1000, PICO-8 (fake-08),
+  TIC-80 and Arduboy. Their cores are built from ROCKNIX's recipes and pass the
+  layout gate; none has run on a handheld. Launch one game each (frame, PCM
+  running, Menu + Start), then measure `cpu` floors for the ones that need them.
+  The `VARCADE` folder now lists under Arcade (FBNeo). Also unchecked: Menu +
+  Select writing a screenshot to `SAVES/screenshots` (the migration sets
+  `screenshot_directory` in existing user configs), and the `time` service
+  (BusyBox `ntpd`) setting the clock after Wi-Fi joins and the RTC keeping it
+  across a reboot without a network.
 - Configuration → Time zone (docs/standalone.md): checked in unit tests and the
   desktop simulator only. On a handheld, check the image's `/etc/localtime`
   link, the menu clock changing at once, the choice surviving a reboot and a

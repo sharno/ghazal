@@ -17,6 +17,8 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
   another emulator for a single game or a whole system (for example Snes9x 2010
   or PPSSPP's libretro core).
 - Install [PortMaster](docs/ports.md) from the menu (Wi-Fi) and run its ports.
+- Run 41 systems, from Game Boy to Saturn, Dreamcast and PSP, plus PICO-8,
+  TIC-80 and Arduboy carts.
 - Start at the menu or resume the last game on boot.
 - Automatically save and resume supported RetroArch games. Manual saves retain
   ten rolling numbered states, separate from the automatic resume state.
@@ -62,6 +64,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 | Brightness | Menu + Volume Up / Down |
 | RetroArch menu during a game | Menu + X |
 | Save / load selected manual state | Menu + R1 / L1 |
+| Screenshot during a game | Menu + Select |
 | Quit a game | Menu + Start |
 
 Choose **Configuration → Startup** for menu or last-game startup.
@@ -69,6 +72,7 @@ Choose **Configuration → Startup** for menu or last-game startup.
 changes persist on the data card. **Configuration → Achievements** switches
 RetroAchievements on once an account is set up under **Achievements account**.
 **Configuration → Time zone** sets the clock's zone; it is UTC until chosen.
+The clock sets itself over Wi-Fi.
 
 ## Beta status
 

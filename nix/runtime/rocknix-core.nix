@@ -28,7 +28,8 @@
 assert lib.elem builder [ "make" "cmake" ];
 let
   dir = "${rocknix}/projects/ROCKNIX/packages/emulators/libretro/${package}";
-  lines = lib.splitString "\n" (builtins.readFile "${dir}/package.mk");
+  # A value continued with a trailing backslash is one line, as in shell.
+  lines = lib.splitString "\n" (lib.replaceStrings [ "\\\n" ] [ " " ] (builtins.readFile "${dir}/package.mk"));
   field = name:
     let line = lib.findFirst (lib.hasPrefix "${name}=\"") null lines;
     in if line == null then null else lib.removeSuffix "\"" (lib.removePrefix "${name}=\"" line);

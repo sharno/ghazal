@@ -218,7 +218,7 @@ art = { libretro = "Nintendo - Nintendo 64", muos = "Nintendo N64" }
 
 [[system]]
 name = "Arcade"
-dirs = ["ARCADE", "FBNEO", "CPS1", "CPS2", "CPS3", "NEOGEO"]
+dirs = ["ARCADE", "FBNEO", "CPS1", "CPS2", "CPS3", "NEOGEO", "VARCADE"]
 extensions = ["zip", "7z"]
 core = "fbneo_libretro.so"
 cpu = "moderate"
@@ -367,6 +367,109 @@ extensions = ["cue", "chd", "iso", "zip"]
 core = "yabasanshiro_libretro.so"
 requires_any = ["saturn_bios.bin"]
 art = { libretro = "Sega - Saturn" }
+
+[[system]]
+name = "SG-1000"
+dirs = ["SG1000", "SG-1000", "Sega SG-1000"]
+extensions = ["sg", "zip", "7z"]
+core = "genesis_plus_gx_libretro.so"
+cpu = "light"
+art = { libretro = "Sega - SG-1000" }
+
+[[system]]
+name = "Atari 7800"
+dirs = ["A7800", "ATARI7800", "Atari 7800"]
+extensions = ["a78", "bin", "zip", "7z"]
+core = "prosystem_libretro.so"
+art = { libretro = "Atari - 7800" }
+
+[[system]]
+name = "Atari 5200"
+dirs = ["A5200", "ATARI5200", "Atari 5200"]
+extensions = ["a52", "bin", "zip", "7z"]
+core = "a5200_libretro.so"
+requires_any = ["5200.rom"]
+art = { libretro = "Atari - 5200" }
+
+[[system]]
+name = "ColecoVision"
+dirs = ["COLECO", "COLECOVISION", "ColecoVision"]
+extensions = ["col", "cv", "bin", "rom", "zip", "7z"]
+core = "gearcoleco_libretro.so"
+requires_any = ["colecovision.rom"]
+art = { libretro = "Coleco - ColecoVision" }
+
+[[system]]
+name = "Intellivision"
+dirs = ["INTV", "INTELLIVISION", "Intellivision"]
+extensions = ["int", "bin", "rom", "zip"]
+core = "freeintv_libretro.so"
+# FreeIntv needs both exec.bin and grom.bin.
+requires_any = ["exec.bin"]
+art = { libretro = "Mattel - Intellivision" }
+
+[[system]]
+name = "Vectrex"
+dirs = ["VECTREX", "Vectrex"]
+extensions = ["vec", "bin", "zip", "7z"]
+core = "vecx_libretro.so"
+art = { libretro = "GCE - Vectrex" }
+
+[[system]]
+name = "Odyssey 2"
+dirs = ["ODYSSEY", "ODYSSEY2", "VIDEOPAC", "Odyssey 2"]
+extensions = ["bin", "zip", "7z"]
+core = "o2em_libretro.so"
+requires_any = ["o2rom.bin"]
+art = { libretro = "Magnavox - Odyssey2" }
+
+[[system]]
+name = "Pokémon Mini"
+dirs = ["POKEMINI", "Pokemon Mini"]
+extensions = ["min", "zip", "7z"]
+core = "pokemini_libretro.so"
+art = { libretro = "Nintendo - Pokemon Mini" }
+
+[[system]]
+name = "Supervision"
+dirs = ["SUPERVISION", "Supervision"]
+extensions = ["sv", "bin", "zip", "7z"]
+core = "potator_libretro.so"
+art = { libretro = "Watara - Supervision" }
+
+[[system]]
+name = "Neo Geo CD"
+dirs = ["NEOCD", "NEOGEOCD", "Neo Geo CD"]
+extensions = ["cue", "chd"]
+core = "neocd_libretro.so"
+# NeoCD needs one of these and 000-lo.lo in the same folder.
+requires_any = ["neocd/neocd_z.rom", "neocd/neocd_sz.rom", "neocd/neocd_f.rom", "neocd/front-sp1.bin", "neocd/top-sp1.bin", "neocd/neocd.bin"]
+art = { libretro = "SNK - Neo Geo CD" }
+
+# Fantasy consoles: their games are their own carts, with no BIOS.
+[[system]]
+name = "PICO-8"
+dirs = ["PICO", "PICO8", "PICO-8"]
+# Carts are `.p8` or `.p8.png`. Only the folder itself is scanned, so box art
+# in Imgs/ is not listed as games.
+extensions = ["p8", "png"]
+depth = 0
+core = "fake08_libretro.so"
+cpu = "moderate"
+
+[[system]]
+name = "TIC-80"
+dirs = ["TIC80", "TIC-80"]
+extensions = ["tic"]
+core = "tic80_libretro.so"
+art = { libretro = "TIC-80" }
+
+[[system]]
+name = "Arduboy"
+dirs = ["ARDUBOY", "Arduboy"]
+extensions = ["hex", "arduboy"]
+core = "arduous_libretro.so"
+art = { libretro = "Arduboy Inc - Arduboy" }
 
 # PortMaster ports are shell scripts directly in ROMS/PORTS; a port's data sits in
 # a folder beside its script, so the scan does not descend. `ghazal ports run`

@@ -146,6 +146,15 @@ after = ["dbus"]
 wait_for = ["/run/dbus/system_bus_socket"]
 restart = "always"
 start = "background"
+# Network time: BusyBox's ntpd keeps retrying until Wi-Fi gives it a server,
+# then steps the clock and keeps it in step. Once it reports sync, the kernel
+# copies the time into the battery-backed RTC every 11 minutes (RTC_SYSTOHC),
+# so the clock stays right on the next boot without a network.
+[[supervisor.service]]
+name = "time"
+exec = ["/usr/bin/busybox", "ntpd", "-n", "-p", "pool.ntp.org"]
+restart = "always"
+start = "background"
 # Bluetooth is dormant until the user turns it on (Configuration → Bluetooth): the
 # kernel leaves the controller unpowered until `ghazal bluetooth` starts it, and
 # bluetoothd waits for the marker that does so. `bluetooth-restore` brings it back

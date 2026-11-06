@@ -186,6 +186,8 @@ pub fn account_seed(username: &str, password: &str) -> Result<Edits> {
 const DEFAULT_CHANGES: &[(&str, &str)] = &[
     // Nintendo-style menu like Ghazal's own: A (right) confirms, B (bottom) goes back.
     ("menu_swap_ok_cancel_buttons", "false"),
+    // Menu + Select screenshots (gamepad.cfg) land beside the saves, not the ROMs.
+    ("screenshot_directory", "/mnt/games/SAVES/screenshots"),
 ];
 
 /// Counts the default changes applied to `user_config`; a count written by a

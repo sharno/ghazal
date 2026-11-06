@@ -2,7 +2,7 @@
 # ROCKNIX's H700 recipe (rocknix-core.nix). Options its package.mk sets in
 # conditionals or shell functions are restated for the H700's aarch64 build
 # (no TARGET_FPU), GLES preferred over desktop GL, no Vulkan.
-{ rocknixCore, mesa, zlib, libpng, libzip, ppsspp-libretro }:
+{ rocknixCore, mesa, zlib, libpng, libzip, flac, libogg, libvorbis, ppsspp-libretro }:
 let
   core = args: "${rocknixCore args}/lib/libretro/${baseNameOf args.library}";
 in
@@ -98,5 +98,33 @@ in
   "snes9x2010_libretro.so" = core { package = "snes9x2010-lr"; library = "snes9x2010_libretro.so"; };
   "vba_next_libretro.so" = core { package = "vba-next-lr"; library = "vba_next_libretro.so"; };
   "nestopia_libretro.so" = core { package = "nestopia-lr"; library = "libretro/nestopia_libretro.so"; };
+  # Smaller systems, each a core whose package.mk options build unchanged.
+  "prosystem_libretro.so" = core { package = "prosystem-lr"; library = "prosystem_libretro.so"; };
+  "a5200_libretro.so" = core { package = "a5200-lr"; library = "a5200_libretro.so"; };
+  "gearcoleco_libretro.so" = core { package = "gearcoleco-lr"; library = "platforms/libretro/gearcoleco_libretro.so"; };
+  "freeintv_libretro.so" = core { package = "freeintv-lr"; library = "freeintv_libretro.so"; };
+  "vecx_libretro.so" = core { package = "vecx-lr"; buildInputs = [ mesa ]; library = "vecx_libretro.so"; };
+  "pokemini_libretro.so" = core { package = "pokemini-lr"; library = "pokemini_libretro.so"; };
+  "neocd_libretro.so" = core { package = "neocd_lr"; buildInputs = [ flac libogg libvorbis ]; library = "neocd_libretro.so"; };
+  "o2em_libretro.so" = core { package = "o2em-lr"; library = "o2em_libretro.so"; };
+  "potator_libretro.so" = core { package = "potator-lr"; library = "platform/libretro/potator_libretro.so"; };
+  "arduous_libretro.so" = core {
+    package = "arduous-lr";
+    hash = "sha256-+8JiQtlUBMmqeGEALvRlSlpjxXq4rU/RZzOCnCHkeOM=";
+    builder = "cmake";
+    library = "arduous_libretro.so";
+  };
+  "tic80_libretro.so" = core {
+    package = "tic80-lr";
+    hash = "sha256-TKPNnmT/BJg8I8tR1kV7fFgGp93+rotXSX7DO4YIBd8=";
+    builder = "cmake";
+    library = "bin/tic80_libretro.so";
+  };
+  # PICO-8 carts, without PICO-8 itself.
+  "fake08_libretro.so" = core {
+    package = "fake08-lr";
+    hash = "sha256-+2jhG4hMc5P1it1/ksTlWDRKAvRZUpkq2CZ2NxcEITg=";
+    library = "platform/libretro/fake08_libretro.so";
+  };
   "ppsspp_libretro.so" = "${ppsspp-libretro}/lib/libretro/ppsspp_libretro.so";
 }
