@@ -1,5 +1,20 @@
 # Ghazal H700 beta
 
+Beta 15 fixes two menu problems:
+
+- **Update check errors.** A failed check in Configuration → System update
+  printed curl's whole error over the rows around it. It now shows one short
+  reason: no internet, GitHub not answering or refusing, or a secure
+  connection failure when the clock is wrong. `frontend.log` keeps curl's full
+  message. The check also downloads less: ten releases at a time, stopping at
+  the first page with nothing newer.
+- **Long titles.** A title too long for its row now scrolls while selected:
+  it pauses, slides to its end, pauses and starts over. Other rows stay cut off
+  with "…".
+
+Both were checked in the desktop simulator and the update check against
+GitHub's real release list, not yet on a handheld.
+
 Beta 14 adds:
 
 - **Search** (Home → Search, or Select in Explore) across every system, and
