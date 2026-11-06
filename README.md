@@ -13,9 +13,10 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 ## What it does
 
 - Browse systems and games, keep favorites and recently played games, and display box art.
-- Play through RetroArch and standalone PPSSPP on supported devices, and pick
-  another emulator for a single game or a whole system (for example Snes9x 2010
-  or PPSSPP's libretro core).
+- Search every game by title, and see how long each game was played.
+- Play through RetroArch, standalone PPSSPP and standalone Mupen64Plus on
+  supported devices, and pick another emulator for a single game or a whole
+  system (for example Snes9x 2010 or PPSSPP's libretro core).
 - Install [PortMaster](docs/ports.md) from the menu (Wi-Fi) and run its ports.
 - Run 41 systems, from Game Boy to Saturn, Dreamcast and PSP, plus PICO-8,
   TIC-80 and Arduboy carts.
@@ -59,6 +60,7 @@ A standalone Linux gaming system for Anbernic H700 handhelds, focused on
 |---|---|
 | Open / back | A / B |
 | Favorite a game | Y |
+| Search games | Select (or Home → Search) |
 | Game actions (choose its emulator, host or join netplay) | X |
 | Volume | Volume Up / Down |
 | Brightness | Menu + Volume Up / Down |

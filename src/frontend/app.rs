@@ -10,10 +10,11 @@ use super::config::{FrontendConfig, Launch};
 use super::emulator_choice::Choices;
 use super::emulator_picker::{self, Picker, Step};
 use super::input::Button;
-use super::keyboard;
+use super::keyboard::{self, Echo, Keyboard, Outcome};
 use super::launcher::LaunchSpec;
 use super::library::{Game, Library, System};
 use super::moonlight::{self, Notice};
+use super::playtime::{self, PlayTime};
 use super::netplay::{self, Choosing, Pick, Polled, Role, Scanning, Session, Target};
 use super::settings::{Settings, StartupMode};
 use super::syncthing;
@@ -72,6 +73,15 @@ enum Join {
     Choosing(Choosing),
 }
 
+/// Searching every game by title: Select (or Home → Search) opens a keyboard
+/// over the current screen, and Start lists the matches.
+enum Searching {
+    /// `under` is the screen the keyboard covers, where cancelling returns;
+    /// `back` is where the results' B will return.
+    Typing { keyboard: Keyboard, under: View, back: View },
+    Results { back: View },
+}
+
 /// The game a game-actions menu was opened on, checked again when an action is chosen.
 struct GameMenu {
     list: GameList,
@@ -80,23 +90,23 @@ struct GameMenu {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum HomeItem { Explore, Collection, History, Applications, Information, Configuration, Reboot, Shutdown }
+enum HomeItem { Explore, Collection, History, Search, Applications, Information, Configuration, Reboot, Shutdown }
 impl HomeItem {
     fn entries(power_available: bool) -> Vec<Self> {
-        let mut items = vec![Self::Explore, Self::Collection, Self::History, Self::Applications, Self::Information, Self::Configuration];
+        let mut items = vec![Self::Explore, Self::Collection, Self::History, Self::Search, Self::Applications, Self::Information, Self::Configuration];
         if power_available { items.extend([Self::Reboot, Self::Shutdown]); }
         items
     }
     fn label(self) -> &'static str {
         match self {
-            Self::Explore => "Explore Content", Self::Collection => "Collection", Self::History => "History",
+            Self::Explore => "Explore Content", Self::Collection => "Collection", Self::History => "History", Self::Search => "Search",
             Self::Applications => "Applications", Self::Information => "Information", Self::Configuration => "Configuration",
             Self::Reboot => "Reboot", Self::Shutdown => "Shutdown",
         }
     }
     fn glyph(self) -> &'static str {
         match self {
-            Self::Explore => "▤", Self::Collection => "★", Self::History => "↶", Self::Applications => "▦",
+            Self::Explore => "▤", Self::Collection => "★", Self::History => "↶", Self::Search => "⚲", Self::Applications => "▦",
             Self::Information => "i", Self::Configuration => "⚙", Self::Reboot => "↻", Self::Shutdown => "○",
         }
     }
@@ -108,6 +118,8 @@ enum GameList {
     Favorites,
     Recent,
     System(usize),
+    /// The last search's results (`Catalog::search`).
+    Search,
 }
 
 enum StartupState {
@@ -116,7 +128,9 @@ enum StartupState {
 }
 
 impl GameList {
-    fn parent(self) -> View { match self { Self::System(_) => View::Systems, _ => View::Home } }
+    /// Search results go back where the search began (`Searching::Results`);
+    /// Home is where they go when nothing recorded that.
+    fn parent(self) -> View { match self { Self::System(_) => View::Systems, Self::Favorites | Self::Recent | Self::Search => View::Home } }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -225,6 +239,9 @@ const MENU_HINTS: Hints = &[("A", "Select"), ("B", "Close")];
 const OPTIONS_HINTS: Hints = &[("A", "Select"), ("B", "Back")];
 const HOME_HINTS: Hints = &[("A", "Open"), ("B", "Explore"), ("≡", "Menu")];
 const SYSTEM_HINTS: Hints = &[("A", "Open"), ("B", "Back"), ("≡", "Menu")];
+/// Characters a search can hold; titles are rarely longer.
+const SEARCH_LIMIT: usize = 40;
+const EXPLORE_HINTS: Hints = &[("A", "Open"), ("B", "Back"), ("SEL", "Search"), ("≡", "Menu")];
 const CONFIGURATION_HINTS: Hints = &[("A", "Change"), ("◀▶", "Adjust"), ("B", "Back")];
 const INFORMATION_HINTS: Hints = &[("B", "Back")];
 const GAME_HINTS: Hints = &[("A", "Play"), ("B", "Back"), ("Y", "Favorite"), ("X", "Actions"), ("◀▶", "System"), ("≡", "Menu")];
@@ -295,6 +312,10 @@ pub struct App {
     /// RetroAchievements as RetroArch's config has it; read when Configuration opens.
     achievements: Achievements,
     join: Option<Join>,
+    search: Option<Searching>,
+    playtime: PlayTime,
+    /// The game being played and when its emulator started.
+    playing: Option<(GameId, Instant)>,
     game_menu: Option<GameMenu>,
     settings: Settings,
     startup: StartupState,
@@ -378,6 +399,7 @@ impl App {
         let settings = Settings::load(&config.settings_file);
         // Unusable choices must not keep the menu from starting: games run with their systems' defaults.
         let (emulators, emulators_warning) = Choices::open(&config.emulators_file());
+        let (playtime, playtime_warning) = PlayTime::open(&config.playtime_file());
         let startup = StartupState::WaitingForLibrary(settings.startup);
         let home_items = HomeItem::entries(daemon_status.is_some());
         let art = Loader::new().inspect_err(|error| eprintln!("ghazal: art loader: {error:#}")).ok();
@@ -403,6 +425,9 @@ impl App {
             information_rows: Vec::new(),
             achievements: Achievements::default(),
             join: None,
+            search: None,
+            playtime,
+            playing: None,
             game_menu: None,
             settings,
             startup,
@@ -444,6 +469,7 @@ impl App {
         if let Ok(warning) = std::fs::read_to_string("/run/ghazal/provision-warning") { app.error(warning); }
         if let Some(warning) = activity_warning { app.error(warning); }
         if let Some(warning) = emulators_warning { app.error(warning); }
+        if let Some(warning) = playtime_warning { app.error(warning); }
         app.refresh_status(Instant::now());
         app.refresh_levels();
         app.sync();
@@ -518,6 +544,10 @@ impl App {
             }
             return None;
         }
+        if matches!(self.search, Some(Searching::Typing { .. })) {
+            self.search_typed(button);
+            return None;
+        }
         // The on-screen keyboard uses Start to confirm and Menu to cancel.
         if matches!(button, Button::Menu | Button::Start) && !self.wifi.as_ref().is_some_and(wifi::Controller::typing) {
             self.open_menu(MenuPage::Main);
@@ -529,6 +559,7 @@ impl App {
                     HomeItem::Explore => self.view = View::Systems,
                     HomeItem::Collection => self.view = View::Games(GameList::Favorites),
                     HomeItem::History => self.view = View::Games(GameList::Recent),
+                    HomeItem::Search => self.open_search(),
                     HomeItem::Applications => { self.refresh_ports(); self.view = View::Applications; }
                     HomeItem::Configuration => { self.refresh_achievements(); self.view = View::Configuration; }
                     HomeItem::Information => { self.refresh_information(); self.view = View::Information; }
@@ -541,6 +572,7 @@ impl App {
             View::Systems => match button {
                 Button::A if self.system_entries() > 0 => self.view = View::Games(GameList::System(self.system_cursor)),
                 Button::B => self.view = View::Home,
+                Button::Select => self.open_search(),
                 button => self.system_cursor = navigate(self.system_cursor, self.system_entries(), button),
             },
             View::Applications => match button {
@@ -611,7 +643,11 @@ impl App {
                 let len = self.game_count(list);
                 let cursor = self.cursor(list);
                 match button {
-                    Button::B => self.view = list.parent(),
+                    Button::B => self.view = match (list, self.search.take()) {
+                        (GameList::Search, Some(Searching::Results { back })) => back,
+                        _ => list.parent(),
+                    },
+                    Button::Select => self.open_search(),
                     Button::A => return self.launch(list, cursor),
                     Button::Y => self.toggle_favorite(list, cursor),
                     Button::X => self.open_game_menu(list, cursor),
@@ -626,6 +662,35 @@ impl App {
             }
         }
         None
+    }
+
+    /// Opens the search keyboard over the current screen. Searching again from
+    /// the results keeps where they go back to.
+    fn open_search(&mut self) {
+        let back = match self.search {
+            Some(Searching::Results { back }) if self.view == View::Games(GameList::Search) => back,
+            _ => self.view,
+        };
+        self.search = Some(Searching::Typing { keyboard: Keyboard::new(SEARCH_LIMIT, Echo::Plain), under: self.view, back });
+    }
+
+    fn search_typed(&mut self, button: Button) {
+        let Some(Searching::Typing { keyboard, under, back }) = &mut self.search else { return };
+        let (under, back) = (*under, *back);
+        match keyboard.press(button) {
+            None => {}
+            Some(Outcome::Submit(query)) if !query.trim().is_empty() => {
+                self.catalog.search(query);
+                self.game_cursors.insert(GameList::Search, 0);
+                self.search = Some(Searching::Results { back });
+                self.view = View::Games(GameList::Search);
+            }
+            // Nothing typed: as if cancelled.
+            Some(Outcome::Submit(_) | Outcome::Cancel) => {
+                self.search = (under == View::Games(GameList::Search)).then_some(Searching::Results { back });
+            }
+        }
+        self.rows_for = None;
     }
 
     /// Opens Configuration → Wi-Fi. Its worker starts here, not at boot.
@@ -825,7 +890,7 @@ impl App {
         self.rows_for = None;
     }
 
-    pub fn session_started(&mut self, purpose: LaunchPurpose) {
+    pub fn session_started(&mut self, purpose: LaunchPurpose, now: Instant) {
         let game = match purpose {
             LaunchPurpose::Game(game) => game,
             LaunchPurpose::PortMaster => {
@@ -834,6 +899,7 @@ impl App {
             }
             LaunchPurpose::RetroArchSettings | LaunchPurpose::Stream => return,
         };
+        self.playing = Some((game.clone(), now));
         // Persist before waiting for the emulator: history survives a reset
         // during gameplay, and failed spawns never enter this callback.
         if let Err(error) = self.catalog.launched(game.clone()) {
@@ -849,7 +915,13 @@ impl App {
         self.rows_for = None;
     }
 
-    pub fn launch_finished(&mut self, result: anyhow::Result<std::process::ExitStatus>) {
+    /// `ended` is when the emulator exited, before the menu took the screen back.
+    pub fn launch_finished(&mut self, result: anyhow::Result<std::process::ExitStatus>, ended: Instant) {
+        if let Some((game, started)) = self.playing.take() {
+            if let Err(error) = self.playtime.record(&game, ended.saturating_duration_since(started)) {
+                eprintln!("ghazal: saving play time: {error:#}");
+            }
+        }
         let result = result.and_then(|status| {
             if status.success() { Ok(()) } else { anyhow::bail!("emulator exited with {status}") }
         });
@@ -1526,6 +1598,7 @@ impl App {
             GameList::System(index) => self.catalog.library().systems().get(index).map_or(0, |system| system.games.len()),
             GameList::Favorites => self.catalog.collection_len(Collection::Favorites),
             GameList::Recent => self.catalog.collection_len(Collection::Recent),
+            GameList::Search => self.catalog.collection_len(Collection::Search),
         }
     }
 
@@ -1537,6 +1610,7 @@ impl App {
             }
             GameList::Favorites => self.catalog.collection_game(Collection::Favorites, index),
             GameList::Recent => self.catalog.collection_game(Collection::Recent, index),
+            GameList::Search => self.catalog.collection_game(Collection::Search, index),
         }
     }
 
@@ -1545,11 +1619,12 @@ impl App {
         self.game_cursors.get(&list).copied().unwrap_or(0).min(self.game_count(list).saturating_sub(1))
     }
 
-    fn list_title(&self, list: GameList) -> &str {
+    fn list_title(&self, list: GameList) -> String {
         match list {
-            GameList::System(index) => self.catalog.library().systems().get(index).map_or("", |system| system.name.as_str()),
-            GameList::Favorites => "Collection",
-            GameList::Recent => "History",
+            GameList::System(index) => self.catalog.library().systems().get(index).map_or("", |system| system.name.as_str()).to_owned(),
+            GameList::Favorites => "Collection".to_owned(),
+            GameList::Recent => "History".to_owned(),
+            GameList::Search => format!("“{}”", self.catalog.search_query().trim()),
         }
     }
 
@@ -1605,17 +1680,23 @@ impl App {
             }
             View::Games(list) => {
                 let (system, game) = self.game_at(list, index)?;
-                let favorite = if self.catalog.is_favorite(&GameId::new(system, game)) { "★" } else { "" };
+                let id = GameId::new(system, game);
+                let favorite = if self.catalog.is_favorite(&id) { "★" } else { "" };
                 // Collections mix systems, so name the game's system; a game pinned to an emulator names it.
                 let system_name = (!matches!(list, GameList::System(_))).then_some(system.name.as_str());
                 let pinned = self.emulators.pinned(system, game).map(|emulator| emulator.label.as_str());
-                let detail = [(!favorite.is_empty()).then_some(favorite), system_name, pinned].into_iter().flatten().collect::<Vec<_>>().join(" ");
+                // History says how long each game was played.
+                let played = matches!(list, GameList::Recent).then(|| playtime::describe(self.playtime.played(&id))).flatten();
+                let detail = [(!favorite.is_empty()).then_some(favorite), system_name, pinned, played.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(" ");
                 Row { label: game.title.as_str().into(), detail: detail.into(), glyph: "".into() }
             }
         })
     }
 
     fn hints(&self) -> Hints {
+        if matches!(self.search, Some(Searching::Typing { .. })) {
+            return if self.ui.window().size().width < 560 { keyboard::NARROW_HINTS } else { keyboard::HINTS };
+        }
         let compact = self.ui.window().size().width < 400;
         if self.picker.is_some() { return if compact { emulator_picker::COMPACT_HINTS } else { emulator_picker::HINTS }; }
         if self.menu.is_none() && compact && matches!(self.view, View::Games(_)) {
@@ -1625,7 +1706,7 @@ impl App {
             (Some(MenuPage::Options), _) => OPTIONS_HINTS,
             (Some(MenuPage::Main | MenuPage::Game), _) => MENU_HINTS,
             (None, View::Netplay(_)) => NETPLAY_HINTS,
-            (None, View::Systems) => SYSTEM_HINTS,
+            (None, View::Systems) => EXPLORE_HINTS,
             (None, View::Home) => HOME_HINTS,
             (None, View::Applications) => SYSTEM_HINTS,
             (None, View::Moonlight) => self.moonlight.as_ref().map_or(SYSTEM_HINTS, moonlight::Moonlight::hints),
@@ -1649,15 +1730,23 @@ impl App {
             return Some(Overlay { title: view.title, labels: view.rows, cursor: view.cursor, wide: true });
         }
         let MenuState { page, cursor } = self.menu?;
-        let title = match page { MenuPage::Main => "Menu", MenuPage::Options => "Options", MenuPage::Game => "Game" }.to_owned();
+        let title = match page {
+            MenuPage::Main => "Menu".to_owned(),
+            MenuPage::Options => "Options".to_owned(),
+            MenuPage::Game => self.menu_game().and_then(|(system, game)| playtime::describe(self.playtime.played(&GameId::new(system, game))))
+                .map_or_else(|| "Game".to_owned(), |time| format!("Played {time}")),
+        };
         let labels = self.page_items(page).iter().map(|item| item.label(&self.settings).to_owned()).collect();
         Some(Overlay { title, labels, cursor, wide: false })
     }
 
     /// The keyboard some screen is asking for. A screen that takes typed text
     /// adds itself here.
-    fn active_keyboard(&self) -> Option<&keyboard::Display> {
-        self.wifi_view.as_ref().and_then(|view| view.keyboard.as_ref()).filter(|_| self.view == View::Wifi)
+    fn active_keyboard(&self) -> Option<keyboard::Display> {
+        if let Some(Searching::Typing { keyboard, .. }) = &self.search {
+            return Some(keyboard.display("Search games".to_owned(), keyboard::Note::Help("Every word must be in the title".to_owned()), keyboard::TEXT_COLUMNS));
+        }
+        self.wifi_view.as_ref().and_then(|view| view.keyboard.clone()).filter(|_| self.view == View::Wifi)
     }
 
     /// Shows the on-screen keyboard for whichever screen is asking for text.
@@ -1723,10 +1812,11 @@ impl App {
 
         let ui = &self.ui;
         let moonlight_heading = self.moonlight.as_ref().map(moonlight::Moonlight::heading).unwrap_or_default();
+        let games_heading = if let View::Games(list) = self.view { self.list_title(list) } else { String::new() };
         ui.set_heading(match self.view {
             View::Home => "Ghazal",
             View::Systems => "Explore Content",
-            View::Games(list) => self.list_title(list),
+            View::Games(_) => games_heading.as_str(),
             View::Applications => "Applications",
             View::Moonlight => moonlight_heading.as_str(),
             View::Configuration => "Configuration",
@@ -1747,6 +1837,7 @@ impl App {
             _ if self.scan.is_some() => "Loading games…".to_owned(),
             View::Games(GameList::Favorites) => "Press Y on a game to add a favorite".to_owned(),
             View::Games(GameList::Recent) => "Games you launch will appear here".to_owned(),
+            View::Games(GameList::Search) => format!("No game titles contain “{}”", self.catalog.search_query().trim()),
             _ => format!("No games found in {}", self.config.rom_roots.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")),
         }.into());
         ui.set_selected(cursor as i32);
@@ -1819,8 +1910,8 @@ mod tests {
     #[test]
     fn home_categories_and_power_capabilities() {
         let entries = HomeItem::entries(true);
-        assert_eq!(entries.iter().map(|item| item.label()).collect::<Vec<_>>(), ["Explore Content", "Collection", "History", "Applications", "Information", "Configuration", "Reboot", "Shutdown"]);
-        assert_eq!(HomeItem::entries(false).len(), 6);
+        assert_eq!(entries.iter().map(|item| item.label()).collect::<Vec<_>>(), ["Explore Content", "Collection", "History", "Search", "Applications", "Information", "Configuration", "Reboot", "Shutdown"]);
+        assert_eq!(HomeItem::entries(false).len(), 7);
         assert!(!HomeItem::entries(false).iter().any(|item| matches!(item, HomeItem::Reboot | HomeItem::Shutdown)));
     }
 

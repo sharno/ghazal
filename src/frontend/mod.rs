@@ -13,6 +13,7 @@ mod keyboard;
 pub mod launcher;
 pub mod library;
 mod moonlight;
+mod playtime;
 pub mod netplay;
 pub mod platform;
 pub mod retroarch_menu;

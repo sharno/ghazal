@@ -314,7 +314,8 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 // The emulator takes the display over; the handheld's screen says where the game is.
                 if plan.layout.game_on_hdmi() { show_panel_notice(&mut app, &mut screen, &mut display, w as usize); }
                 if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Game(spec.cpu)); }
-                let result = display.with_released(|| spec.run(|| app.session_started(purpose)));
+                let result = display.with_released(|| spec.run(|| app.session_started(purpose, Instant::now())));
+                let ended = Instant::now();
                 if let Some(cpu) = &device.cpu { cpu.apply(crate::device::Activity::Menu); }
                 routing.finish_launch(&mut display, &plan);
                 if let (Sound::Hdmi, Some(path)) = (plan.sound, &retroarch_config) { routing::forget_hdmi_device(path, device); }
@@ -323,7 +324,7 @@ fn run_device(config: FrontendConfig, device: &DeviceConfig) -> Result<()> {
                 screen.invalidate();
                 input = evdev_input::Input::open(device)?;
                 repeater.clear();
-                app.launch_finished(result);
+                app.launch_finished(result, ended);
             }
         }
     }

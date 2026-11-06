@@ -1,5 +1,5 @@
 //! An on-screen keyboard driven by a gamepad, for anything the menu needs typed
-//! (Wi-Fi names and passwords; pairing codes later). This is the model only:
+//! (Wi-Fi names and passwords, game searches). This is the model only:
 //! `ui/keyboard.slint` draws it from `Keyboard::keys`.
 //!
 //! D-pad moves, A types the highlighted key, B deletes, X cycles
@@ -95,6 +95,11 @@ pub enum Note {
     Help(String),
     Problem(String),
 }
+
+pub const HINTS: &[(&str, &str)] = &[("A", "Type"), ("B", "Delete"), ("X", "Shift"), ("▶", "OK"), ("≡", "Cancel")];
+pub const NARROW_HINTS: &[(&str, &str)] = &[("A", "Type"), ("B", "Del"), ("X", "Shift"), ("▶", "OK")];
+/// Characters of typed text that fit above the keyboard.
+pub const TEXT_COLUMNS: usize = 34;
 
 /// Everything the UI needs to draw a keyboard and its text field.
 #[derive(Clone, Debug)]

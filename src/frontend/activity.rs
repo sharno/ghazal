@@ -23,10 +23,21 @@ impl GameId {
     pub fn resolve<'a>(&self, library: &'a Library) -> Option<(&'a System, &'a Game)> {
         library.resolve_path(&self.path)
     }
+
+    pub fn path(&self) -> &Path { &self.path }
+
+    #[cfg(test)]
+    pub fn from_path(path: PathBuf) -> Self { Self { path } }
 }
 
 #[derive(Clone, Copy)]
-pub enum Collection { Favorites, Recent }
+pub enum Collection { Favorites, Recent, Search }
+
+/// The games whose titles hold every word the player typed, in library order.
+struct Search {
+    query: String,
+    found: Vec<GameId>,
+}
 
 /// Own library and activity together so resolved collections cannot outlive
 /// their library or become stale after a favorite, launch or rescan.
@@ -35,11 +46,13 @@ pub struct Catalog {
     activity: Activity,
     favorites: Vec<GameId>,
     recent: Vec<GameId>,
+    search: Search,
 }
 
 impl Catalog {
     pub fn new(library: Library, activity: Activity) -> Self {
-        let mut catalog = Self { library, activity, favorites: Vec::new(), recent: Vec::new() };
+        let search = Search { query: String::new(), found: Vec::new() };
+        let mut catalog = Self { library, activity, favorites: Vec::new(), recent: Vec::new(), search };
         catalog.refresh();
         catalog
     }
@@ -55,8 +68,12 @@ impl Catalog {
         Ok(added)
     }
     pub fn launched(&mut self, game: GameId) -> Result<()> { self.activity.launched(game)?; self.refresh(); Ok(()) }
+    /// Finds the games matching `query`; Collection::Search lists them, kept
+    /// up to date through rescans.
+    pub fn search(&mut self, query: String) { self.search.query = query; self.refresh(); }
+    pub fn search_query(&self) -> &str { &self.search.query }
     fn collection(&self, collection: Collection) -> &[GameId] {
-        match collection { Collection::Favorites => &self.favorites, Collection::Recent => &self.recent }
+        match collection { Collection::Favorites => &self.favorites, Collection::Recent => &self.recent, Collection::Search => &self.search.found }
     }
     pub fn collection_len(&self, collection: Collection) -> usize { self.collection(collection).len() }
     pub fn collection_game(&self, collection: Collection, index: usize) -> Option<(&System, &Game)> {
@@ -65,7 +82,25 @@ impl Catalog {
     fn refresh(&mut self) {
         self.favorites = self.activity.favorites().filter(|id| id.resolve(&self.library).is_some()).cloned().collect();
         self.recent = self.activity.recent().filter(|id| id.resolve(&self.library).is_some()).cloned().collect();
+        let words = words(&self.search.query);
+        self.search.found = if words.is_empty() { Vec::new() } else {
+            self.library.systems().iter()
+                .flat_map(|system| system.games.iter().filter(|game| { let title = fold(&game.title); words.iter().all(|word| title.contains(word.as_str())) })
+                    .map(move |game| GameId::new(system, game)))
+                .collect()
+        };
     }
+}
+
+/// A query's words, folded like titles.
+fn words(query: &str) -> Vec<String> { query.split_whitespace().map(fold).collect() }
+
+/// Lower case without accents, so `pokemon` typed on the ASCII keyboard finds `Pokémon`.
+fn fold(text: &str) -> String {
+    const ACCENTED: [(&str, char); 7] = [("àáâãäå", 'a'), ("çć", 'c'), ("èéêë", 'e'), ("ìíîï", 'i'), ("ñ", 'n'), ("òóôõöø", 'o'), ("ùúûü", 'u')];
+    text.chars().flat_map(char::to_lowercase)
+        .map(|c| ACCENTED.iter().find(|(accented, _)| accented.contains(c)).map_or(c, |(_, plain)| *plain))
+        .collect()
 }
 
 /// Exercise the former and current 48-row lookup paths with 100 recent games.
@@ -259,6 +294,22 @@ mod tests {
         assert_eq!(catalog.collection_len(Collection::Recent), 2);
         catalog.toggle_favorite(game(1)).unwrap();
         assert_eq!(catalog.collection_len(Collection::Favorites), 0);
+    }
+
+    #[test]
+    fn search_matches_every_word_without_case_or_accents_and_follows_rescans() {
+        let directory = Temp::new();
+        let library = |titles: &[&str]| Library::from_systems(vec![System { name: "GB".into(), art: Default::default(), emulators: Emulators::only(Launch::Core("test.so".into()), Default::default()), games: titles.iter().enumerate().map(|(index, title)| Game { title: (*title).to_owned(), path: game(index).path }).collect() }]);
+        let mut catalog = Catalog::new(library(&["Pokémon Red", "Pokemon Pinball", "Tetris"]), Activity::load(&directory.file()).unwrap());
+        let found = |catalog: &Catalog| (0..catalog.collection_len(Collection::Search)).map(|index| catalog.collection_game(Collection::Search, index).unwrap().1.title.clone()).collect::<Vec<_>>();
+        catalog.search("POKEMON red".into());
+        assert_eq!(found(&catalog), ["Pokémon Red"]);
+        catalog.search("pok".into());
+        assert_eq!(found(&catalog), ["Pokémon Red", "Pokemon Pinball"]);
+        catalog.replace_library(library(&["Tetris", "Pokemon Snap"]));
+        assert_eq!(found(&catalog), ["Pokemon Snap"]);
+        catalog.search("  ".into());
+        assert!(found(&catalog).is_empty());
     }
 
     #[test]

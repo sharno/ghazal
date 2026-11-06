@@ -46,6 +46,8 @@ GHAZALDATA/                 # or the root of your TF2 partition
 └── .ghazal/
     ├── activity.toml     # Collection and History
     ├── emulators.toml    # emulator chosen per game and per system
+    ├── playtime.toml     # time played per game
+    ├── mupen64plus/      # standalone Mupen64Plus settings
     ├── thumbnails/       # downloaded art and missing-art markers
     ├── retroarch/        # native settings, per-core options, RetroAchievements login and badges
     ├── netplay-hosts.txt # optional extra netplay hosts, one `address[:port] [name]` per line

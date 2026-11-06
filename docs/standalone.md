@@ -368,7 +368,7 @@ wrong code). On the RG40XX-V:
 
 Save slots and other core options are available through the RetroArch quick menu.
 
-The main menu has separate Collection and History entries, alongside Explore
+The main menu has separate Collection, History and Search entries, alongside Explore
 Content, Applications, Information, Configuration, Reboot and Shutdown.
 Explore Content opens the systems list. B returns from systems and collections
 to the home screen; B from a system's games returns to the systems list.
@@ -378,6 +378,19 @@ survive replacement of the OS card. Missing games are hidden until available
 again. Library rescans run in a worker so navigation remains responsive.
 Activity format 2 stores game paths, so changing a system label or core mapping
 preserves favorites and history. Existing format 1 files migrate atomically.
+
+Search (on the main menu, or Select in Explore Content and any game list) types
+a query on the on-screen keyboard; Start lists every game, across systems,
+whose title holds each word, ignoring case and common accents. B from the
+results returns where the search began, and Select there searches again.
+
+The menu records play time per game, from the emulator's start until it exits,
+on the monotonic clock. History shows it on each row, and a game's actions
+title reads `Played 3 h 20 min`. It is kept in `/mnt/games/.ghazal/playtime.toml`
+(`playtime_file`; beside `activity.toml` unless set), format version `"1"`, not
+in the activity file: the system on the other A/B slot refuses an activity
+version it does not know and would set favorites aside. A session cut by power
+loss is not counted.
 
 ### Choosing the emulator
 
@@ -498,6 +511,18 @@ automatic state on quit. PPSSPP scans out ARGB8888 buffers whose alpha holds
 rendering data; a kernel patch makes the bottom display plane ignore it. Its pad
 mapping (`config/rg40xxv-rocknix/ppsspp/controls.ini`) matches RetroArch's
 hotkeys: Menu + X pause menu, Menu + R1/L1 save/load state, Menu + A pause.
+
+Nintendo 64 has standalone Mupen64Plus as an alternative to the
+Mupen64Plus-Next core, built from ROCKNIX's H700 recipes
+(`nix/runtime/mupen64plus.nix`): its arm64 dynarec, the Rice video plugin and
+the HLE RSP, ROCKNIX's H700 choices. `/usr/bin/mupen64plus` unzips a zipped ROM
+into `/tmp` first. Its config is in `.ghazal/mupen64plus`, battery saves in
+`SAVES/file/Mupen64Plus`, states in `SAVES/state/Mupen64Plus`. The pad comes
+from ROCKNIX's `[H700 Gamepad]` entry (A on the bottom button, B on the left,
+Z on L2, C buttons on the right stick). Hotkeys match RetroArch's: Menu + R1/L1
+save/load state, Menu + A pause, Menu + R2 fast-forward, Menu + Select
+screenshot. Menu + Start sends SIGTERM, which SDL turns into a clean stop that
+writes the game's save; there is no automatic state on quit.
 `ppsspp-overrides.ini` is merged into ROCKNIX's defaults when the image is
 built: a smaller interface for 640x480, and no CPU-side depth rasterization. PSP
 buttons follow position (Cross bottom, Circle right, Square left, Triangle

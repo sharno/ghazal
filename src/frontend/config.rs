@@ -20,6 +20,8 @@ pub struct FrontendConfig {
     pub activity_file: PathBuf,
     /// Emulator choices per game and system. Beside the activity file when unset.
     pub emulators_file: Option<PathBuf>,
+    /// Time played per game. Beside the activity file when unset.
+    pub playtime_file: Option<PathBuf>,
     pub retroarch: RetroArch,
     /// Where emulators find BIOS files; systems' `requires_any` are relative to it.
     #[serde(default = "default_bios_dir")]
@@ -290,6 +292,10 @@ impl FrontendConfig {
         self.emulators_file.clone().unwrap_or_else(|| self.activity_file.with_file_name("emulators.toml"))
     }
 
+    pub fn playtime_file(&self) -> PathBuf {
+        self.playtime_file.clone().unwrap_or_else(|| self.activity_file.with_file_name("playtime.toml"))
+    }
+
     /// Relative paths in a config file are relative to that file, not the working directory.
     /// `retroarch.bin` is left alone so a bare name can be looked up on `PATH`.
     pub fn resolve_relative_to(&mut self, base: &Path) {
@@ -301,6 +307,7 @@ impl FrontendConfig {
         self.rom_roots.iter_mut().for_each(fix);
         fix(&mut self.activity_file);
         if let Some(file) = &mut self.emulators_file { fix(file); }
+        if let Some(file) = &mut self.playtime_file { fix(file); }
         fix(&mut self.bios_dir);
         fix(&mut self.settings_file);
         if let Some(cache) = &mut self.thumbnail_cache { fix(cache); }

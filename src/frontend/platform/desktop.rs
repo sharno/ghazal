@@ -251,9 +251,10 @@ impl ApplicationHandler for Sim {
             Some(Effect::Quit) => return event_loop.exit(),
             Some(Effect::Launch { spec, purpose }) => {
                 // Blocks the window while the emulator runs, same as on the device.
-                let result = spec.run(|| self.app.session_started(purpose));
+                let result = spec.run(|| self.app.session_started(purpose, Instant::now()));
+                let ended = Instant::now();
                 self.repeater.clear();
-                self.app.launch_finished(result);
+                self.app.launch_finished(result, ended);
             }
         }
 

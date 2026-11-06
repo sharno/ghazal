@@ -372,6 +372,19 @@ validated. Remove an entry once it has been checked on a handheld.
   `screenshot_directory` in existing user configs), and the `time` service
   (BusyBox `ntpd`) setting the clock after Wi-Fi joins and the RTC keeping it
   across a reboot without a network.
+- Search and play time (docs/standalone.md): unit tests and desktop snapshots
+  (Home → Search, Select in Explore, the keyboard, results across systems, Menu
+  cancelling back, B from results returning where the search began). On a
+  handheld: a search over the full card, play time after a real session
+  (History rows, the game actions title, `playtime.toml`), and that the other
+  slot's older system still reads `activity.toml`.
+- Standalone Mupen64Plus (N64 alternative): built from ROCKNIX's recipes and
+  started in a container (core, dynarec, Rice, HLE RSP load); never run on a
+  handheld. Check picture and speed against Mupen64Plus-Next, sound, the
+  `[H700 Gamepad]` mapping, the Menu hotkeys, Menu + Start writing a battery
+  save (SIGTERM through SDL), a zipped ROM, and then whether it should become
+  the default. `--resolution 640x480` is the RG40XX-V panel: other panels need
+  their own size (and Rice's `ResolutionWidth` to center 4:3).
 - Configuration → Time zone (docs/standalone.md): checked in unit tests and the
   desktop simulator only. On a handheld, check the image's `/etc/localtime`
   link, the menu clock changing at once, the choice surviving a reboot and a

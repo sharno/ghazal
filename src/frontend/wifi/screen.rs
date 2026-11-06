@@ -9,7 +9,7 @@
 use super::types::{ConnectRequest, Failure, Link, Network, Passphrase, Security, Snapshot, Ssid, Visibility};
 use crate::frontend::app::navigate;
 use crate::frontend::input::Button;
-use crate::frontend::keyboard::{Display as KeyboardDisplay, Echo, Keyboard, Note, Outcome};
+use crate::frontend::keyboard::{self, Display as KeyboardDisplay, Echo, Keyboard, Note, Outcome};
 
 pub type Hints = &'static [(&'static str, &'static str)];
 
@@ -524,11 +524,6 @@ const WAIT_HINTS: Hints = &[];
 const BACK_HINTS: Hints = &[("B", "Back")];
 const RETRY_HINTS: Hints = &[("A", "Try again"), ("B", "Back")];
 const SECRET_KEYBOARD_HINTS: Hints = &[("A", "Type"), ("B", "Delete"), ("X", "Shift"), ("Y", "Show"), ("▶", "OK"), ("≡", "Cancel")];
-const KEYBOARD_HINTS: Hints = &[("A", "Type"), ("B", "Delete"), ("X", "Shift"), ("▶", "OK"), ("≡", "Cancel")];
-const KEYBOARD_NARROW_HINTS: Hints = &[("A", "Type"), ("B", "Del"), ("X", "Shift"), ("▶", "OK")];
-
-/// Characters of typed text that fit above the keyboard.
-const TEXT_COLUMNS: usize = 34;
 
 fn bars(count: u8) -> &'static str {
     ["", "▂", "▂▄", "▂▄▆", "▂▄▆█"][usize::from(count.min(4))]
@@ -610,9 +605,9 @@ pub fn view(screen: &Screen) -> View {
                 Some(error) => Note::Problem(error.clone()),
                 None => Note::Help(note.to_owned()),
             };
-            let view = keyboard.display(title, note, TEXT_COLUMNS);
-            let hints = if matches!(entering.prompt.purpose, Purpose::HiddenName) { KEYBOARD_HINTS } else { SECRET_KEYBOARD_HINTS };
-            View { rows: browse_rows(&entering.back), cursor: entering.back.cursor(), hints, narrow_hints: KEYBOARD_NARROW_HINTS, keyboard: Some(view) }
+            let view = keyboard.display(title, note, keyboard::TEXT_COLUMNS);
+            let hints = if matches!(entering.prompt.purpose, Purpose::HiddenName) { keyboard::HINTS } else { SECRET_KEYBOARD_HINTS };
+            View { rows: browse_rows(&entering.back), cursor: entering.back.cursor(), hints, narrow_hints: keyboard::NARROW_HINTS, keyboard: Some(view) }
         }
     }
 }
