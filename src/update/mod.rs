@@ -109,6 +109,12 @@ impl Image {
     fn compatible(&self) -> String {
         format!("ghazal-{}-{}-ab1", self.device.id, self.memory)
     }
+    fn installed(&self) -> Result<semver::Version> {
+        parse_version(&self.version).context("installed image is not a release version; install a tagged image first")
+    }
+}
+fn parse_version(tag: &str) -> Result<semver::Version, semver::Error> {
+    semver::Version::parse(tag.strip_prefix('v').unwrap_or(tag))
 }
 #[derive(Deserialize)]
 struct Release {
@@ -116,6 +122,11 @@ struct Release {
     draft: bool,
     prerelease: bool,
     assets: Vec<Asset>,
+}
+impl Release {
+    fn version(&self) -> Option<semver::Version> {
+        parse_version(&self.tag_name).ok()
+    }
 }
 #[derive(Deserialize)]
 struct Asset {
@@ -162,25 +173,49 @@ fn curl() -> Command {
     ]);
     command
 }
-fn choose(releases: Vec<Release>, image: &Image, channel: Channel) -> Result<Option<Candidate>> {
-    let installed =
-        semver::Version::parse(image.version.strip_prefix('v').unwrap_or(&image.version))
-            .context("installed image is not a release version; install a tagged image first")?;
+/// Runs curl and returns its output. A failure carries a short reason the
+/// update screen can show on one line; curl's own stderr, which can span
+/// several lines (`--retry` warnings), stays in the error chain for the log.
+fn fetch(command: &mut Command) -> Result<Vec<u8>> {
+    let output = command.output()?;
+    if output.status.success() {
+        return Ok(output.stdout);
+    }
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    Err(anyhow::anyhow!(detail).context(curl_reason(output.status.code())))
+}
+/// What a player can do about curl's exit codes (curl(1), EXIT CODES).
+fn curl_reason(code: Option<i32>) -> &'static str {
+    match code {
+        Some(6) => "No internet: could not look up GitHub; check Wi-Fi",
+        Some(7 | 28) => "GitHub did not answer; check Wi-Fi and try again",
+        Some(22) => "GitHub refused the request; try again later",
+        Some(35 | 60) => "Secure connection to GitHub failed; the clock may be wrong",
+        Some(23) => "Could not save the download; check the data card",
+        Some(63) => "GitHub sent more than expected",
+        _ => "Could not reach GitHub",
+    }
+}
+/// GitHub lists releases newest first, each with about 80 assets (~180 KB of
+/// JSON), so pages stay small and paging stops at the first page with nothing
+/// newer than this image: a check's download does not grow with every release.
+/// It waits for a whole page, not the first older release, because an old
+/// release recreated later sorts first.
+const PAGE: usize = 10;
+fn wants_next_page(batch: &[Release], installed: &semver::Version) -> bool {
+    batch.len() == PAGE && batch.iter().any(|release| release.version().is_some_and(|version| version > *installed))
+}
+fn choose(releases: Vec<Release>, image: &Image, installed: &semver::Version, channel: Channel) -> Result<Option<Candidate>> {
     let filename = format!("ghazal-{}-{}.raucb", image.device.id, image.memory);
     let mut candidates = Vec::new();
     for release in releases {
         if release.draft || channel == Channel::Stable && release.prerelease {
             continue;
         }
-        let Ok(version) = semver::Version::parse(
-            release
-                .tag_name
-                .strip_prefix('v')
-                .unwrap_or(&release.tag_name),
-        ) else {
+        let Some(version) = release.version() else {
             continue;
         };
-        if version <= installed || channel == Channel::Stable && !version.pre.is_empty() {
+        if version <= *installed || channel == Channel::Stable && !version.pre.is_empty() {
             continue;
         }
         if let Some(asset) = release
@@ -216,34 +251,24 @@ fn choose(releases: Vec<Release>, image: &Image, channel: Channel) -> Result<Opt
 }
 pub fn check(channel: Channel) -> Result<Option<Candidate>> {
     let image = Image::read()?;
+    let installed = image.installed()?;
     let mut releases = Vec::new();
-    // Pagination prevents older stable releases being hidden by a busy beta channel.
-    for page in 1..=10 {
-        let output = curl()
-            .args([
-                "--max-time",
-                "60",
-                "--max-filesize",
-                "4194304",
-                "--header",
-                "Accept: application/vnd.github+json",
-                "--url",
-                &format!(
-                    "https://api.github.com/repos/sharno/ghazal/releases?per_page=100&page={page}"
-                ),
-            ])
-            .output()?;
-        if !output.status.success() {
-            bail!(
-                "GitHub release check failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        let batch: Vec<Release> = serde_json::from_slice(&output.stdout)?;
-        let end = batch.len() < 100;
+    for page in 1..=100 {
+        let body = fetch(curl().args([
+            "--max-time",
+            "60",
+            "--max-filesize",
+            "4194304",
+            "--header",
+            "Accept: application/vnd.github+json",
+            "--url",
+            &format!("https://api.github.com/repos/sharno/ghazal/releases?per_page={PAGE}&page={page}"),
+        ]))?;
+        let batch: Vec<Release> = serde_json::from_slice(&body).context("GitHub's release list was not understood")?;
+        let more = wants_next_page(&batch, &installed);
         releases.extend(batch);
-        if end {
-            return choose(releases, &image, channel);
+        if !more {
+            return choose(releases, &image, &installed, channel);
         }
     }
     bail!("release listing exceeded the pagination limit")
@@ -254,7 +279,8 @@ fn rauc(args: &[&str]) -> Result<()> {
         .args(args)
         .output()?;
     if !output.status.success() {
-        bail!("RAUC: {}", String::from_utf8_lossy(&output.stderr));
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(anyhow::anyhow!(detail).context(format!("rauc {} failed", args.join(" "))));
     }
     Ok(())
 }
@@ -338,19 +364,14 @@ fn install(candidate: Candidate, events: &Sender<Event>) -> Result<()> {
     let path = directory.join("pending.raucb");
     let _ = events.send(Event::Status("Downloading update…".into()));
     let result = (|| -> Result<()> {
-        let status = curl()
-            .args([
-                "--max-time",
-                "1800",
-                "--max-filesize",
-                &candidate.size.to_string(),
-                "--output",
-            ])
-            .arg(&path)
-            .arg("--url")
-            .arg(&candidate.url)
-            .status()?;
-        if !status.success() || fs::metadata(&path)?.len() != candidate.size {
+        fetch(
+            curl()
+                .args(["--max-time", "1800", "--max-filesize", &candidate.size.to_string(), "--output"])
+                .arg(&path)
+                .arg("--url")
+                .arg(&candidate.url),
+        )?;
+        if fs::metadata(&path)?.len() != candidate.size {
             bail!("update download incomplete; the installed OS is unchanged");
         }
         fs::File::open(&path)?.sync_all()?;
@@ -412,7 +433,8 @@ fn spawn(
         .spawn(move || {
             if let Err(error) = work(&send) {
                 eprintln!("ghazal-update: {error:#}");
-                let _ = send.send(Event::Failed(format!("{error:#}")));
+                // The outermost message only: the screen has one line for it.
+                let _ = send.send(Event::Failed(error.to_string()));
             }
         })?;
     Ok(receive)
@@ -644,5 +666,30 @@ impl Menu {
             }
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(tag: &str) -> Release {
+        Release { tag_name: tag.into(), draft: false, prerelease: true, assets: Vec::new() }
+    }
+
+    #[test]
+    fn paging_stops_at_a_page_with_nothing_newer() {
+        let installed = semver::Version::parse("0.1.0-beta.13").unwrap();
+        let page = |tags: &[&str]| tags.iter().copied().cycle().take(PAGE).map(release).collect::<Vec<_>>();
+        assert!(wants_next_page(&page(&["v0.1.0-beta.14", "v0.1.0-beta.12"]), &installed));
+        assert!(!wants_next_page(&page(&["v0.1.0-beta.13", "v0.1.0-beta.2", "nightly"]), &installed));
+        assert!(!wants_next_page(&[release("v0.1.0-beta.14")], &installed));
+    }
+
+    #[test]
+    fn curl_failures_read_as_one_short_line() {
+        let error = fetch(Command::new("sh").args(["-c", "printf 'Warning: retrying\\ncurl: (6) Could not resolve host\\n' >&2; exit 6"])).unwrap_err();
+        assert_eq!(error.to_string(), curl_reason(Some(6)));
+        assert!(format!("{error:#}").contains("Could not resolve host"));
     }
 }

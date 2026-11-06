@@ -23,6 +23,9 @@ For SSH use `ghazal update check` and `ghazal update install`, followed by
 `ghazal ctl reboot`. Installation does not reboot without a separate request.
 A failed download can be retried; temporary bundles are held on the active data
 card under `.ghazal/updates/` and removed after installation or a handled failure.
+The screen shows a short reason for a failed check or download (no Wi-Fi,
+GitHub not answering or refusing, a failed secure connection when the clock is
+wrong); the frontend log has curl's full message.
 
 ## Existing installations need a one-time migration
 

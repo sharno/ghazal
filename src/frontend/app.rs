@@ -274,6 +274,14 @@ struct Toast {
     error: bool,
 }
 
+impl Toast {
+    /// The toast is one line tall: a message with line breaks (a tool's
+    /// stderr in an error chain) would spill over the rows behind it.
+    fn new(text: &str, error: bool) -> Self {
+        Self { text: text.split_whitespace().collect::<Vec<_>>().join(" "), shown: Instant::now(), error }
+    }
+}
+
 struct Scan {
     results: std::sync::mpsc::Receiver<Library>,
     announce: bool,
@@ -850,6 +858,10 @@ impl App {
     /// For the snapshot renderer: the Syncthing screen is waiting on its worker.
     #[cfg(feature = "desktop")]
     pub fn syncthing_working(&self) -> bool { self.syncthing.as_ref().is_some_and(syncthing::Controller::working) }
+
+    /// For the snapshot renderer: a release check or install is running.
+    #[cfg(feature = "desktop")]
+    pub fn updates_working(&self) -> bool { self.updater.working() }
 
     /// The QR code for this handheld's ID, made when the ID first shows.
     fn syncthing_code(&mut self, id: &crate::syncthing::DeviceId) -> Option<slint::Image> {
@@ -1598,7 +1610,7 @@ impl App {
     }
 
     fn notice(&mut self, text: &str) {
-        self.toast = Some(Toast { text: text.into(), shown: Instant::now(), error: false });
+        self.toast = Some(Toast::new(text, false));
     }
 
     fn relay_moonlight_notice(&mut self) {
@@ -1610,7 +1622,7 @@ impl App {
     }
 
     fn error(&mut self, text: String) {
-        self.toast = Some(Toast { text, shown: Instant::now(), error: true });
+        self.toast = Some(Toast::new(&text, true));
     }
 
     fn system_entries(&self) -> usize {
