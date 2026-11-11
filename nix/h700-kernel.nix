@@ -225,6 +225,8 @@ stdenv.mkDerivation {
     # Build the joypad driver into the kernel; it is needed before the menu.
     tar -xf ${joypad} --strip-components=1 -C drivers/input/joystick \
       --wildcards '*/rocknix-singleadc-joypad.c' '*/rocknix-joypad.h'
+    # Buttons report on their pin's edge instead of the 10 ms poll (docs/input-latency.md).
+    patch -p1 < ${./rocknix-joypad-button-irqs.patch}
     echo 'obj-y += rocknix-singleadc-joypad.o' >> drivers/input/joystick/Makefile
     cp "$base"/devices/H700/linux/linux.aarch64.conf .config
     patchShebangs scripts

@@ -351,6 +351,17 @@ Never commit personal provisioning, game inventories, credentials or device-sess
 Features merged before hardware validation was possible, or only partly
 validated. Remove an entry once it has been checked on a handheld.
 
+- Interrupt-driven buttons (docs/input-latency.md,
+  `nix/rocknix-joypad-button-irqs.patch`): the kernel builds with it; nothing
+  has run on a handheld. Boot slot B with it and check every button in the menu
+  and a game before anything else (a fault here leaves no controls: keep SSH
+  open, slot A is the fallback). Then `dmesg` has no `polling it` warning,
+  `/proc/interrupts` lists one `joypad` line per button, `ghazal observe buttons
+  30` shows 0 bounces and edges off the 10 ms grid (about 20%, against ~100% on
+  slot A), fast D-pad rolls and button mashing give no doubled inputs in a game,
+  and holding a button through Menu + Start and a game launch does not leave it
+  stuck. Sticks still use the 10 ms poll.
+
 - Emulator choice: the Mega CD alternative (the dev card has no `bios_CD_*.bin`,
   so the system is hidden), the rotated-panel image profile that keeps only the
   libretro PSP core (unit test only, no RG28XX), and the sound and frame pacing

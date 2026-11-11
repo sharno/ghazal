@@ -35,8 +35,9 @@ pub fn run(device: &DeviceConfig, args: &[String]) -> Result<()> {
         }
         Some("hdmi") if args.len() == 1 => hdmi(device),
         Some("press") if args.len() == 2 => press(device, &args[1]),
+        Some("buttons") if args.len() == 2 => buttons(device, args[1].parse().context("buttons takes a duration in seconds")?),
         Some("power") if args.len() == 2 => power(device, args[1].parse().context("power takes a duration in seconds")?),
-        _ => bail!("usage: ghazal observe audio | boot | hdmi | frame OUTPUT.ppm [hdmi] | power SECONDS | press BUTTON[+BUTTON...] | plan ROM | launch ROM"),
+        _ => bail!("usage: ghazal observe audio | boot | hdmi | frame OUTPUT.ppm [hdmi] | power SECONDS | buttons SECONDS | press BUTTON[+BUTTON...] | plan ROM | launch ROM"),
     }
 }
 
@@ -269,9 +270,80 @@ pub(crate) fn press(device: &DeviceConfig, chord: &str) -> Result<()> {
     Ok(())
 }
 
+/// The gamepad's button edges while someone presses buttons for `seconds`:
+/// whether they arrive on the joypad poll's grid or on their own edges
+/// (docs/input-latency.md), and whether any button bounced.
+fn buttons(device: &DeviceConfig, seconds: std::num::NonZeroU32) -> Result<()> {
+    let name = device.input.gamepad.as_deref().context("this profile names no gamepad")?;
+    let (path, mut pad) = evdev::enumerate()
+        .find(|(_, input)| input.name().is_some_and(|actual| actual.contains(name)))
+        .with_context(|| format!("no input device named {name:?}"))?;
+    println!("Press buttons on {} for {seconds} s...", path.display());
+    let deadline = std::time::Instant::now() + Duration::from_secs(seconds.get().into());
+    let mut edges = Vec::new();
+    while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+        let mut ready = libc::pollfd { fd: pad.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the duration of the call.
+        if unsafe { libc::poll(&mut ready, 1, left.as_millis().clamp(1, 1000) as libc::c_int) } <= 0 { continue; }
+        edges.extend(pad.fetch_events()?.filter_map(|event| match (event.event_type(), event.value()) {
+            (evdev::EventType::KEY, 0 | 1) => {
+                let since = event.timestamp().duration_since(std::time::UNIX_EPOCH).ok()?;
+                Some(Edge { micros: since.as_micros(), code: event.code(), pressed: event.value() == 1 })
+            }
+            _ => None,
+        }));
+    }
+    let report = ButtonReport::of(&edges);
+    println!("edges: {} ({} presses)", edges.len(), report.presses);
+    println!("bounces (a button changing again within {} ms): {}", BOUNCE.as_millis(), report.bounces);
+    match report.grid_percent {
+        Some(percent) => println!("in the busiest 2 ms of each 10 ms: {percent}% (polled ~100%, edge-driven ~20%)"),
+        None => println!("too few edges to tell polling from interrupts; press more"),
+    }
+    Ok(())
+}
+
+/// A button changing state, at its kernel timestamp.
+struct Edge { micros: u128, code: u16, pressed: bool }
+
+/// Shorter than any deliberate press or release: two changes this close are bounce.
+const BOUNCE: Duration = Duration::from_millis(15);
+
+#[derive(Debug, PartialEq)]
+struct ButtonReport { presses: usize, bounces: usize, grid_percent: Option<u32> }
+
+impl ButtonReport {
+    fn of(edges: &[Edge]) -> Self {
+        let bounces = edges.iter()
+            .scan(std::collections::BTreeMap::new(), |last, edge| Some(last.insert(edge.code, edge.micros).is_some_and(|previous| edge.micros - previous < BOUNCE.as_micros())))
+            .filter(|bounced| *bounced)
+            .count();
+        // The joypad polls every 10 ms on the scheduler tick, so polled edges
+        // share one phase within 10 ms; edges from interrupts spread over it.
+        let bins = edges.iter().fold([0usize; 10], |mut bins, edge| { bins[(edge.micros % 10_000 / 1_000) as usize] += 1; bins });
+        let busiest = (0..10).map(|bin| bins[bin] + bins[(bin + 1) % 10]).max().unwrap_or(0);
+        let grid_percent = (edges.len() >= 20).then(|| (busiest * 100 / edges.len()) as u32);
+        Self { presses: edges.iter().filter(|edge| edge.pressed).count(), bounces, grid_percent }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::distinct_colors;
+    use super::{distinct_colors, ButtonReport, Edge};
+
+    #[test]
+    fn polled_edges_share_a_phase_and_close_changes_are_bounce() {
+        let edge = |micros, code, pressed| Edge { micros, code, pressed };
+        // Polled: every edge 10 ms apart in time plus whole multiples, same phase.
+        let polled: Vec<Edge> = (0..20u128).map(|n| edge(1_003_400 + n * 70_000, 304, n % 2 == 0)).collect();
+        assert_eq!(ButtonReport::of(&polled), ButtonReport { presses: 10, bounces: 0, grid_percent: Some(100) });
+        // Edge-driven: phases spread across the 10 ms.
+        let spread: Vec<Edge> = (0..20u128).map(|n| edge(1_000_000 + n * 71_300, 304, n % 2 == 0)).collect();
+        assert!(ButtonReport::of(&spread).grid_percent.is_some_and(|percent| percent <= 30));
+        // A release 4 ms after a press on the same button is bounce; another button is not.
+        let bounced = [edge(0, 304, true), edge(4_000, 304, false), edge(5_000, 305, true)];
+        assert_eq!(ButtonReport::of(&bounced), ButtonReport { presses: 2, bounces: 1, grid_percent: None });
+    }
 
     #[test]
     fn counts_distinct_colors_up_to_a_cap() {

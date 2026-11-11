@@ -1,0 +1,186 @@
+--- a/drivers/input/joystick/rocknix-singleadc-joypad.c
++++ b/drivers/input/joystick/rocknix-singleadc-joypad.c
+@@ -26,6 +26,9 @@
+ #include <linux/uaccess.h>
+ #include <linux/workqueue.h>
+ #include <linux/jiffies.h>
++#include <linux/hrtimer.h>
++#include <linux/interrupt.h>
++#include <linux/spinlock.h>
+ 
+ /*----------------------------------------------------------------------------*/
+ #define DRV_NAME "rocknix-singleadc-joypad"
+@@ -65,6 +68,19 @@
+ 	/* analog mux enable gpio */
+ 	struct gpio_desc *en_gpio;
+ };
++
++/*
++ * A button whose pin can raise an interrupt reports a change the moment its
++ * edge arrives instead of on the next poll (up to poll-interval later). After
++ * any edge it settles: further edges are ignored and the pin is read again
++ * when GHAZAL_BUTTON_SETTLE_MS have passed, so contact bounce cannot report
++ * extra presses, and a change during the settling time (a release, or an
++ * edge lost while the pin was briefly muxed as an input to be read) is
++ * reported then.
++ */
++#define GHAZAL_BUTTON_SETTLE_MS	5
++
++struct joypad;
+ 
+ struct bt_gpio {
+ 	/* GPIO Request label */
+@@ -77,6 +93,13 @@
+ 	int linux_code;
+ 	/* prev button value */
+ 	bool old_value;
++	/* the pin's interrupt; 0 for a button read by the poll */
++	int irq;
++	/* Idle (false) or Settling (true); guarded by lock */
++	bool settling;
++	spinlock_t lock;
++	struct hrtimer settle;
++	struct joypad *joypad;
+ };
+ 
+ /* Replicate the calibration and constants from the userland code. */
+@@ -384,6 +407,55 @@
+ };
+ 
+ /*----------------------------------------------------------------------------*/
++/* Reports the pin if it changed. Called with gpio->lock held. */
++static bool joypad_button_read(struct bt_gpio *gpio)
++{
++	int value = gpiod_get_value(gpio->desc);
++
++	if (value < 0 || value == gpio->old_value)
++		return false;
++	gpio->old_value = value;
++	input_event(gpio->joypad->input, gpio->report_type, gpio->linux_code, value);
++	input_sync(gpio->joypad->input);
++	return true;
++}
++
++static irqreturn_t joypad_button_irq(int irq, void *data)
++{
++	struct bt_gpio *gpio = data;
++	unsigned long flags;
++
++	spin_lock_irqsave(&gpio->lock, flags);
++	/* While settling, the timer reads the pin when it fires. */
++	if (!gpio->settling) {
++		joypad_button_read(gpio);
++		gpio->settling = true;
++		hrtimer_start(&gpio->settle, ms_to_ktime(GHAZAL_BUTTON_SETTLE_MS),
++			      HRTIMER_MODE_REL);
++	}
++	spin_unlock_irqrestore(&gpio->lock, flags);
++	return IRQ_HANDLED;
++}
++
++static enum hrtimer_restart joypad_button_settled(struct hrtimer *timer)
++{
++	struct bt_gpio *gpio = container_of(timer, struct bt_gpio, settle);
++	enum hrtimer_restart next = HRTIMER_NORESTART;
++	unsigned long flags;
++
++	spin_lock_irqsave(&gpio->lock, flags);
++	/* A change found now bounces like any other: settle again. */
++	if (joypad_button_read(gpio)) {
++		hrtimer_forward_now(timer, ms_to_ktime(GHAZAL_BUTTON_SETTLE_MS));
++		next = HRTIMER_RESTART;
++	} else {
++		gpio->settling = false;
++	}
++	spin_unlock_irqrestore(&gpio->lock, flags);
++	return next;
++}
++
++/*----------------------------------------------------------------------------*/
+ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
+ {
+ 	struct joypad *joypad = poll_dev->private;
+@@ -392,6 +464,8 @@
+ 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
+ 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
+ 
++		if (gpio->irq)
++			continue;
+ 		value = gpiod_get_value_cansleep(gpio->desc);
+ 		if (value != gpio->old_value) {
+ 			input_event(poll_dev->input,
+@@ -544,13 +618,40 @@
+ 	mutex_lock(&joypad->lock);
+ 	joypad->enable = true;
+ 	mutex_unlock(&joypad->lock);
++
++	/*
++	 * The states were reported above; from here edges report changes. Each
++	 * button starts settling, so a change between that read and enabling
++	 * its interrupt is still reported.
++	 */
++	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
++		struct bt_gpio *gpio = &joypad->gpios[nbtn];
++
++		if (!gpio->irq)
++			continue;
++		gpio->settling = true;
++		hrtimer_start(&gpio->settle, ms_to_ktime(GHAZAL_BUTTON_SETTLE_MS),
++			      HRTIMER_MODE_REL);
++		enable_irq(gpio->irq);
++	}
+ }
+ 
+ /*----------------------------------------------------------------------------*/
+ static void joypad_close(struct input_polled_dev *poll_dev)
+ {
+ 	struct joypad *joypad = poll_dev->private;
++	int nbtn;
++
++	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
++		struct bt_gpio *gpio = &joypad->gpios[nbtn];
+ 
++		if (!gpio->irq)
++			continue;
++		disable_irq(gpio->irq);
++		hrtimer_cancel(&gpio->settle);
++		gpio->settling = false;
++	}
++
+ 	if (joypad->has_rumble) {
+ 		cancel_work_sync(&joypad->play_work);
+ 		pwm_vibrator_stop(joypad);
+@@ -762,6 +863,25 @@
+ 		if (of_property_read_u32(pp, "linux,input-type",
+ 				&gpio->report_type))
+ 			gpio->report_type = EV_KEY;
++
++		gpio->joypad = joypad;
++		spin_lock_init(&gpio->lock);
++		hrtimer_setup(&gpio->settle, joypad_button_settled,
++			      CLOCK_MONOTONIC, HRTIMER_MODE_REL);
++		/*
++		 * Enabled once the input device opens (joypad_open). The pin is
++		 * read in interrupt context, so a controller that sleeps (an I2C
++		 * expander) keeps its buttons on the poll.
++		 */
++		gpio->irq = gpiod_cansleep(gpio->desc) ? -EINVAL : gpiod_to_irq(gpio->desc);
++		if (gpio->irq > 0 &&
++		    devm_request_irq(dev, gpio->irq, joypad_button_irq,
++				     IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_NO_AUTOEN,
++				     devm_kasprintf(dev, GFP_KERNEL, "joypad %s",
++						    gpio->label ?: "button"), gpio) == 0)
++			continue;
++		dev_warn(dev, "%s has no interrupt; polling it\n", gpio->label);
++		gpio->irq = 0;
+ 	}
+ 	if (nbtn == 0)
+ 		return -EINVAL;
+@@ -853,6 +973,7 @@
+ 	poll_dev->close		= joypad_close;
+ 
+ 	input = poll_dev->input;
++	joypad->input = input;
+ 
+ 	input->name = DRV_NAME;
+ 

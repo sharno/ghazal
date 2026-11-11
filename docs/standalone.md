@@ -146,6 +146,9 @@ SSH host keys are generated per device on first boot.
 
 ## Runtime
 
+The kernel reads buttons on their pin's edge rather than the joypad driver's
+10 ms poll; see [button latency](input-latency.md).
+
 `nix/runtime` builds the device userspace from the flake's nixpkgs for
 aarch64-linux. A process cannot load two glibcs, so Mesa, SDL2, RetroArch,
 PPSSPP and every core come from that one package set; the system daemons
